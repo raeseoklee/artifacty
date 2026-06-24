@@ -190,6 +190,7 @@ test("requires API token when configured and blocks secrets", async () => {
     });
     assert.equal(acceptedList.status, 200);
 
+    const fakeGithubToken = ["ghp", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
     const secretResponse = await fetch(`${app.url}/api/artifacts`, {
       method: "POST",
       headers: {
@@ -198,7 +199,7 @@ test("requires API token when configured and blocks secrets", async () => {
       },
       body: JSON.stringify({
         title: "Secret",
-        content: "token ghp_abcdefghijklmnopqrstuvwxyz123456",
+        content: `token ${fakeGithubToken}`,
         format: "text"
       })
     });

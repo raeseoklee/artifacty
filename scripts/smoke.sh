@@ -74,6 +74,7 @@ assert(response.status === 201, `expected create status 201, got ${response.stat
 const created = await response.json();
 assert(created.id && created.rawUrl, "create response missing artifact URLs");
 
+const fakeGithubToken = ["ghp", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
 response = await fetch(`${url}/api/artifacts`, {
   method: "POST",
   headers: {
@@ -82,7 +83,7 @@ response = await fetch(`${url}/api/artifacts`, {
   },
   body: JSON.stringify({
     title: "Blocked Secret",
-    content: "ghp_abcdefghijklmnopqrstuvwxyz123456",
+    content: fakeGithubToken,
     format: "text"
   })
 });

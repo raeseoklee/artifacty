@@ -88,10 +88,11 @@ test("blocks detected secrets unless explicitly allowed", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-secrets-"));
   try {
     const store = createStore({ home });
+    const fakeGithubToken = ["ghp", "abcdefghijklmnopqrstuvwxyz123456"].join("_");
     await assert.rejects(
       createArtifact(store, {
         title: "Secret",
-        content: "token ghp_abcdefghijklmnopqrstuvwxyz123456",
+        content: `token ${fakeGithubToken}`,
         format: "text"
       }),
       /Secret scan blocked/
@@ -99,7 +100,7 @@ test("blocks detected secrets unless explicitly allowed", async () => {
 
     const artifact = await createArtifact(store, {
       title: "Allowed Secret",
-      content: "token ghp_abcdefghijklmnopqrstuvwxyz123456",
+      content: `token ${fakeGithubToken}`,
       format: "text",
       allowSecrets: true
     });
