@@ -3,9 +3,26 @@
   "version": "0.1.0",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
+  "keywords": [
+    "llm",
+    "agent",
+    "artifacts",
+    "mcp",
+    "claude",
+    "codex",
+    "gemini"
+  ],
+  "homepage": "https://github.com/raeseoklee/artifacty#readme",
+  "bugs": {
+    "url": "https://github.com/raeseoklee/artifacty/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raeseoklee/artifacty.git"
+  },
   "bin": {
-    "artifacty": "./src/cli.js",
-    "artifacty-mcp": "./src/mcp-server.js"
+    "artifacty": "src/cli.js",
+    "artifacty-mcp": "src/mcp-server.js"
   },
   "scripts": {
     "start": "node src/server.js",
@@ -20,6 +37,7 @@
     "docs",
     "scripts/smoke.sh",
     "README.md",
+    "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "AGENTS.md",
     "CLAUDE.md"

@@ -10,7 +10,17 @@ Claude Code artifacts are useful because they turn session output into shareable
 
 ## Quick Start
 
+Install and start Artifacty:
+
 ```bash
+npm install -g artifacty
+artifacty serve
+```
+
+For local development from a checkout:
+
+```bash
+npm install
 npm test
 npm start
 ```
