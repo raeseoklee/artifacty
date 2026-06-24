@@ -85,9 +85,12 @@ Metadata is free-form JSON, but converter-generated metadata uses these keys:
 - `bundlePolicy`: how bundled files were preserved.
 - `language`: source language for code or component artifacts when supplied by an
   upstream agent.
-- `codexContinuation`: structured Codex handoff metadata such as changed files,
-  commands, tests, blockers, decisions, next steps, findings, diff text, and
-  residual risk.
+- `continuation`: structured handoff/review/verification metadata for agent
+  outputs, including changed files, commands, tests, blockers, decisions, next
+  steps, findings, diff text, and residual risk.
+- `<agent>Continuation`: compatibility mirror for structured continuation
+  metadata, such as `codexContinuation`, `copilotContinuation`, or
+  `cursorContinuation`.
 
 ## Archive Semantics
 

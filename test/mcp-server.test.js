@@ -52,6 +52,9 @@ test("mcp server initializes and exposes artifact tools", async () => {
     assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("diagram"));
     assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("component"));
     assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("snippet"));
+    const importTool = listedTools.tools.find((tool) => tool.name === "artifacty_import");
+    assert.ok(importTool.inputSchema.properties.agent.enum.includes("copilot"));
+    assert.ok(importTool.inputSchema.properties.agent.enum.includes("cursor"));
 
     const info = await client.request("tools/call", {
       name: "artifacty_info",

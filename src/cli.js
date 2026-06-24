@@ -145,7 +145,7 @@ async function main() {
   if (command === "install") {
     const agent = options._[0];
     if (!agent) {
-      throw new Error("install requires an agent: claude, codex, gemini, or all");
+      throw new Error("install requires an agent: claude, codex, gemini, copilot, cursor, or all");
     }
     const result = await installAgent(agent, {
       projectDir: options.projectDir || process.cwd(),
@@ -349,8 +349,8 @@ Usage:
   artifacty status [--home ~/.artifacty]
   artifacty stop [--home ~/.artifacty] [--timeout 5000] [--force]
   artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react] [--source agent] [--tag tag]
-  artifacty import --agent claude|codex|gemini|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react] [--tag tag]
-  artifacty install claude|codex|gemini|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--timeout 30000]
+  artifacty import --agent claude|codex|gemini|copilot|cursor|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react] [--tag tag]
+  artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
   artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react]
   artifacty archive <id>

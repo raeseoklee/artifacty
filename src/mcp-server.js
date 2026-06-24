@@ -97,13 +97,13 @@ const tools = [
   {
     name: "artifacty_import",
     title: "Import Agent Artifact",
-    description: "Convert an artifact produced by Claude, Codex, Gemini, or another agent into Artifacty format and save it.",
+    description: "Convert an artifact produced by Claude, Codex, Gemini, GitHub Copilot, Cursor, or another agent into Artifacty format and save it.",
     inputSchema: {
       type: "object",
       properties: {
         agent: {
           type: "string",
-          enum: ["auto", "claude", "codex", "gemini", "artifacty", "generic"],
+          enum: ["auto", "claude", "codex", "gemini", "copilot", "cursor", "artifacty", "generic"],
           description: "Original agent family. Use auto when unsure."
         },
         title: { type: "string", description: "Optional title override." },

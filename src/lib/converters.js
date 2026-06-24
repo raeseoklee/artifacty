@@ -2,7 +2,8 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { ARTIFACT_TYPES, contentTypeForFormat, normalizeFormat } from "./storage.js";
 
-const KNOWN_AGENTS = new Set(["auto", "artifacty", "claude", "codex", "gemini", "generic"]);
+const CONTINUATION_AGENTS = new Set(["codex", "copilot", "cursor"]);
+const KNOWN_AGENTS = new Set(["auto", "artifacty", "claude", "codex", "copilot", "cursor", "gemini", "generic"]);
 
 export function convertAgentArtifact(input = {}) {
   const originalAgent = normalizeAgent(input.agent || input.sourceAgent || input.source_agent || "auto");
@@ -164,9 +165,9 @@ function decodeObjectPayload(value, agent) {
     return decodeBundlePayload(artifactObject, agent);
   }
 
-  const codexContinuation = decodeCodexContinuationPayload(artifactObject, agent);
-  if (codexContinuation) {
-    return codexContinuation;
+  const continuation = decodeContinuationPayload(artifactObject, agent);
+  if (continuation) {
+    return continuation;
   }
 
   if (typeof artifactObject.content === "string" && !Array.isArray(artifactObject.content)) {
@@ -315,7 +316,11 @@ function objectContent(object, shape, content, format) {
 function decodeBundlePayload(object, agent) {
   const bundle = object.bundle && typeof object.bundle === "object" ? object.bundle : object;
   const files = Array.isArray(bundle.files) ? bundle.files : [];
-  const codexMetadata = collectCodexContinuationMetadata({ agent }, bundle, object);
+  const sourceAgent = object.sourceAgent || object.source_agent || object.agent || agent;
+  const continuationAgent = detectContinuationAgent({ agent: sourceAgent }, "auto");
+  const continuationMetadata = continuationAgent
+    ? collectContinuationMetadata(continuationAgent, { agent: sourceAgent }, bundle, object)
+    : {};
   const normalizedFiles = files.map((file, index) => {
     const content = typeof file.content === "string" ? file.content : "";
     return {
@@ -336,7 +341,7 @@ function decodeBundlePayload(object, agent) {
       artifactType: "bundle",
       title: object.title || bundle.title || "Artifact bundle",
       files: normalizedFiles,
-      ...bundleDocumentMetadata(codexMetadata)
+      ...bundleDocumentMetadata(continuationMetadata)
     }, null, 2),
     format: "json",
     contentType: "application/vnd.artifacty.bundle+json; charset=utf-8",
@@ -348,36 +353,37 @@ function decodeBundlePayload(object, agent) {
       originalPayloadShape: "artifact-bundle",
       fileCount: normalizedFiles.length,
       bundlePolicy: "text-files-stored-inline-in-bundle-json",
-      ...codexMetadata
+      ...continuationMetadata
     }
   };
 }
 
-function decodeCodexContinuationPayload(object, agent) {
-  if (!isCodexPayload(object, agent) || hasDirectContentField(object)) {
+function decodeContinuationPayload(object, agent) {
+  const sourceAgent = detectContinuationAgent(object, agent);
+  if (!sourceAgent || hasDirectContentField(object)) {
     return null;
   }
 
-  const artifactType = inferCodexContinuationType(object);
+  const artifactType = inferContinuationType(object);
   if (!artifactType) {
     return null;
   }
 
-  const metadata = collectCodexContinuationMetadata({ agent }, object);
+  const metadata = collectContinuationMetadata(sourceAgent, { agent }, object);
   return {
-    content: renderCodexContinuationMarkdown(object, artifactType, metadata),
+    content: renderContinuationMarkdown(sourceAgent, object, artifactType, metadata),
     format: "markdown",
     contentType: "text/markdown; charset=utf-8",
-    title: object.title || object.name || titleForCodexType(artifactType),
-    sourceAgent: "codex",
+    title: object.title || object.name || titleForContinuationType(sourceAgent, artifactType),
+    sourceAgent,
     artifactType,
     tags: uniqueStrings([
       artifactType,
-      "codex",
+      sourceAgent,
       ...normalizeTags(object.tags)
     ]),
     metadata: {
-      originalPayloadShape: "codex-continuation",
+      originalPayloadShape: `${sourceAgent}-continuation`,
       continuationKind: artifactType,
       ...metadata
     }
@@ -397,7 +403,7 @@ function hasDirectContentField(object) {
     typeof object.jsx === "string";
 }
 
-function isCodexPayload(object, agent) {
+function detectContinuationAgent(object, agent) {
   const explicit = normalizeAgent(
     object.sourceAgent ||
       object.source_agent ||
@@ -407,10 +413,10 @@ function isCodexPayload(object, agent) {
       object.created_by ||
       agent
   );
-  return explicit === "codex";
+  return CONTINUATION_AGENTS.has(explicit) ? explicit : "";
 }
 
-function inferCodexContinuationType(object) {
+function inferContinuationType(object) {
   const explicit = optionalString(object.artifactType || object.artifact_type || object.kind || object.category || object.purpose || object.type).toLowerCase();
   if (explicit.includes("review")) {
     return "code-review";
@@ -449,11 +455,8 @@ function inferCodexContinuationType(object) {
   return null;
 }
 
-function collectCodexContinuationMetadata(...sources) {
+function collectContinuationMetadata(sourceAgent, ...sources) {
   const objects = sources.filter((item) => item && typeof item === "object");
-  if (!objects.some((item) => isCodexPayload(item, "auto"))) {
-    return {};
-  }
   const source = Object.assign({}, ...objects);
   const continuation = pruneEmpty({
     summary: optionalString(source.summary),
@@ -471,21 +474,36 @@ function collectCodexContinuationMetadata(...sources) {
     residualRisk: optionalString(source.residualRisk || source.residual_risk)
   });
 
-  return Object.keys(continuation).length > 0
-    ? { codexContinuation: continuation }
-    : {};
+  if (Object.keys(continuation).length === 0) {
+    return {};
+  }
+
+  const metadata = { continuation };
+  metadata[`${sourceAgent}Continuation`] = continuation;
+  return metadata;
 }
 
 function bundleDocumentMetadata(metadata) {
-  return metadata.codexContinuation
-    ? { codexContinuation: metadata.codexContinuation }
-    : {};
+  const result = {};
+  if (metadata.continuation) {
+    result.continuation = metadata.continuation;
+  }
+  if (metadata.codexContinuation) {
+    result.codexContinuation = metadata.codexContinuation;
+  }
+  if (metadata.copilotContinuation) {
+    result.copilotContinuation = metadata.copilotContinuation;
+  }
+  if (metadata.cursorContinuation) {
+    result.cursorContinuation = metadata.cursorContinuation;
+  }
+  return result;
 }
 
-function renderCodexContinuationMarkdown(object, artifactType, metadata) {
-  const continuation = metadata.codexContinuation || {};
-  const title = object.title || object.name || titleForCodexType(artifactType);
-  const lines = [`# ${title}`, "", `Source: Codex`, `Artifact type: ${artifactType}`, ""];
+function renderContinuationMarkdown(sourceAgent, object, artifactType, metadata) {
+  const continuation = metadata.continuation || metadata[`${sourceAgent}Continuation`] || {};
+  const title = object.title || object.name || titleForContinuationType(sourceAgent, artifactType);
+  const lines = [`# ${title}`, "", `Source: ${displayAgentName(sourceAgent)}`, `Artifact type: ${artifactType}`, ""];
 
   addTextSection(lines, "Summary", continuation.summary);
   addTextSection(lines, "Goal", continuation.goal);
@@ -507,17 +525,31 @@ function renderCodexContinuationMarkdown(object, artifactType, metadata) {
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
 }
 
-function titleForCodexType(artifactType) {
+function titleForContinuationType(sourceAgent, artifactType) {
+  const displayName = displayAgentName(sourceAgent);
   if (artifactType === "code-review") {
-    return "Codex Code Review";
+    return `${displayName} Code Review`;
   }
   if (artifactType === "test-report") {
-    return "Codex Verification Report";
+    return `${displayName} Verification Report`;
   }
   if (artifactType === "diff-walkthrough") {
-    return "Codex Diff Walkthrough";
+    return `${displayName} Diff Walkthrough`;
   }
-  return "Codex Handoff";
+  return `${displayName} Handoff`;
+}
+
+function displayAgentName(sourceAgent) {
+  if (sourceAgent === "copilot") {
+    return "GitHub Copilot";
+  }
+  if (sourceAgent === "cursor") {
+    return "Cursor";
+  }
+  if (sourceAgent === "codex") {
+    return "Codex";
+  }
+  return sourceAgent || "Agent";
 }
 
 function addTextSection(lines, title, value) {
@@ -682,6 +714,12 @@ function detectAgent(parsed, fileName) {
   }
   if (lowerName.includes("codex")) {
     return "codex";
+  }
+  if (lowerName.includes("copilot")) {
+    return "copilot";
+  }
+  if (lowerName.includes("cursor")) {
+    return "cursor";
   }
   return "generic";
 }
@@ -988,6 +1026,12 @@ function normalizeAgent(value) {
   }
   if (normalized === "gemini-cli" || normalized === "google") {
     return "gemini";
+  }
+  if (normalized === "github-copilot" || normalized === "copilot-chat" || normalized === "vscode-copilot" || normalized === "vs-code-copilot") {
+    return "copilot";
+  }
+  if (normalized === "cursor-ai") {
+    return "cursor";
   }
   if (normalized === "openai" || normalized === "chatgpt") {
     return "codex";

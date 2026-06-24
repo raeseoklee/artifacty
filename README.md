@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js >=22.5](https://img.shields.io/badge/node-%3E%3D22.5-339933.svg)](package.json)
 
-Artifacty is a local, agent-to-agent artifact exchange for LLM workflows. Claude, Codex, Gemini, and other MCP-capable tools can publish an artifact once, then other agents can list, read, update, and continue from it without copying content through chat.
+Artifacty is a local, agent-to-agent artifact exchange for LLM workflows. Claude, Codex, Gemini, GitHub Copilot, Cursor, and other MCP-capable tools can publish an artifact once, then other agents can list, read, update, and continue from it without copying content through chat.
 
 ![Artifacty overview showing multiple AI agents sharing artifacts through a local exchange](docs/assets/artifacty.png)
 
@@ -70,6 +70,8 @@ Install MCP configuration for local agents:
 artifacty install claude
 artifacty install codex --dry-run
 artifacty install gemini
+artifacty install copilot
+artifacty install cursor
 artifacty install all
 artifacty check
 ```
@@ -77,7 +79,7 @@ artifacty check
 Use `artifacty install codex --timeout 30000` or
 `artifacty install gemini --timeout 30000` to tune supported MCP client timeouts.
 
-See [docs/integrations.md](docs/integrations.md) for Claude Code, Codex, and Gemini CLI setup.
+See [docs/integrations.md](docs/integrations.md) for Claude Code, Codex, Gemini CLI, GitHub Copilot in VS Code, and Cursor setup.
 
 ## Quick Start
 
@@ -113,11 +115,14 @@ Import an artifact produced by another agent and convert it to Artifacty format:
 artifacty import --agent claude --file ./deploy-failures.html --tag review
 artifacty import --agent gemini --content '{"title":"Plan","returnDisplay":"# Plan\n- Ship it"}'
 artifacty import --agent codex --content '{"agent":"codex","title":"Implementation Handoff","goal":"Continue Phase 3","changedFiles":[{"path":"src/lib/render.js","status":"modified"}],"nextSteps":["Add CodeMirror read-only viewer"]}'
+artifacty import --agent copilot --content '{"agent":"github-copilot","title":"PR Review","findings":[{"severity":"medium","file":"src/app.js","line":42,"title":"Handle missing state"}]}'
+artifacty import --agent cursor --content '{"sourceAgent":"cursor","title":"Cursor Handoff","summary":"Editor pass complete.","nextSteps":["Run visual QA."]}'
 ```
 
-Codex structured payloads can become `handoff`, `bundle`, `diff-walkthrough`,
-`code-review`, or `test-report` artifacts when the payload explicitly identifies
-Codex through `agent` or `sourceAgent`. Plain Codex Markdown stays a normal
+Codex, GitHub Copilot, and Cursor structured payloads can become `handoff`,
+`bundle`, `diff-walkthrough`, `code-review`, or `test-report` artifacts when
+the payload explicitly identifies the agent through `agent` or `sourceAgent`.
+Plain Markdown from these agents stays a normal
 `document` unless you pass an explicit `artifactType`.
 
 ## Agent Handoff Example

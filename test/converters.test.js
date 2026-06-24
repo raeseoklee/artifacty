@@ -159,6 +159,54 @@ test("does not infer Codex continuation type from plain Markdown", () => {
   assert.equal(converted.metadata.originalPayloadShape, undefined);
 });
 
+test("converts GitHub Copilot structured artifacts", () => {
+  const review = convertAgentArtifact({
+    agent: "github-copilot",
+    payload: {
+      title: "Copilot PR Review",
+      findings: [
+        { severity: "medium", file: "src/app.js", line: 42, title: "Handle missing state" }
+      ],
+      nextSteps: ["Patch the null state path."]
+    }
+  });
+
+  assert.equal(review.sourceAgent, "copilot");
+  assert.equal(review.artifactType, "code-review");
+  assert.equal(review.format, "markdown");
+  assert.match(review.content, /Source: GitHub Copilot/);
+  assert.match(review.content, /## Findings/);
+  assert.equal(review.metadata.originalPayloadShape, "copilot-continuation");
+  assert.equal(review.metadata.continuation.findings[0].file, "src/app.js");
+  assert.equal(review.metadata.copilotContinuation.nextSteps[0], "Patch the null state path.");
+});
+
+test("converts Cursor structured artifacts", () => {
+  const handoff = convertAgentArtifact({
+    agent: "auto",
+    payload: {
+      sourceAgent: "cursor",
+      title: "Cursor Handoff",
+      summary: "Editor agent finished the first pass.",
+      changedFiles: [
+        { path: "README.md", status: "modified" }
+      ],
+      commands: [
+        { command: "npm test", status: "passed" }
+      ],
+      nextSteps: ["Run visual QA."]
+    }
+  });
+
+  assert.equal(handoff.sourceAgent, "cursor");
+  assert.equal(handoff.artifactType, "handoff");
+  assert.equal(handoff.format, "markdown");
+  assert.match(handoff.content, /Source: Cursor/);
+  assert.equal(handoff.metadata.originalPayloadShape, "cursor-continuation");
+  assert.equal(handoff.metadata.continuation.changedFiles[0].path, "README.md");
+  assert.equal(handoff.metadata.cursorContinuation.commands[0].command, "npm test");
+});
+
 test("converts Gemini returnDisplay payloads", () => {
   const converted = convertAgentArtifact({
     agent: "gemini",

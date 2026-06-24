@@ -8,11 +8,11 @@ Artifacty shares LLM artifacts over HTTP, CLI, and MCP.
 - `src/mcp-server.js`: MCP stdio server exposing Artifacty tools.
 - `src/cli.js`: command-line interface for serving, publishing, importing, listing, and reading artifacts.
 - `src/lib/storage.js`: SQLite metadata store and immutable version-file handling.
-- `src/lib/converters.js`: agent artifact conversion rules for Claude, Codex, Gemini, and generic payloads.
+- `src/lib/converters.js`: agent artifact conversion rules for Claude, Codex, Gemini, GitHub Copilot, Cursor, and generic payloads.
 - `src/lib/installer.js`: MCP config installers for Claude, Codex, and Gemini.
 - `src/lib/render.js`: server-rendered dashboard, viewer, and editor HTML.
 - `test/*.test.js`: Node test runner suites.
-- `docs/integrations.md`: setup notes for Claude Code, Codex, and Gemini CLI.
+- `docs/integrations.md`: setup notes for Claude Code, Codex, Gemini CLI, GitHub Copilot in VS Code, and Cursor.
 
 ## Build, Test, and Development Commands
 

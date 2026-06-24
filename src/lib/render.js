@@ -163,6 +163,8 @@ export function renderImportArtifactPage({ baseUrl, authToken = "", locale = DEF
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
                 <option value="gemini">Gemini</option>
+                <option value="copilot">GitHub Copilot</option>
+                <option value="cursor">Cursor</option>
                 <option value="generic">Generic</option>
               </select>
             </label>

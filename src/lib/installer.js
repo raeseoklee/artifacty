@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-const SUPPORTED_AGENTS = new Set(["all", "claude", "codex", "gemini"]);
+const INSTALL_TARGETS = ["claude", "codex", "gemini", "copilot", "cursor"];
+const SUPPORTED_AGENTS = new Set(["all", ...INSTALL_TARGETS, "github-copilot", "vscode"]);
 const DEFAULT_MCP_TIMEOUT_MS = 30000;
 
 export async function installAgent(agent, options = {}) {
@@ -14,7 +15,7 @@ export async function installAgent(agent, options = {}) {
 
   if (normalized === "all") {
     const results = [];
-    for (const target of ["claude", "codex", "gemini"]) {
+    for (const target of INSTALL_TARGETS) {
       results.push(await installAgent(target, options));
     }
     return {
@@ -29,7 +30,13 @@ export async function installAgent(agent, options = {}) {
   if (normalized === "codex") {
     return installCodex(options);
   }
-  return installGemini(options);
+  if (normalized === "gemini") {
+    return installGemini(options);
+  }
+  if (normalized === "copilot") {
+    return installCopilot(options);
+  }
+  return installCursor(options);
 }
 
 export function createMcpServerConfig(options = {}) {
@@ -90,6 +97,49 @@ export async function installGemini(options = {}) {
 
   return writeInstallFile({
     agent: "gemini",
+    path: targetPath,
+    dryRun: options.dryRun,
+    content: `${JSON.stringify(next, null, 2)}\n`
+  });
+}
+
+export async function installCopilot(options = {}) {
+  const projectDir = path.resolve(options.projectDir || process.cwd());
+  const targetPath = path.resolve(options.configPath || path.join(projectDir, ".vscode", "mcp.json"));
+  const existing = await readJsonFile(targetPath, {});
+  const next = {
+    ...existing,
+    servers: {
+      ...(existing.servers || {}),
+      artifacty: {
+        type: "stdio",
+        ...createMcpServerConfig(options)
+      }
+    }
+  };
+
+  return writeInstallFile({
+    agent: "copilot",
+    path: targetPath,
+    dryRun: options.dryRun,
+    content: `${JSON.stringify(next, null, 2)}\n`
+  });
+}
+
+export async function installCursor(options = {}) {
+  const projectDir = path.resolve(options.projectDir || process.cwd());
+  const targetPath = path.resolve(options.configPath || path.join(projectDir, ".cursor", "mcp.json"));
+  const existing = await readJsonFile(targetPath, {});
+  const next = {
+    ...existing,
+    mcpServers: {
+      ...(existing.mcpServers || {}),
+      artifacty: createMcpServerConfig(options)
+    }
+  };
+
+  return writeInstallFile({
+    agent: "cursor",
     path: targetPath,
     dryRun: options.dryRun,
     content: `${JSON.stringify(next, null, 2)}\n`
@@ -179,7 +229,11 @@ async function readTextFile(filePath, fallback) {
 }
 
 function normalizeAgent(agent) {
-  return String(agent || "").trim().toLowerCase();
+  const normalized = String(agent || "").trim().toLowerCase();
+  if (normalized === "github-copilot" || normalized === "vscode") {
+    return "copilot";
+  }
+  return normalized;
 }
 
 function normalizeTimeoutMs(value) {

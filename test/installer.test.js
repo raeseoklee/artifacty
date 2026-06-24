@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createMcpServerConfig, installAgent, replaceTomlBlock } from "../src/lib/installer.js";
 
-test("installs Claude and Gemini project MCP config files", async () => {
+test("installs JSON-based project MCP config files", async () => {
   const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-install-"));
   try {
     const claude = await installAgent("claude", {
@@ -30,6 +30,45 @@ test("installs Claude and Gemini project MCP config files", async () => {
     const geminiJson = JSON.parse(await readFile(path.join(projectDir, ".gemini", "settings.json"), "utf8"));
     assert.equal(geminiJson.mcpServers.artifacty.timeout, 30000);
     assert.equal(geminiJson.mcpServers.artifacty.trust, false);
+
+    const copilot = await installAgent("copilot", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js")
+    });
+    assert.equal(copilot.agent, "copilot");
+    const copilotJson = JSON.parse(await readFile(path.join(projectDir, ".vscode", "mcp.json"), "utf8"));
+    assert.equal(copilotJson.servers.artifacty.type, "stdio");
+    assert.equal(copilotJson.servers.artifacty.command, "node");
+
+    const cursor = await installAgent("cursor", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js")
+    });
+    assert.equal(cursor.agent, "cursor");
+    const cursorJson = JSON.parse(await readFile(path.join(projectDir, ".cursor", "mcp.json"), "utf8"));
+    assert.equal(cursorJson.mcpServers.artifacty.command, "node");
+  } finally {
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("installs all supported MCP client targets", async () => {
+  const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-install-all-"));
+  try {
+    const result = await installAgent("all", {
+      projectDir,
+      configPath: path.join(projectDir, "codex.toml"),
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      dryRun: true
+    });
+
+    assert.deepEqual(result.results.map((item) => item.agent), [
+      "claude",
+      "codex",
+      "gemini",
+      "copilot",
+      "cursor"
+    ]);
   } finally {
     await rm(projectDir, { recursive: true, force: true });
   }

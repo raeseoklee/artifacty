@@ -70,6 +70,8 @@ Artifacty can write MCP configuration for supported local agents:
 node src/cli.js install claude
 node src/cli.js install codex --dry-run
 node src/cli.js install gemini
+node src/cli.js install copilot
+node src/cli.js install cursor
 node src/cli.js install all
 node src/cli.js check
 ```
@@ -77,6 +79,8 @@ node src/cli.js check
 - Claude: writes project `.mcp.json`. Claude Code's startup timeout is controlled by the parent `MCP_TIMEOUT` environment variable and defaults to 30 seconds, so Artifacty does not add a per-server `.mcp.json` `timeout` field.
 - Codex: writes or replaces the `[mcp_servers.artifacty]` block in `~/.codex/config.toml` unless `--config` is provided. The generated block uses a 30 second startup timeout so slower Windows or cold-start environments can load the MCP server reliably.
 - Gemini: writes project `.gemini/settings.json` with a 30 second timeout.
+- GitHub Copilot in VS Code: writes workspace `.vscode/mcp.json` using the VS Code `servers` shape. Pass `--config` to target a user-profile `mcp.json` instead.
+- Cursor: writes project `.cursor/mcp.json` using the Cursor `mcpServers` shape. Pass `--config ~/.cursor/mcp.json` for global Cursor setup.
 - `--dry-run` returns the generated config without writing it.
 - `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change Claude Code startup behavior; set `MCP_TIMEOUT` before launching Claude Code if you need a larger value there.
 - `check` starts the local MCP server and verifies required tools through `initialize` and `tools/list`.
@@ -114,7 +118,7 @@ Project-scoped `.mcp.json` shape:
 }
 ```
 
-Claude plugins can bundle MCP servers, so this MCP server can later be wrapped as a plugin. The MVP keeps the server standalone so Claude, Codex, Gemini, and other MCP clients use the same integration surface.
+Claude plugins can bundle MCP servers, so this MCP server can later be wrapped as a plugin. The MVP keeps the server standalone so Claude, Codex, Gemini, GitHub Copilot, Cursor, and other MCP clients use the same integration surface.
 
 Claude Code uses a 30 second MCP startup timeout by default. If a slower
 environment needs more time, launch Claude Code with a larger `MCP_TIMEOUT`
@@ -181,7 +185,7 @@ Then run `/mcp` inside Gemini CLI to confirm that the Artifacty tools are connec
 
 - `artifacty_create`: create a new Artifacty-native artifact.
 - `artifacty_publish`: backwards-compatible alias for `artifacty_create`.
-- `artifacty_import`: convert a Claude, Codex, Gemini, Artifacty, or generic artifact payload into Artifacty format and save it.
+- `artifacty_import`: convert a Claude, Codex, Gemini, GitHub Copilot, Cursor, Artifacty, or generic artifact payload into Artifacty format and save it.
 - `artifacty_list`: discover artifacts by query, tag, or source agent.
 - `artifacty_get`: read artifact metadata and content.
 - `artifacty_update`: append a new version.
@@ -200,6 +204,8 @@ Use `artifacty_import` or the CLI `import` command when the artifact was produce
 node src/cli.js import --agent claude --file ./artifact.html --tag review
 node src/cli.js import --agent codex --file ./handoff.md --tag handoff
 node src/cli.js import --agent codex --content '{"agent":"codex","title":"Verification","verification":{"status":"passed","commands":[{"command":"npm test","status":"passed"}]}}'
+node src/cli.js import --agent copilot --content '{"agent":"github-copilot","title":"PR Review","findings":[{"severity":"medium","file":"src/app.js","line":42,"title":"Handle missing state"}]}'
+node src/cli.js import --agent cursor --content '{"sourceAgent":"cursor","title":"Cursor Handoff","summary":"Editor pass complete.","nextSteps":["Run visual QA."]}'
 node src/cli.js import --agent gemini --content '{"title":"Options","returnDisplay":"# Options\n- A\n- B"}'
 ```
 
@@ -207,6 +213,8 @@ Supported converter inputs:
 
 - Claude: local `.html`, `.htm`, `.md`, `.svg`, `.mmd`, `.jsx`, `.tsx`, source files, or JSON payloads with `title`/`content`/Claude artifact `type`.
 - Codex: markdown/text/json handoff files; Artifacty-compatible JSON payloads; structured handoff, bundle, diff, review, and verification JSON payloads with `agent` or `sourceAgent` set to `codex`.
+- GitHub Copilot: markdown/text/json outputs; Artifacty-compatible JSON payloads; structured handoff, review, diff, and verification JSON payloads with `agent` or `sourceAgent` set to `github-copilot` or `copilot`.
+- Cursor: markdown/text/json outputs; Artifacty-compatible JSON payloads; structured handoff, review, diff, and verification JSON payloads with `agent` or `sourceAgent` set to `cursor`.
 - Gemini: `returnDisplay`, `llmContent`, text blocks, or local markdown/text/json files.
 - Generic: file extension, content type, HTML doctype, JSON shape, and markdown headings are used to infer format and title.
 
