@@ -1,6 +1,6 @@
 # Artifacty
 
-[![CI](https://github.com/raeseoklee/artifacty/actions/workflows/ci.yml/badge.svg)](https://github.com/raeseoklee/artifacty/actions/workflows/ci.yml)
+[![Publish](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml/badge.svg)](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml)
 [![npm version](https://img.shields.io/npm/v/artifacty.svg)](https://www.npmjs.com/package/artifacty)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js >=22.5](https://img.shields.io/badge/node-%3E%3D22.5-339933.svg)](package.json)
