@@ -1,0 +1,348 @@
+#!/usr/bin/env node
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  archiveArtifact,
+  createArtifact,
+  createStore,
+  getArtifact,
+  listAuditEvents,
+  listArtifacts,
+  restoreArtifact,
+  updateArtifact
+} from "./lib/storage.js";
+import { exportStore, importStore, defaultBackupPath } from "./lib/backup.js";
+import { convertAgentArtifact } from "./lib/converters.js";
+import { checkMcpTools } from "./lib/check.js";
+import { installAgent } from "./lib/installer.js";
+import { serviceCommand } from "./lib/service.js";
+import { resolvePublicBaseUrl } from "./lib/server-state.js";
+import { startServer } from "./server.js";
+
+const PACKAGE_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+async function main() {
+  const [command, ...args] = process.argv.slice(2);
+  const options = parseArgs(args);
+  const store = createStore({ home: options.home });
+
+  if (!command || command === "help" || command === "--help" || command === "-h") {
+    printHelp();
+    return;
+  }
+
+  if (command === "serve") {
+    const server = await startServer({
+      host: options.host,
+      port: options.port,
+      home: options.home,
+      apiToken: options.apiToken,
+      shareMode: options.shareMode,
+      allowSecrets: options.allowSecrets
+    });
+    process.stderr.write(`Artifacty listening on ${server.url}\n`);
+    process.stderr.write(`Store: ${server.store.home}\n`);
+    return;
+  }
+
+  if (command === "publish") {
+    const content = await readContent(options);
+    const artifact = await createArtifact(store, {
+      title: requireOption(options, "title"),
+      content,
+      format: options.format,
+      artifactType: options.artifactType,
+      schemaVersion: options.schemaVersion,
+      sourceAgent: options.source || "cli",
+      tags: options.tag || [],
+      metadata: options.metadata ? JSON.parse(options.metadata) : {},
+      allowSecrets: options.allowSecrets,
+      audit: cliAuditContext()
+    });
+    printJson(await withUrls(store, artifact));
+    return;
+  }
+
+  if (command === "import") {
+    const content = await readContent(options);
+    const sourcePath = options.file ? path.resolve(options.file) : "";
+    const converted = convertAgentArtifact({
+      agent: options.agent || options.source || "auto",
+      title: options.title,
+      content,
+      format: options.format,
+      artifactType: options.artifactType,
+      schemaVersion: options.schemaVersion,
+      contentType: options.contentType,
+      fileName: options.file ? path.basename(options.file) : options.fileName,
+      sourcePath,
+      sourceAgent: options.sourceAgent,
+      tags: options.tag || [],
+      metadata: options.metadata ? JSON.parse(options.metadata) : {}
+    });
+    const artifact = await createArtifact(store, {
+      ...converted,
+      allowSecrets: options.allowSecrets,
+      auditAction: "import",
+      audit: cliAuditContext()
+    });
+    printJson(await withUrls(store, artifact));
+    return;
+  }
+
+  if (command === "install") {
+    const agent = options._[0];
+    if (!agent) {
+      throw new Error("install requires an agent: claude, codex, gemini, or all");
+    }
+    const result = await installAgent(agent, {
+      projectDir: options.projectDir || process.cwd(),
+      packageDir: PACKAGE_ROOT,
+      configPath: options.config,
+      serverPath: options.serverPath,
+      url: options.url,
+      home: options.home,
+      dryRun: options.dryRun,
+      trust: options.trust,
+      timeout: options.timeout
+    });
+    printJson(stripInstallContentUnlessDryRun(result));
+    return;
+  }
+
+  if (command === "check") {
+    const result = await checkMcpTools({
+      projectDir: options.projectDir || PACKAGE_ROOT,
+      serverPath: options.serverPath,
+      url: options.url,
+      home: options.home,
+      timeout: options.timeout
+    });
+    printJson(result);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (command === "update") {
+    const id = args.find((arg) => !arg.startsWith("-"));
+    if (!id) {
+      throw new Error("update requires an artifact id");
+    }
+    const content = await readContent(options);
+    const artifact = await updateArtifact(store, id, {
+      title: options.title,
+      content,
+      format: options.format,
+      artifactType: options.artifactType,
+      schemaVersion: options.schemaVersion,
+      sourceAgent: options.source || "cli",
+      tags: options.tag || [],
+      metadata: options.metadata ? JSON.parse(options.metadata) : {},
+      allowSecrets: options.allowSecrets,
+      audit: cliAuditContext()
+    });
+    printJson(await withUrls(store, artifact));
+    return;
+  }
+
+  if (command === "list") {
+    const artifacts = await listArtifacts(store, {
+      query: options.query,
+      tag: Array.isArray(options.tag) ? options.tag[0] : options.tag,
+      sourceAgent: options.source,
+      includeArchived: options.includeArchived,
+      limit: options.limit
+    });
+    printJson({ artifacts });
+    return;
+  }
+
+  if (command === "archive" || command === "restore") {
+    const id = options._[0];
+    if (!id) {
+      throw new Error(`${command} requires an artifact id`);
+    }
+    const artifact = command === "archive"
+      ? await archiveArtifact(store, id, { audit: cliAuditContext() })
+      : await restoreArtifact(store, id, { audit: cliAuditContext() });
+    printJson(await withUrls(store, artifact));
+    return;
+  }
+
+  if (command === "audit") {
+    const events = await listAuditEvents(store, {
+      artifactId: options.artifact,
+      limit: options.limit
+    });
+    printJson({ events });
+    return;
+  }
+
+  if (command === "export" || command === "backup") {
+    const file = command === "backup" ? options.file || defaultBackupPath(store) : requireOption(options, "file");
+    printJson(await exportStore(store, file));
+    return;
+  }
+
+  if (command === "import-store") {
+    printJson(await importStore(store, requireOption(options, "file")));
+    return;
+  }
+
+  if (command === "service") {
+    const action = options._[0] || "plist";
+    printJson(await serviceCommand(action, {
+      projectDir: options.projectDir || PACKAGE_ROOT,
+      serverPath: options.serverPath,
+      plistPath: options.plist,
+      host: options.host,
+      port: options.port,
+      home: options.home,
+      dryRun: options.dryRun
+    }));
+    return;
+  }
+
+  if (command === "show") {
+    const id = args.find((arg) => !arg.startsWith("-"));
+    if (!id) {
+      throw new Error("show requires an artifact id");
+    }
+    const artifact = await getArtifact(store, id, { version: options.version });
+    if (options.raw) {
+      process.stdout.write(artifact.content);
+      return;
+    }
+    printJson(await withUrls(store, artifact));
+    return;
+  }
+
+  throw new Error(`Unknown command: ${command}`);
+}
+
+function parseArgs(args) {
+  const options = {};
+  const positional = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg.startsWith("--")) {
+      positional.push(arg);
+      continue;
+    }
+
+    const key = arg.slice(2);
+    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets") {
+      options[toCamelCase(key)] = true;
+      continue;
+    }
+
+    const value = args[++index];
+    if (value === undefined) {
+      throw new Error(`Missing value for --${key}`);
+    }
+
+    if (key === "tag") {
+      options.tag = [...(options.tag || []), value];
+    } else if (key === "port" || key === "limit" || key === "version" || key === "schema-version" || key === "timeout") {
+      options[toCamelCase(key)] = Number(value);
+    } else {
+      options[toCamelCase(key)] = value;
+    }
+  }
+
+  options._ = positional;
+  return options;
+}
+
+async function readContent(options) {
+  if (options.file) {
+    return readFile(options.file, "utf8");
+  }
+  if (options.content !== undefined) {
+    return options.content;
+  }
+  throw new Error("Provide --file or --content");
+}
+
+async function withUrls(store, artifact) {
+  const publicBaseUrl = await resolvePublicBaseUrl(store);
+  return {
+    ...artifact,
+    url: `${publicBaseUrl}/artifacts/${encodeURIComponent(artifact.id)}`,
+    rawUrl: `${publicBaseUrl}/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${artifact.version.version}`
+  };
+}
+
+function requireOption(options, name) {
+  if (!options[name]) {
+    throw new Error(`Missing required option --${name}`);
+  }
+  return options[name];
+}
+
+function printJson(data) {
+  process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+}
+
+function printHelp() {
+  process.stdout.write(`Artifacty
+
+Usage:
+  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty]
+  artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json] [--source agent] [--tag tag]
+  artifacty import --agent claude|codex|gemini|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json] [--tag tag]
+  artifacty install claude|codex|gemini|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787]
+  artifacty check [--server-path <path>] [--timeout 5000]
+  artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json]
+  artifacty archive <id>
+  artifacty restore <id>
+  artifacty audit [--artifact <id>] [--limit 100]
+  artifacty export --file <path>
+  artifacty backup [--file <path>]
+  artifacty import-store --file <path>
+  artifacty service plist|install|uninstall [--dry-run] [--plist <path>]
+  artifacty list [--query text] [--tag tag] [--source agent] [--limit 50] [--include-archived]
+  artifacty show <id> [--version n] [--raw]
+
+Environment:
+  ARTIFACTY_HOME           Storage directory. Defaults to ~/.artifacty
+  ARTIFACTY_URL            Public URL override. Otherwise CLI/MCP read the last running server URL
+  ARTIFACTY_API_TOKEN      Required token for HTTP API and LAN mode
+  ARTIFACTY_SHARE_MODE     Use lan or team before binding outside localhost
+  ARTIFACTY_ALLOW_SECRETS  Set true only to intentionally store detected secrets
+`);
+}
+
+function stripInstallContentUnlessDryRun(result) {
+  if (result.results) {
+    return {
+      ...result,
+      results: result.results.map(stripInstallContentUnlessDryRun)
+    };
+  }
+  if (result.dryRun) {
+    return result;
+  }
+  const { content, ...rest } = result;
+  return rest;
+}
+
+function toCamelCase(value) {
+  return value.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+function cliAuditContext() {
+  return {
+    surface: "cli",
+    actor: process.env.USER || process.env.LOGNAME || "cli"
+  };
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.message}\n`);
+  process.exitCode = 1;
+});

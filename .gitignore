@@ -1,0 +1,10 @@
+.artifacty/
+node_modules/
+.DS_Store
+coverage/
+*.log
+.mcp.json
+.gemini/
+.omc/
+.omx/
+.codexus/

@@ -1,0 +1,8 @@
+{
+  "title": "Codex Handoff",
+  "content": "# Handoff\n\nContinue with schema validation.",
+  "format": "markdown",
+  "sourceAgent": "codex",
+  "artifactType": "handoff",
+  "tags": ["handoff"]
+}

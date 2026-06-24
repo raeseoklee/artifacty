@@ -1,0 +1,260 @@
+import { EditorView, basicSetup } from "codemirror";
+import { Compartment } from "@codemirror/state";
+import { html } from "@codemirror/lang-html";
+import { json } from "@codemirror/lang-json";
+import { markdown } from "@codemirror/lang-markdown";
+
+const messages = {
+  formatJson: "Format JSON",
+  validJson: "Valid JSON",
+  invalidJson: "Invalid JSON: {message}",
+  htmlPreview: "HTML preview",
+  markdownPreview: "Markdown preview",
+  plainText: "Plain text",
+  mode: "{format} editor",
+  ...(globalThis.ARTIFACTY_I18N || {})
+};
+
+const editorTheme = EditorView.theme({
+  "&": {
+    minHeight: "52vh",
+    border: "1px solid var(--line)",
+    borderRadius: "8px",
+    background: "var(--panel)"
+  },
+  ".cm-scroller": {
+    fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+    fontSize: "13px",
+    lineHeight: "1.55"
+  },
+  ".cm-content": {
+    minHeight: "52vh"
+  },
+  ".cm-gutters": {
+    borderTopLeftRadius: "8px",
+    borderBottomLeftRadius: "8px"
+  }
+});
+
+for (const textarea of document.querySelectorAll("textarea[data-artifacty-editor]")) {
+  enhanceTextarea(textarea);
+}
+
+function enhanceTextarea(textarea) {
+  const form = textarea.closest("form");
+  const formatSelector = form?.querySelector("select[name='format']");
+  const fileNameInput = form?.querySelector("input[name='fileName']");
+  const language = new Compartment();
+  const shell = document.createElement("div");
+  shell.className = "codemirror-shell";
+  shell.setAttribute("data-enhanced", "true");
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "editor-toolbar";
+
+  const status = document.createElement("span");
+  status.className = "editor-status";
+
+  const formatJsonButton = document.createElement("button");
+  formatJsonButton.type = "button";
+  formatJsonButton.className = "secondary-button";
+  formatJsonButton.textContent = messages.formatJson;
+
+  toolbar.append(formatJsonButton, status);
+  textarea.after(toolbar, shell);
+  textarea.classList.add("textarea-enhanced");
+
+  const preview = document.createElement("section");
+  preview.className = "editor-preview";
+  preview.setAttribute("aria-live", "polite");
+  shell.after(preview);
+
+  const currentFormat = () => detectFormat({
+    explicit: formatSelector?.value || textarea.dataset.editorFormat,
+    fileName: fileNameInput?.value || "",
+    content: view.state.doc.toString()
+  });
+
+  const view = new EditorView({
+    doc: textarea.value,
+    parent: shell,
+    extensions: [
+      basicSetup,
+      EditorView.lineWrapping,
+      editorTheme,
+      language.of(languageExtension(detectFormat({
+        explicit: formatSelector?.value || textarea.dataset.editorFormat,
+        fileName: fileNameInput?.value || "",
+        content: textarea.value
+      }))),
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          textarea.value = update.state.doc.toString();
+          updatePreview();
+        }
+      })
+    ]
+  });
+
+  const reconfigure = () => {
+    const format = currentFormat();
+    view.dispatch({ effects: language.reconfigure(languageExtension(format)) });
+    updateToolbar(format);
+    updatePreview();
+  };
+
+  formatSelector?.addEventListener("change", reconfigure);
+  fileNameInput?.addEventListener("input", reconfigure);
+  form?.addEventListener("submit", () => {
+    textarea.value = view.state.doc.toString();
+  });
+
+  formatJsonButton.addEventListener("click", () => {
+    const content = view.state.doc.toString();
+    try {
+      const formatted = JSON.stringify(JSON.parse(content), null, 2);
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: formatted }
+      });
+      status.textContent = messages.validJson;
+    } catch (error) {
+      status.textContent = invalidJsonMessage(error);
+    }
+  });
+
+  updateToolbar(currentFormat());
+  updatePreview();
+
+  function updateToolbar(format) {
+    formatJsonButton.hidden = format !== "json";
+    status.textContent = formatLabel(format);
+  }
+
+  function updatePreview() {
+    const format = currentFormat();
+    const content = view.state.doc.toString();
+    preview.replaceChildren();
+    preview.dataset.format = format;
+
+    if (format === "html") {
+      const frame = document.createElement("iframe");
+      frame.className = "editor-preview-frame";
+      frame.setAttribute("sandbox", "allow-scripts allow-forms allow-popups");
+      frame.srcdoc = content;
+      preview.append(frame);
+      status.textContent = messages.htmlPreview;
+      return;
+    }
+
+    if (format === "json") {
+      const pre = document.createElement("pre");
+      try {
+        pre.textContent = JSON.stringify(JSON.parse(content), null, 2);
+        status.textContent = messages.validJson;
+      } catch (error) {
+        pre.textContent = content;
+        status.textContent = invalidJsonMessage(error);
+      }
+      preview.append(pre);
+      return;
+    }
+
+    if (format === "markdown") {
+      const article = document.createElement("article");
+      article.className = "artifact-doc";
+      article.innerHTML = markdownPreview(content);
+      preview.append(article);
+      status.textContent = messages.markdownPreview;
+      return;
+    }
+
+    const pre = document.createElement("pre");
+    pre.textContent = content;
+    preview.append(pre);
+    status.textContent = messages.plainText;
+  }
+}
+
+function languageExtension(format) {
+  if (format === "html") {
+    return html();
+  }
+  if (format === "json") {
+    return json();
+  }
+  if (format === "markdown") {
+    return markdown();
+  }
+  return [];
+}
+
+function detectFormat({ explicit, fileName, content }) {
+  if (["markdown", "html", "json", "text"].includes(explicit)) {
+    return explicit;
+  }
+
+  const lowerName = String(fileName || "").toLowerCase();
+  if (lowerName.endsWith(".html") || lowerName.endsWith(".htm")) {
+    return "html";
+  }
+  if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) {
+    return "markdown";
+  }
+  if (lowerName.endsWith(".json")) {
+    return "json";
+  }
+
+  const trimmed = String(content || "").trimStart();
+  if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html") || trimmed.startsWith("<")) {
+    return "html";
+  }
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return "json";
+  }
+  if (/^#{1,6}\s/m.test(trimmed)) {
+    return "markdown";
+  }
+  return "text";
+}
+
+function formatLabel(format) {
+  const label = `${format[0].toUpperCase()}${format.slice(1)}`;
+  return messages.mode.replaceAll("{format}", label);
+}
+
+function invalidJsonMessage(error) {
+  return messages.invalidJson.replaceAll("{message}", error.message);
+}
+
+function markdownPreview(content) {
+  return String(content || "")
+    .split(/\r?\n/)
+    .map((line) => {
+      if (/^###\s+/.test(line)) {
+        return `<h3>${escapeHtml(line.replace(/^###\s+/, ""))}</h3>`;
+      }
+      if (/^##\s+/.test(line)) {
+        return `<h2>${escapeHtml(line.replace(/^##\s+/, ""))}</h2>`;
+      }
+      if (/^#\s+/.test(line)) {
+        return `<h1>${escapeHtml(line.replace(/^#\s+/, ""))}</h1>`;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        return `<p>• ${escapeHtml(line.replace(/^[-*]\s+/, ""))}</p>`;
+      }
+      if (!line.trim()) {
+        return "<br>";
+      }
+      return `<p>${escapeHtml(line)}</p>`;
+    })
+    .join("");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
