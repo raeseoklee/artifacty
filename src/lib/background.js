@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFile, spawn } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createStore } from "./storage.js";
@@ -22,13 +22,7 @@ export async function startBackgroundServer(options = {}) {
   mkdirSync(paths.logDir, { recursive: true });
   mkdirSync(store.home, { recursive: true });
 
-  const stdoutFd = openSync(paths.stdoutLog, "a");
-  const stderrFd = openSync(paths.stderrLog, "a");
-  const child = spawn(process.execPath, buildServerArgs(options, store), {
-    detached: true,
-    env: buildServerEnv(options),
-    stdio: ["ignore", stdoutFd, stderrFd]
-  });
+  const child = spawnDetachedServer(options, store, paths);
 
   writeFileSync(paths.pidFile, `${child.pid}\n`, "utf8");
 
@@ -53,7 +47,7 @@ export async function startBackgroundServer(options = {}) {
     };
   } catch (error) {
     try {
-      child.kill("SIGTERM");
+      await terminatePid(child.pid);
     } catch {
       // Process may already have exited during startup.
     }
@@ -92,10 +86,21 @@ export async function stopBackgroundServer(options = {}) {
     };
   }
 
-  process.kill(status.pid, "SIGTERM");
+  if (!options.force && !status.stateMatchesPid && !status.healthy) {
+    return {
+      action: "stop",
+      stopped: false,
+      running: status.running,
+      reason: "pid file does not match a healthy Artifacty server; retry with --force to stop the recorded pid",
+      pid: status.pid,
+      home: store.home
+    };
+  }
+
+  await terminatePid(status.pid);
   let stopped = await waitForStop(status.pid, Number(options.timeout || DEFAULT_READY_TIMEOUT_MS));
   if (!stopped && options.force) {
-    process.kill(status.pid, "SIGKILL");
+    await terminatePid(status.pid, { force: true });
     stopped = await waitForStop(status.pid, 1000);
   }
   if (!stopped) {
@@ -127,13 +132,17 @@ export async function backgroundStatus(options = {}) {
   const pid = pidFromFile || state?.pid || null;
   const processRunning = pid ? isPidRunning(pid) : false;
   const health = state?.url ? await fetchHealth(state.url) : { ok: false };
+  const stateMatchesPid = Boolean(pid && state?.pid === pid);
 
   return {
     action: "status",
     running: Boolean(processRunning && health.ok),
     processRunning,
     healthy: Boolean(health.ok),
+    platform: process.platform,
     pid,
+    statePid: state?.pid || null,
+    stateMatchesPid,
     pidFileExists: existsSync(paths.pidFile),
     managed: Boolean(pidFromFile),
     url: state?.url || null,
@@ -156,7 +165,36 @@ export function backgroundPaths(store) {
   };
 }
 
-function buildServerArgs(options, store) {
+export function stopCommandForPlatform(pid, options = {}, platform = process.platform) {
+  if (platform !== "win32") {
+    return null;
+  }
+  const args = ["/PID", String(pid), "/T"];
+  if (options.force) {
+    args.push("/F");
+  }
+  return { command: "taskkill", args };
+}
+
+function spawnDetachedServer(options, store, paths) {
+  let stdoutFd;
+  let stderrFd;
+  try {
+    stdoutFd = openSync(paths.stdoutLog, "a");
+    stderrFd = openSync(paths.stderrLog, "a");
+    return spawn(process.execPath, buildServerArgs(options, store), {
+      detached: true,
+      env: buildServerEnv(options),
+      stdio: ["ignore", stdoutFd, stderrFd],
+      windowsHide: true
+    });
+  } finally {
+    closeFd(stdoutFd);
+    closeFd(stderrFd);
+  }
+}
+
+export function buildServerArgs(options, store) {
   const args = [options.serverPath];
   addValueArg(args, "--host", options.host);
   addValueArg(args, "--port", options.port);
@@ -177,6 +215,44 @@ function buildServerEnv(options) {
     ...process.env,
     ...(options.apiToken ? { ARTIFACTY_API_TOKEN: options.apiToken } : {})
   };
+}
+
+async function terminatePid(pid, options = {}) {
+  const command = stopCommandForPlatform(pid, options);
+  if (command) {
+    await execFileQuiet(command.command, command.args).catch((error) => {
+      if (!isPidRunning(pid)) {
+        return;
+      }
+      throw new Error(`Failed to stop Windows process ${pid}: ${error.stderr || error.message}`);
+    });
+    return;
+  }
+
+  const signal = options.force ? "SIGKILL" : "SIGTERM";
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      process.kill(pid, signal);
+    } catch (error) {
+      if (error.code !== "ESRCH") {
+        throw error;
+      }
+    }
+  }
+}
+
+function execFileQuiet(command, args) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        reject(Object.assign(error, { stdout, stderr }));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
 }
 
 function addValueArg(args, name, value) {
@@ -227,8 +303,8 @@ function isPidRunning(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return error.code === "EPERM";
   }
 }
 
@@ -254,4 +330,15 @@ async function tailFile(file, maxBytes = 2000) {
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function closeFd(fd) {
+  if (typeof fd !== "number") {
+    return;
+  }
+  try {
+    closeSync(fd);
+  } catch {
+    // The child inherited the descriptor; parent cleanup is best effort.
+  }
 }

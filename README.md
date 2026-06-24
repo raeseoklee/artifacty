@@ -47,6 +47,7 @@ artifacty stop
 ```
 
 `artifacty serve --detach` is equivalent to `artifacty start`. Logs are written under `~/.artifacty/logs/`.
+These lifecycle commands use Node's detached process support and work on macOS, Linux, and Windows. `artifacty stop` uses Windows `taskkill` on Windows and process-group signals on macOS/Linux.
 
 Generate an API token at startup when you want to protect HTTP API and browser write routes:
 

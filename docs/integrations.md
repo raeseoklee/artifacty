@@ -30,6 +30,14 @@ node src/cli.js stop
 
 `serve --detach` uses the same detached-process path as `start`. It writes `server.pid`, `server.json`, and logs under `ARTIFACTY_HOME` (default `~/.artifacty`). Prefer `start --api-token "$(node src/cli.js token --raw)"` when a background server needs API protection, because generated startup tokens are only visible in the server log.
 
+The lifecycle commands are intended to be cross-platform:
+
+- macOS and Linux: `stop` signals the detached process group first, then falls back to the server process id.
+- Windows: `start` hides the child console window, and `stop` uses `taskkill /PID <pid> /T`; `--force` adds `/F`.
+- All platforms: `status` combines the managed pid file with the HTTP `/health` endpoint, so a stale pid alone is not reported as healthy.
+
+For login/startup persistence, use the operating system's service manager. Artifacty's `service` command currently generates a macOS LaunchAgent plist; Linux systemd user units and Windows Task Scheduler/Service wrappers should be configured explicitly until first-class installers are added.
+
 Create artifacts directly in the browser at `http://127.0.0.1:8787/new`.
 
 For LAN or VPN sharing, keep the default local binding unless you intentionally need another machine to reach the server. See [network-sharing.md](network-sharing.md) before using `--host 0.0.0.0`.

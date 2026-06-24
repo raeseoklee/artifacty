@@ -344,10 +344,10 @@ function printHelp() {
 
 Usage:
   artifacty token [--bytes 32] [--raw]
-  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--generate-token] [--bytes 32] [--detach]
-  artifacty start [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token]
+  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--generate-token] [--bytes 32] [--detach]
+  artifacty start [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--timeout 5000]
   artifacty status [--home ~/.artifacty]
-  artifacty stop [--home ~/.artifacty] [--force]
+  artifacty stop [--home ~/.artifacty] [--timeout 5000] [--force]
   artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react] [--source agent] [--tag tag]
   artifacty import --agent claude|codex|gemini|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react] [--tag tag]
   artifacty install claude|codex|gemini|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--timeout 30000]
