@@ -38,6 +38,16 @@ artifacty serve
 
 Open the URL printed by the server. Artifacty prefers `http://127.0.0.1:8787`; if that default port is busy and no explicit port was configured, it starts on the next available local port and records the actual URL for CLI and MCP responses.
 
+Run it in the background and return to your prompt:
+
+```bash
+artifacty start
+artifacty status
+artifacty stop
+```
+
+`artifacty serve --detach` is equivalent to `artifacty start`. Logs are written under `~/.artifacty/logs/`.
+
 Generate an API token at startup when you want to protect HTTP API and browser write routes:
 
 ```bash
@@ -50,7 +60,7 @@ The server prints the generated token plus `/new?token=...` and `/import?token=.
 
 ```bash
 artifacty token
-ARTIFACTY_API_TOKEN="$(artifacty token --raw)" artifacty serve
+artifacty start --api-token "$(artifacty token --raw)"
 ```
 
 Install MCP configuration for local agents:
@@ -166,6 +176,9 @@ artifacty audit --limit 20
 artifacty backup
 artifacty export --file ./artifacty-backup.json
 artifacty import-store --file ./artifacty-backup.json
+artifacty start
+artifacty status
+artifacty stop
 artifacty service install --dry-run
 ```
 

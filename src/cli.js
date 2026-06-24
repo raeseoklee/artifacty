@@ -17,6 +17,7 @@ import { convertAgentArtifact } from "./lib/converters.js";
 import { checkMcpTools } from "./lib/check.js";
 import { installAgent } from "./lib/installer.js";
 import { serviceCommand } from "./lib/service.js";
+import { backgroundStatus, startBackgroundServer, stopBackgroundServer } from "./lib/background.js";
 import { resolvePublicBaseUrl } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
 import { startServer } from "./server.js";
@@ -44,6 +45,13 @@ async function main() {
   }
 
   if (command === "serve") {
+    if (options.detach) {
+      printJson(await startBackgroundServer({
+        ...serverOptions(options),
+        serverPath: path.join(PACKAGE_ROOT, "src", "server.js")
+      }));
+      return;
+    }
     if (options.generateToken && options.apiToken) {
       throw new Error("Use either --api-token or --generate-token, not both");
     }
@@ -64,6 +72,28 @@ async function main() {
       process.stderr.write(`Create URL: ${server.url}/new?token=${encodeURIComponent(generatedToken.token)}\n`);
       process.stderr.write(`Import URL: ${server.url}/import?token=${encodeURIComponent(generatedToken.token)}\n`);
     }
+    return;
+  }
+
+  if (command === "start") {
+    printJson(await startBackgroundServer({
+      ...serverOptions(options),
+      serverPath: path.join(PACKAGE_ROOT, "src", "server.js")
+    }));
+    return;
+  }
+
+  if (command === "stop") {
+    printJson(await stopBackgroundServer({
+      home: options.home,
+      timeout: options.timeout,
+      force: options.force
+    }));
+    return;
+  }
+
+  if (command === "status") {
+    printJson(await backgroundStatus({ home: options.home }));
     return;
   }
 
@@ -256,7 +286,7 @@ function parseArgs(args) {
     }
 
     const key = arg.slice(2);
-    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token") {
+    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "force") {
       options[toCamelCase(key)] = true;
       continue;
     }
@@ -314,7 +344,10 @@ function printHelp() {
 
 Usage:
   artifacty token [--bytes 32] [--raw]
-  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--generate-token] [--bytes 32]
+  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--generate-token] [--bytes 32] [--detach]
+  artifacty start [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token]
+  artifacty status [--home ~/.artifacty]
+  artifacty stop [--home ~/.artifacty] [--force]
   artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react] [--source agent] [--tag tag]
   artifacty import --agent claude|codex|gemini|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react] [--tag tag]
   artifacty install claude|codex|gemini|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--timeout 30000]
@@ -351,6 +384,20 @@ function stripInstallContentUnlessDryRun(result) {
   }
   const { content, ...rest } = result;
   return rest;
+}
+
+function serverOptions(options) {
+  return {
+    host: options.host,
+    port: options.port,
+    home: options.home,
+    apiToken: options.apiToken,
+    shareMode: options.shareMode,
+    allowSecrets: options.allowSecrets,
+    generateToken: options.generateToken,
+    bytes: options.bytes,
+    timeout: options.timeout
+  };
 }
 
 function toCamelCase(value) {

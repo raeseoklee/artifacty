@@ -20,6 +20,16 @@ npm start -- --generate-token
 
 The generated token is printed with ready-to-open create and import URLs.
 
+For prompt-friendly local background runs, use the lifecycle commands:
+
+```bash
+node src/cli.js start --port 8787
+node src/cli.js status
+node src/cli.js stop
+```
+
+`serve --detach` uses the same detached-process path as `start`. It writes `server.pid`, `server.json`, and logs under `ARTIFACTY_HOME` (default `~/.artifacty`). Prefer `start --api-token "$(node src/cli.js token --raw)"` when a background server needs API protection, because generated startup tokens are only visible in the server log.
+
 Create artifacts directly in the browser at `http://127.0.0.1:8787/new`.
 
 For LAN or VPN sharing, keep the default local binding unless you intentionally need another machine to reach the server. See [network-sharing.md](network-sharing.md) before using `--host 0.0.0.0`.

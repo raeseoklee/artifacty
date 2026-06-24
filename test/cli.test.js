@@ -86,6 +86,57 @@ test("serve rejects conflicting token options", async () => {
   );
 });
 
+test("starts, reports, and stops a background server", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-background-"));
+  try {
+    const start = JSON.parse((await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "start",
+      "--port",
+      "0",
+      "--home",
+      home
+    ])).stdout);
+
+    assert.equal(start.running, true);
+    assert.equal(start.home, home);
+    assert.match(start.url, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.equal((await fetch(`${start.url}/health`)).status, 200);
+
+    const status = JSON.parse((await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "status",
+      "--home",
+      home
+    ])).stdout);
+    assert.equal(status.running, true);
+    assert.equal(status.managed, true);
+    assert.equal(status.pid, start.pid);
+    assert.equal(status.url, start.url);
+
+    const stop = JSON.parse((await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "stop",
+      "--home",
+      home
+    ])).stdout);
+    assert.equal(stop.stopped, true);
+    assert.equal(stop.running, false);
+
+    const stopped = JSON.parse((await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "status",
+      "--home",
+      home
+    ])).stdout);
+    assert.equal(stopped.running, false);
+    assert.equal(stopped.managed, false);
+  } finally {
+    await execFileAsync(process.execPath, ["src/cli.js", "stop", "--home", home]).catch(() => {});
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("server entrypoint can generate and enforce a startup API token", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-server-"));
   const child = spawn(process.execPath, [
