@@ -1,0 +1,31 @@
+{
+  "agent": "codex",
+  "title": "Codex File Bundle",
+  "summary": "Portable file bundle with continuation metadata.",
+  "changedFiles": [
+    {
+      "path": "README.md",
+      "status": "modified",
+      "summary": "Documented Codex continuation artifacts."
+    }
+  ],
+  "tests": [
+    {
+      "command": "npm test",
+      "status": "passed"
+    }
+  ],
+  "nextSteps": [
+    "Render code artifacts with CodeMirror."
+  ],
+  "files": [
+    {
+      "path": "README.md",
+      "content": "# Artifacty"
+    },
+    {
+      "path": "src/example.js",
+      "content": "export const ok = true;"
+    }
+  ]
+}

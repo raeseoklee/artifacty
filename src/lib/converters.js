@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { contentTypeForFormat, normalizeFormat } from "./storage.js";
+import { ARTIFACT_TYPES, contentTypeForFormat, normalizeFormat } from "./storage.js";
 
 const KNOWN_AGENTS = new Set(["auto", "artifacty", "claude", "codex", "gemini", "generic"]);
 
@@ -68,6 +68,18 @@ export function convertAgentArtifact(input = {}) {
 
 export function detectFormat({ content = "", contentType = "", fileName = "" } = {}) {
   const type = optionalString(contentType).toLowerCase();
+  if (type.includes("vnd.ant.code") || type.includes("source-code")) {
+    return "code";
+  }
+  if (type.includes("svg")) {
+    return "svg";
+  }
+  if (type.includes("vnd.ant.mermaid") || type.includes("mermaid")) {
+    return "mermaid";
+  }
+  if (type.includes("vnd.ant.react") || type.includes("jsx")) {
+    return "react";
+  }
   if (type.includes("html")) {
     return "html";
   }
@@ -91,11 +103,32 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (extension === ".json") {
     return "json";
   }
+  if (extension === ".svg") {
+    return "svg";
+  }
+  if (extension === ".mmd" || extension === ".mermaid") {
+    return "mermaid";
+  }
+  if (extension === ".jsx" || extension === ".tsx") {
+    return "react";
+  }
+  if (isCodeExtension(extension)) {
+    return "code";
+  }
   if (extension === ".txt" || extension === ".log") {
     return "text";
   }
 
   const trimmed = optionalString(content);
+  if (/^(?:<\?xml[\s\S]*?\?>\s*)?<svg[\s>]/i.test(trimmed)) {
+    return "svg";
+  }
+  if (looksLikeMermaid(trimmed)) {
+    return "mermaid";
+  }
+  if (looksLikeReact(trimmed)) {
+    return "react";
+  }
   if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
     return "html";
   }
@@ -131,20 +164,48 @@ function decodeObjectPayload(value, agent) {
     return decodeBundlePayload(artifactObject, agent);
   }
 
+  const codexContinuation = decodeCodexContinuationPayload(artifactObject, agent);
+  if (codexContinuation) {
+    return codexContinuation;
+  }
+
   if (typeof artifactObject.content === "string" && !Array.isArray(artifactObject.content)) {
+    const sourceContentType = artifactObject.contentType ||
+      artifactObject.content_type ||
+      artifactObject.mimeType ||
+      artifactObject.mime_type ||
+      artifactObject.type;
     return {
       content: artifactObject.content,
-      format: safeFormat(artifactObject.format || artifactObject.type || artifactObject.mimeType),
-      contentType: artifactObject.contentType || artifactObject.mimeType,
+      format: safeFormat(artifactObject.format || sourceContentType),
+      contentType: sourceContentType,
       title: artifactObject.title || artifactObject.name,
       sourceAgent: artifactObject.sourceAgent || artifactObject.source_agent || artifactObject.agent,
       artifactType: artifactObject.artifactType || artifactObject.artifact_type,
       tags: artifactObject.tags,
       metadata: {
         originalPayloadShape: "content",
-        originalId: artifactObject.id
+        originalId: artifactObject.id,
+        originalContentType: sourceContentType,
+        language: artifactObject.language
       }
     };
+  }
+
+  if (typeof artifactObject.code === "string") {
+    return objectContent(artifactObject, "code", artifactObject.code, "code");
+  }
+
+  if (typeof artifactObject.svg === "string") {
+    return objectContent(artifactObject, "svg", artifactObject.svg, "svg");
+  }
+
+  if (typeof artifactObject.mermaid === "string") {
+    return objectContent(artifactObject, "mermaid", artifactObject.mermaid, "mermaid");
+  }
+
+  if (typeof artifactObject.react === "string" || typeof artifactObject.jsx === "string") {
+    return objectContent(artifactObject, "react", artifactObject.react || artifactObject.jsx, "react");
   }
 
   if (typeof artifactObject.html === "string") {
@@ -160,9 +221,10 @@ function decodeObjectPayload(value, agent) {
   }
 
   if (typeof artifactObject.returnDisplay === "string") {
+    const content = stripMarkdownCodeFence(artifactObject.returnDisplay);
     return {
-      content: stripMarkdownCodeFence(artifactObject.returnDisplay),
-      format: detectFormat({ content: artifactObject.returnDisplay }) === "json" ? "json" : "markdown",
+      content,
+      format: detectFormat({ content }) === "json" ? "json" : "markdown",
       title: artifactObject.title || artifactObject.name || "Gemini artifact",
       sourceAgent: agent === "auto" ? "gemini" : agent,
       artifactType: "document",
@@ -232,16 +294,20 @@ function decodeObjectPayload(value, agent) {
 }
 
 function objectContent(object, shape, content, format) {
+  const sourceContentType = object.contentType || object.content_type || object.mimeType || object.mime_type || object.type;
   return {
     content,
     format,
+    contentType: sourceContentType,
     title: object.title || object.name,
     sourceAgent: object.sourceAgent || object.source_agent || object.agent,
     artifactType: object.artifactType || object.artifact_type,
     tags: object.tags,
     metadata: {
       originalPayloadShape: shape,
-      originalId: object.id
+      originalId: object.id,
+      originalContentType: sourceContentType,
+      language: object.language
     }
   };
 }
@@ -249,6 +315,7 @@ function objectContent(object, shape, content, format) {
 function decodeBundlePayload(object, agent) {
   const bundle = object.bundle && typeof object.bundle === "object" ? object.bundle : object;
   const files = Array.isArray(bundle.files) ? bundle.files : [];
+  const codexMetadata = collectCodexContinuationMetadata({ agent }, bundle, object);
   const normalizedFiles = files.map((file, index) => {
     const content = typeof file.content === "string" ? file.content : "";
     return {
@@ -268,7 +335,8 @@ function decodeBundlePayload(object, agent) {
       schemaVersion: 1,
       artifactType: "bundle",
       title: object.title || bundle.title || "Artifact bundle",
-      files: normalizedFiles
+      files: normalizedFiles,
+      ...bundleDocumentMetadata(codexMetadata)
     }, null, 2),
     format: "json",
     contentType: "application/vnd.artifacty.bundle+json; charset=utf-8",
@@ -279,9 +347,318 @@ function decodeBundlePayload(object, agent) {
     metadata: {
       originalPayloadShape: "artifact-bundle",
       fileCount: normalizedFiles.length,
-      bundlePolicy: "text-files-stored-inline-in-bundle-json"
+      bundlePolicy: "text-files-stored-inline-in-bundle-json",
+      ...codexMetadata
     }
   };
+}
+
+function decodeCodexContinuationPayload(object, agent) {
+  if (!isCodexPayload(object, agent) || hasDirectContentField(object)) {
+    return null;
+  }
+
+  const artifactType = inferCodexContinuationType(object);
+  if (!artifactType) {
+    return null;
+  }
+
+  const metadata = collectCodexContinuationMetadata({ agent }, object);
+  return {
+    content: renderCodexContinuationMarkdown(object, artifactType, metadata),
+    format: "markdown",
+    contentType: "text/markdown; charset=utf-8",
+    title: object.title || object.name || titleForCodexType(artifactType),
+    sourceAgent: "codex",
+    artifactType,
+    tags: uniqueStrings([
+      artifactType,
+      "codex",
+      ...normalizeTags(object.tags)
+    ]),
+    metadata: {
+      originalPayloadShape: "codex-continuation",
+      continuationKind: artifactType,
+      ...metadata
+    }
+  };
+}
+
+function hasDirectContentField(object) {
+  return typeof object.content === "string" ||
+    Array.isArray(object.content) ||
+    typeof object.markdown === "string" ||
+    typeof object.text === "string" ||
+    typeof object.html === "string" ||
+    typeof object.code === "string" ||
+    typeof object.svg === "string" ||
+    typeof object.mermaid === "string" ||
+    typeof object.react === "string" ||
+    typeof object.jsx === "string";
+}
+
+function isCodexPayload(object, agent) {
+  const explicit = normalizeAgent(
+    object.sourceAgent ||
+      object.source_agent ||
+      object.agent ||
+      object.producer ||
+      object.createdBy ||
+      object.created_by ||
+      agent
+  );
+  return explicit === "codex";
+}
+
+function inferCodexContinuationType(object) {
+  const explicit = optionalString(object.artifactType || object.artifact_type || object.kind || object.category || object.purpose || object.type).toLowerCase();
+  if (explicit.includes("review")) {
+    return "code-review";
+  }
+  if (explicit.includes("test") || explicit.includes("verification") || explicit.includes("report")) {
+    return "test-report";
+  }
+  if (explicit.includes("diff") || explicit.includes("patch")) {
+    return "diff-walkthrough";
+  }
+  if (explicit.includes("handoff") || explicit.includes("continuation")) {
+    return "handoff";
+  }
+
+  if (hasNonEmptyArray(object.findings) || hasNonEmptyArray(object.review?.findings)) {
+    return "code-review";
+  }
+  if (object.verification || hasNonEmptyArray(object.tests) || hasNonEmptyArray(object.testResults) || hasNonEmptyArray(object.test_results) || optionalString(object.testStatus)) {
+    return "test-report";
+  }
+  if (optionalString(object.diff || object.patch)) {
+    return "diff-walkthrough";
+  }
+  if (
+    optionalString(object.goal || object.currentState || object.current_state || object.summary) ||
+    hasNonEmptyArray(object.decisions) ||
+    hasNonEmptyArray(object.blockers) ||
+    hasNonEmptyArray(object.nextSteps) ||
+    hasNonEmptyArray(object.next_steps) ||
+    hasNonEmptyArray(object.changedFiles) ||
+    hasNonEmptyArray(object.changed_files)
+  ) {
+    return "handoff";
+  }
+
+  return null;
+}
+
+function collectCodexContinuationMetadata(...sources) {
+  const objects = sources.filter((item) => item && typeof item === "object");
+  if (!objects.some((item) => isCodexPayload(item, "auto"))) {
+    return {};
+  }
+  const source = Object.assign({}, ...objects);
+  const continuation = pruneEmpty({
+    summary: optionalString(source.summary),
+    goal: optionalString(source.goal),
+    currentState: optionalString(source.currentState || source.current_state),
+    changedFiles: normalizeChangedFiles(firstPresent(source.changedFiles, source.changed_files, source.filesChanged, source.files_changed)),
+    commands: normalizeEvents(firstPresent(source.commands, source.commandsRun, source.commands_run, source.verification?.commands)),
+    tests: normalizeEvents(firstPresent(source.tests, source.testResults, source.test_results, source.verification?.tests)),
+    testStatus: optionalString(source.testStatus || source.test_status || source.verification?.status || source.status),
+    blockers: normalizeStringList(firstPresent(source.blockers, source.blockedBy, source.blocked_by)),
+    nextSteps: normalizeStringList(firstPresent(source.nextSteps, source.next_steps)),
+    decisions: normalizeStringList(source.decisions),
+    findings: normalizeFindings(firstPresent(source.findings, source.review?.findings)),
+    diff: optionalString(source.diff || source.patch),
+    residualRisk: optionalString(source.residualRisk || source.residual_risk)
+  });
+
+  return Object.keys(continuation).length > 0
+    ? { codexContinuation: continuation }
+    : {};
+}
+
+function bundleDocumentMetadata(metadata) {
+  return metadata.codexContinuation
+    ? { codexContinuation: metadata.codexContinuation }
+    : {};
+}
+
+function renderCodexContinuationMarkdown(object, artifactType, metadata) {
+  const continuation = metadata.codexContinuation || {};
+  const title = object.title || object.name || titleForCodexType(artifactType);
+  const lines = [`# ${title}`, "", `Source: Codex`, `Artifact type: ${artifactType}`, ""];
+
+  addTextSection(lines, "Summary", continuation.summary);
+  addTextSection(lines, "Goal", continuation.goal);
+  addTextSection(lines, "Current State", continuation.currentState);
+  addRecordSection(lines, "Changed Files", continuation.changedFiles, formatChangedFile);
+  addRecordSection(lines, "Commands", continuation.commands, formatEvent);
+  addRecordSection(lines, "Tests", continuation.tests, formatEvent);
+  addTextSection(lines, "Test Status", continuation.testStatus);
+  addRecordSection(lines, "Findings", continuation.findings, formatFinding);
+  addListSection(lines, "Decisions", continuation.decisions);
+  addListSection(lines, "Blockers", continuation.blockers);
+  addListSection(lines, "Next Steps", continuation.nextSteps);
+  addTextSection(lines, "Residual Risk", continuation.residualRisk);
+
+  if (continuation.diff) {
+    lines.push("## Diff", "", "```diff", continuation.diff, "```", "");
+  }
+
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+}
+
+function titleForCodexType(artifactType) {
+  if (artifactType === "code-review") {
+    return "Codex Code Review";
+  }
+  if (artifactType === "test-report") {
+    return "Codex Verification Report";
+  }
+  if (artifactType === "diff-walkthrough") {
+    return "Codex Diff Walkthrough";
+  }
+  return "Codex Handoff";
+}
+
+function addTextSection(lines, title, value) {
+  if (!value) {
+    return;
+  }
+  lines.push(`## ${title}`, "", value, "");
+}
+
+function addListSection(lines, title, values) {
+  if (!values?.length) {
+    return;
+  }
+  lines.push(`## ${title}`, "", ...values.map((value) => `- ${value}`), "");
+}
+
+function addRecordSection(lines, title, values, formatter) {
+  if (!values?.length) {
+    return;
+  }
+  lines.push(`## ${title}`, "", ...values.map((value) => `- ${formatter(value)}`), "");
+}
+
+function formatChangedFile(file) {
+  return [
+    file.path ? `\`${file.path}\`` : "",
+    file.status,
+    file.summary
+  ].filter(Boolean).join(" — ");
+}
+
+function formatEvent(event) {
+  return [
+    event.command ? `\`${event.command}\`` : event.name || event.title || "",
+    event.status,
+    event.summary
+  ].filter(Boolean).join(" — ");
+}
+
+function formatFinding(finding) {
+  return [
+    finding.severity,
+    finding.file ? `\`${finding.file}${finding.line ? `:${finding.line}` : ""}\`` : "",
+    finding.title || finding.message || finding.summary
+  ].filter(Boolean).join(" — ");
+}
+
+function normalizeChangedFiles(value) {
+  return normalizeRecordList(value).map((item) => pruneEmpty({
+    path: typeof item === "string" ? optionalString(item) : optionalString(item.path || item.file || item.name),
+    status: optionalString(item.status || item.changeType || item.change_type),
+    summary: optionalString(item.summary || item.description),
+    additions: integerOrUndefined(item.additions),
+    deletions: integerOrUndefined(item.deletions)
+  })).filter((item) => Object.keys(item).length > 0);
+}
+
+function normalizeEvents(value) {
+  return normalizeRecordList(value).map((item) => {
+    if (typeof item === "string") {
+      return { command: item };
+    }
+    return pruneEmpty({
+      command: optionalString(item.command || item.cmd || item.name),
+      title: optionalString(item.title),
+      status: optionalString(item.status || item.result),
+      summary: optionalString(item.summary || item.output || item.message)
+    });
+  }).filter((item) => Object.keys(item).length > 0);
+}
+
+function normalizeFindings(value) {
+  return normalizeRecordList(value).map((item) => pruneEmpty({
+    severity: optionalString(item.severity || item.priority),
+    file: optionalString(item.file || item.path),
+    line: integerOrUndefined(item.line || item.start),
+    title: optionalString(item.title),
+    message: typeof item === "string" ? optionalString(item) : optionalString(item.message || item.body),
+    summary: optionalString(item.summary)
+  })).filter((item) => Object.keys(item).length > 0);
+}
+
+function normalizeStringList(value) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (typeof item === "string") {
+        return optionalString(item);
+      }
+      if (item && typeof item === "object") {
+        return optionalString(item.summary || item.title || item.message || JSON.stringify(item));
+      }
+      return optionalString(item);
+    }).filter(Boolean);
+  }
+  return [optionalString(value)].filter(Boolean);
+}
+
+function normalizeRecordList(value) {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "object") {
+    return [value];
+  }
+  return [String(value)];
+}
+
+function firstPresent(...values) {
+  return values.find((value) => value !== undefined && value !== null);
+}
+
+function hasNonEmptyArray(value) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function integerOrUndefined(value) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : undefined;
+}
+
+function pruneEmpty(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => {
+      if (item === undefined || item === null || item === "") {
+        return false;
+      }
+      if (Array.isArray(item) && item.length === 0) {
+        return false;
+      }
+      return true;
+    })
+  );
 }
 
 function detectAgent(parsed, fileName) {
@@ -316,6 +693,18 @@ function safeFormat(value) {
   }
   if (normalized === "md") {
     return "markdown";
+  }
+  if (normalized === "jsx" || normalized === "tsx" || normalized.includes("vnd.ant.react")) {
+    return "react";
+  }
+  if (normalized === "svg" || normalized.includes("svg")) {
+    return "svg";
+  }
+  if (normalized === "mmd" || normalized === "mermaid" || normalized.includes("vnd.ant.mermaid")) {
+    return "mermaid";
+  }
+  if (normalized === "code" || normalized.includes("vnd.ant.code") || normalized.includes("source-code")) {
+    return "code";
   }
   if (normalized === "html" || normalized.includes("html")) {
     return "html";
@@ -477,6 +866,15 @@ function inferArtifactType({ format, fileName, metadata }) {
   if (format === "html") {
     return "html-page";
   }
+  if (format === "svg" || format === "mermaid") {
+    return "diagram";
+  }
+  if (format === "react") {
+    return "component";
+  }
+  if (format === "code") {
+    return "snippet";
+  }
   const lowerName = optionalString(fileName).toLowerCase();
   if (lowerName.includes("handoff")) {
     return "handoff";
@@ -495,7 +893,7 @@ function normalizeArtifactType(value) {
   if (!normalized) {
     return "document";
   }
-  const allowed = new Set(["document", "html-page", "handoff", "code-review", "test-report", "dashboard", "design-option", "diff-walkthrough", "bundle", "asset", "unknown"]);
+  const allowed = new Set(ARTIFACT_TYPES);
   return allowed.has(normalized) ? normalized : "unknown";
 }
 
@@ -528,6 +926,46 @@ function looksLikeJson(value) {
   const trimmed = optionalString(value);
   return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
     (trimmed.startsWith("[") && trimmed.endsWith("]"));
+}
+
+function looksLikeMermaid(value) {
+  const firstMeaningfulLine = optionalString(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith("%%"));
+  return /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|stateDiagram-v2|erDiagram|gantt|pie|mindmap|journey)\b/.test(firstMeaningfulLine || "");
+}
+
+function looksLikeReact(value) {
+  const text = optionalString(value);
+  return /\b(import\s+React|from\s+['"]react['"]|export\s+default\s+function|export\s+default\s+\()/m.test(text) ||
+    /<[A-Z][A-Za-z0-9]*[\s/>]/.test(text);
+}
+
+function isCodeExtension(extension) {
+  return new Set([
+    ".js",
+    ".ts",
+    ".py",
+    ".rb",
+    ".go",
+    ".rs",
+    ".java",
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".php",
+    ".swift",
+    ".kt",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".sql",
+    ".toml",
+    ".yaml",
+    ".yml"
+  ]).has(extension);
 }
 
 function stripMarkdownCodeFence(value) {

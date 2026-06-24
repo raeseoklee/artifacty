@@ -19,6 +19,7 @@ test("installs Claude and Gemini project MCP config files", async () => {
     const claudeJson = JSON.parse(await readFile(path.join(projectDir, ".mcp.json"), "utf8"));
     assert.equal(claudeJson.mcpServers.artifacty.command, "node");
     assert.equal(claudeJson.mcpServers.artifacty.env.ARTIFACTY_URL, "http://127.0.0.1:8787");
+    assert.equal("timeout" in claudeJson.mcpServers.artifacty, false);
 
     const gemini = await installAgent("gemini", {
       projectDir,
@@ -29,6 +30,39 @@ test("installs Claude and Gemini project MCP config files", async () => {
     const geminiJson = JSON.parse(await readFile(path.join(projectDir, ".gemini", "settings.json"), "utf8"));
     assert.equal(geminiJson.mcpServers.artifacty.timeout, 30000);
     assert.equal(geminiJson.mcpServers.artifacty.trust, false);
+  } finally {
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("applies install timeout where agent configs support it", async () => {
+  const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-install-timeout-"));
+  try {
+    const codexConfigPath = path.join(projectDir, "config.toml");
+    await installAgent("codex", {
+      projectDir,
+      configPath: codexConfigPath,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      timeout: 45000
+    });
+    const codexConfig = await readFile(codexConfigPath, "utf8");
+    assert.match(codexConfig, /startup_timeout_sec = 45\.0/);
+
+    await installAgent("gemini", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      timeout: 45000
+    });
+    const geminiJson = JSON.parse(await readFile(path.join(projectDir, ".gemini", "settings.json"), "utf8"));
+    assert.equal(geminiJson.mcpServers.artifacty.timeout, 45000);
+
+    await installAgent("claude", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      timeout: 45000
+    });
+    const claudeJson = JSON.parse(await readFile(path.join(projectDir, ".mcp.json"), "utf8"));
+    assert.equal("timeout" in claudeJson.mcpServers.artifacty, false);
   } finally {
     await rm(projectDir, { recursive: true, force: true });
   }
@@ -53,6 +87,7 @@ test("installs Codex MCP config block without duplicating it", async () => {
 
     const content = await readFile(configPath, "utf8");
     assert.equal(content.match(/\[mcp_servers\.artifacty\]/g).length, 1);
+    assert.match(content, /startup_timeout_sec = 30\.0/);
     assert.match(content, /ARTIFACTY_HOME/);
   } finally {
     await rm(projectDir, { recursive: true, force: true });

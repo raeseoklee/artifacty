@@ -1,6 +1,6 @@
 {
   "name": "artifacty",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
   "keywords": [
@@ -34,7 +34,12 @@
   },
   "files": [
     "src",
-    "docs",
+    "docs/artifact-schema-v1.md",
+    "docs/assets/artifacty.png",
+    "docs/integrations.md",
+    "docs/network-sharing.md",
+    "docs/release-checklist.md",
+    "docs/sarif-csv-artifact-plan.md",
     "scripts/smoke.sh",
     "README.md",
     "LICENSE",
@@ -48,8 +53,15 @@
   "license": "MIT",
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
+    "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.0",
-    "codemirror": "^6.0.2"
+    "codemirror": "^6.0.2",
+    "mermaid": "^11.15.0"
+  },
+  "optionalDependencies": {
+    "@babel/standalone": "^7.29.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

@@ -18,6 +18,7 @@ import { checkMcpTools } from "./lib/check.js";
 import { installAgent } from "./lib/installer.js";
 import { serviceCommand } from "./lib/service.js";
 import { resolvePublicBaseUrl } from "./lib/server-state.js";
+import { generateToken } from "./lib/token.js";
 import { startServer } from "./server.js";
 
 const PACKAGE_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -32,17 +33,37 @@ async function main() {
     return;
   }
 
+  if (command === "token" || command === "generate-token") {
+    const token = generateToken(options);
+    if (options.raw) {
+      process.stdout.write(`${token.token}\n`);
+      return;
+    }
+    printJson(token);
+    return;
+  }
+
   if (command === "serve") {
+    if (options.generateToken && options.apiToken) {
+      throw new Error("Use either --api-token or --generate-token, not both");
+    }
+    const generatedToken = options.generateToken ? generateToken(options) : null;
     const server = await startServer({
       host: options.host,
       port: options.port,
       home: options.home,
-      apiToken: options.apiToken,
+      apiToken: generatedToken?.token || options.apiToken,
       shareMode: options.shareMode,
       allowSecrets: options.allowSecrets
     });
     process.stderr.write(`Artifacty listening on ${server.url}\n`);
     process.stderr.write(`Store: ${server.store.home}\n`);
+    if (generatedToken) {
+      process.stderr.write(`API token: ${generatedToken.token}\n`);
+      process.stderr.write(`HTTP header: ${generatedToken.header}\n`);
+      process.stderr.write(`Create URL: ${server.url}/new?token=${encodeURIComponent(generatedToken.token)}\n`);
+      process.stderr.write(`Import URL: ${server.url}/import?token=${encodeURIComponent(generatedToken.token)}\n`);
+    }
     return;
   }
 
@@ -235,7 +256,7 @@ function parseArgs(args) {
     }
 
     const key = arg.slice(2);
-    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets") {
+    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token") {
       options[toCamelCase(key)] = true;
       continue;
     }
@@ -247,7 +268,7 @@ function parseArgs(args) {
 
     if (key === "tag") {
       options.tag = [...(options.tag || []), value];
-    } else if (key === "port" || key === "limit" || key === "version" || key === "schema-version" || key === "timeout") {
+    } else if (key === "port" || key === "limit" || key === "version" || key === "schema-version" || key === "timeout" || key === "bytes") {
       options[toCamelCase(key)] = Number(value);
     } else {
       options[toCamelCase(key)] = value;
@@ -292,12 +313,13 @@ function printHelp() {
   process.stdout.write(`Artifacty
 
 Usage:
-  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty]
-  artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json] [--source agent] [--tag tag]
-  artifacty import --agent claude|codex|gemini|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json] [--tag tag]
-  artifacty install claude|codex|gemini|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787]
+  artifacty token [--bytes 32] [--raw]
+  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--generate-token] [--bytes 32]
+  artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react] [--source agent] [--tag tag]
+  artifacty import --agent claude|codex|gemini|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react] [--tag tag]
+  artifacty install claude|codex|gemini|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
-  artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json]
+  artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react]
   artifacty archive <id>
   artifacty restore <id>
   artifacty audit [--artifact <id>] [--limit 100]

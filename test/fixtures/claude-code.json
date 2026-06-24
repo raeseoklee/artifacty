@@ -1,0 +1,6 @@
+{
+  "title": "Claude JavaScript snippet",
+  "type": "application/vnd.ant.code",
+  "language": "javascript",
+  "content": "export function add(a, b) {\\n  return a + b;\\n}"
+}

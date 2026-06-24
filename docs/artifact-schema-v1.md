@@ -32,6 +32,9 @@ Allowed `artifactType` values:
 - `diff-walkthrough`
 - `bundle`
 - `asset`
+- `diagram`
+- `component`
+- `snippet`
 - `unknown`
 
 Unknown legacy or external types should be mapped to `unknown`, not rejected during conversion. Native create/update rejects unsupported explicit types.
@@ -53,7 +56,24 @@ Each version is immutable and points at one content file.
 }
 ```
 
-Allowed `format` values are `html`, `markdown`, `text`, and `json`.
+Allowed `format` values are `html`, `markdown`, `text`, `json`, `code`, `svg`,
+`mermaid`, and `react`.
+
+## Renderer Policy
+
+Storage preserves artifact source as immutable content. Browser rendering is a
+viewer concern and must treat all source as untrusted:
+
+- `code`: read-only CodeMirror viewer with escaped source fallback.
+- `svg`: scriptless sandboxed iframe after viewer-side sanitization; `/raw`
+  preserves the original source.
+- `mermaid`: vendored local Mermaid bundle in a sandboxed iframe without
+  `allow-same-origin`. Local JavaScript assets use
+  `Access-Control-Allow-Origin: null` for `Origin: null` requests so the
+  opaque-origin frame can import ESM.
+- `react`: source-only by default. `ARTIFACTY_ENABLE_REACT_RENDERER=true`
+  enables a separate sandboxed frame with frame-scoped CSP for JSX transform and
+  execution.
 
 ## Metadata
 
@@ -63,6 +83,11 @@ Metadata is free-form JSON, but converter-generated metadata uses these keys:
 - `originalPayloadShape`: original payload family, such as `gemini-llmContent`, `content`, or `artifact-bundle`.
 - `assetPolicy`: how embedded assets were preserved.
 - `bundlePolicy`: how bundled files were preserved.
+- `language`: source language for code or component artifacts when supplied by an
+  upstream agent.
+- `codexContinuation`: structured Codex handoff metadata such as changed files,
+  commands, tests, blockers, decisions, next steps, findings, diff text, and
+  residual risk.
 
 ## Archive Semantics
 

@@ -44,6 +44,14 @@ test("mcp server initializes and exposes artifact tools", async () => {
     assert.ok(listedTools.tools.some((tool) => tool.name === "artifacty_archive"));
     assert.ok(listedTools.tools.some((tool) => tool.name === "artifacty_restore"));
     assert.ok(listedTools.tools.some((tool) => tool.name === "artifacty_audit"));
+    const createTool = listedTools.tools.find((tool) => tool.name === "artifacty_create");
+    assert.ok(createTool.inputSchema.properties.format.enum.includes("code"));
+    assert.ok(createTool.inputSchema.properties.format.enum.includes("svg"));
+    assert.ok(createTool.inputSchema.properties.format.enum.includes("mermaid"));
+    assert.ok(createTool.inputSchema.properties.format.enum.includes("react"));
+    assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("diagram"));
+    assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("component"));
+    assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("snippet"));
 
     const info = await client.request("tools/call", {
       name: "artifacty_info",
@@ -71,6 +79,20 @@ test("mcp server initializes and exposes artifact tools", async () => {
     });
     assert.equal(fetched.structuredContent.content, "hello");
     assert.equal(fetched.structuredContent.schemaVersion, 1);
+
+    const codeArtifact = await client.request("tools/call", {
+      name: "artifacty_create",
+      arguments: {
+        title: "MCP Snippet",
+        content: "console.log('mcp');",
+        format: "code",
+        artifactType: "snippet",
+        sourceAgent: "codex"
+      }
+    });
+    assert.equal(codeArtifact.isError, false);
+    assert.equal(codeArtifact.structuredContent.version.format, "code");
+    assert.equal(codeArtifact.structuredContent.artifactType, "snippet");
 
     const archived = await client.request("tools/call", {
       name: "artifacty_archive",

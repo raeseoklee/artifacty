@@ -9,6 +9,16 @@ import { assertNoSecrets, securityConfig } from "./security.js";
 export const STORE_VERSION = 3;
 export const ARTIFACT_SCHEMA_VERSION = 1;
 export const MAX_ARTIFACT_BYTES = 16 * 1024 * 1024;
+export const ARTIFACT_FORMATS = [
+  "html",
+  "markdown",
+  "text",
+  "json",
+  "code",
+  "svg",
+  "mermaid",
+  "react"
+];
 export const ARTIFACT_TYPES = [
   "document",
   "html-page",
@@ -20,6 +30,9 @@ export const ARTIFACT_TYPES = [
   "diff-walkthrough",
   "bundle",
   "asset",
+  "diagram",
+  "component",
+  "snippet",
   "unknown"
 ];
 
@@ -27,14 +40,22 @@ const FORMAT_TO_EXTENSION = {
   html: "html",
   markdown: "md",
   text: "txt",
-  json: "json"
+  json: "json",
+  code: "code",
+  svg: "svg",
+  mermaid: "mmd",
+  react: "jsx"
 };
 
 const FORMAT_TO_CONTENT_TYPE = {
   html: "text/html; charset=utf-8",
   markdown: "text/markdown; charset=utf-8",
   text: "text/plain; charset=utf-8",
-  json: "application/json; charset=utf-8"
+  json: "application/json; charset=utf-8",
+  code: "text/x-source-code; charset=utf-8",
+  svg: "image/svg+xml; charset=utf-8",
+  mermaid: "text/vnd.mermaid; charset=utf-8",
+  react: "text/jsx; charset=utf-8"
 };
 
 export function createStore(options = {}) {
@@ -368,7 +389,16 @@ export function normalizeFormat(value = "text") {
   if (normalized === "md") {
     return "markdown";
   }
-  if (normalized === "html" || normalized === "markdown" || normalized === "text" || normalized === "json") {
+  if (normalized === "svg+xml") {
+    return "svg";
+  }
+  if (normalized === "mmd") {
+    return "mermaid";
+  }
+  if (normalized === "jsx" || normalized === "tsx") {
+    return "react";
+  }
+  if (ARTIFACT_FORMATS.includes(normalized)) {
     return normalized;
   }
   throw Object.assign(new Error(`Unsupported artifact format: ${value}`), {
@@ -757,9 +787,23 @@ function normalizeSchemaVersion(value) {
 }
 
 function inferArtifactType(input) {
-  const format = normalizeOptionalString(input.format || inferFormat(input.contentType));
+  let format;
+  try {
+    format = normalizeFormat(input.format || inferFormat(input.contentType));
+  } catch {
+    format = normalizeOptionalString(input.format || inferFormat(input.contentType));
+  }
   if (format === "html") {
     return "html-page";
+  }
+  if (format === "svg" || format === "mermaid") {
+    return "diagram";
+  }
+  if (format === "react") {
+    return "component";
+  }
+  if (format === "code") {
+    return "snippet";
   }
   return "document";
 }
@@ -787,6 +831,18 @@ function normalizeOptionalString(value) {
 
 function inferFormat(contentType) {
   const value = normalizeOptionalString(contentType).toLowerCase();
+  if (value.includes("vnd.ant.code") || value.includes("source-code")) {
+    return "code";
+  }
+  if (value.includes("svg")) {
+    return "svg";
+  }
+  if (value.includes("vnd.ant.mermaid") || value.includes("mermaid")) {
+    return "mermaid";
+  }
+  if (value.includes("vnd.ant.react") || value.includes("jsx")) {
+    return "react";
+  }
   if (value.includes("html")) {
     return "html";
   }

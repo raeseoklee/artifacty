@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import http from "node:http";
 import test from "node:test";
 import { startServer } from "../src/server.js";
 import { readServerState } from "../src/lib/server-state.js";
@@ -45,6 +46,133 @@ test("serves HTTP API and browser artifact pages", async () => {
     const rawResponse = await fetch(created.rawUrl);
     assert.equal(await rawResponse.text(), "<h1>Hello</h1>");
 
+    const markdownTableResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Markdown Table",
+        content: [
+          "| Name | Count | Status |",
+          "|:-----|------:|:------:|",
+          "| Codex | 2 | ok |",
+          "| Artifacty | 10 | ready |"
+        ].join("\n"),
+        format: "markdown",
+        sourceAgent: "test"
+      })
+    });
+    const markdownTableArtifact = await markdownTableResponse.json();
+    const markdownTablePage = await (await fetch(markdownTableArtifact.url)).text();
+    assert.match(markdownTablePage, /artifact-table-scroll/);
+    assert.match(markdownTablePage, /<table class="artifact-table">/);
+    assert.match(markdownTablePage, /<th class="align-left">Name<\/th>/);
+    assert.match(markdownTablePage, /<th class="align-right">Count<\/th>/);
+    assert.match(markdownTablePage, /<th class="align-center">Status<\/th>/);
+    assert.doesNotMatch(markdownTablePage, /\|:-----\|------:\|/);
+
+    const codeResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Snippet",
+        content: "export function ok() { return true; }",
+        format: "code",
+        artifactType: "snippet",
+        metadata: { language: "javascript" },
+        sourceAgent: "test"
+      })
+    });
+    const codeArtifact = await codeResponse.json();
+    const codePage = await (await fetch(codeArtifact.url)).text();
+    assert.match(codePage, /data-artifacty-code-viewer/);
+    assert.match(codePage, /\/assets\/viewer\.js/);
+    assert.match(codePage, /type="importmap"/);
+    assert.equal(await (await fetch(codeArtifact.rawUrl)).text(), "export function ok() { return true; }");
+
+    const unsafeSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(1)\"><script>alert(1)</script><text>ok</text></svg>";
+    const svgResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "SVG",
+        content: unsafeSvg,
+        format: "svg",
+        artifactType: "diagram",
+        sourceAgent: "test"
+      })
+    });
+    const svgArtifact = await svgResponse.json();
+    const svgPage = await (await fetch(svgArtifact.url)).text();
+    assert.match(svgPage, /artifact-svg-frame/);
+    assert.match(svgPage, /<iframe class="artifact-frame artifact-svg-frame" sandbox srcdoc="/);
+    assert.doesNotMatch(svgPage, /allow-scripts/);
+    assert.doesNotMatch(svgPage, /onload/);
+    assert.doesNotMatch(svgPage, /&lt;script/);
+    assert.equal(await (await fetch(svgArtifact.rawUrl)).text(), unsafeSvg);
+
+    const mermaidSource = "flowchart TD\n  A[Codex] --> B[Artifacty]";
+    const mermaidResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Mermaid",
+        content: mermaidSource,
+        format: "mermaid",
+        artifactType: "diagram",
+        sourceAgent: "test"
+      })
+    });
+    const mermaidArtifact = await mermaidResponse.json();
+    const mermaidPage = await (await fetch(mermaidArtifact.url)).text();
+    assert.match(mermaidPage, /artifact-mermaid-frame/);
+    assert.match(mermaidPage, /sandbox="allow-scripts"/);
+    assert.doesNotMatch(mermaidPage, /allow-same-origin/);
+    assert.match(mermaidPage, /\/vendor\/npm\/mermaid\/dist\/mermaid\.esm\.min\.mjs/);
+    assert.match(mermaidPage, /artifacty-mermaid-source/);
+    assert.equal(await (await fetch(mermaidArtifact.rawUrl)).text(), mermaidSource);
+
+    const reactSource = "export default function Demo() { return <strong>ok</strong>; }";
+    const reactResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "React",
+        content: reactSource,
+        format: "react",
+        artifactType: "component",
+        sourceAgent: "test"
+      })
+    });
+    const reactArtifact = await reactResponse.json();
+    const disabledReactPage = await (await fetch(reactArtifact.url)).text();
+    assert.match(disabledReactPage, /React rendering is disabled/);
+    assert.doesNotMatch(disabledReactPage, /artifact-react-frame/);
+    const disabledReactFrame = await fetch(`${app.url}/artifacts/${reactArtifact.id}/react-frame`);
+    assert.equal(disabledReactFrame.status, 403);
+
+    const previousReactFlag = process.env.ARTIFACTY_ENABLE_REACT_RENDERER;
+    process.env.ARTIFACTY_ENABLE_REACT_RENDERER = "true";
+    try {
+      const enabledReactPage = await (await fetch(reactArtifact.url)).text();
+      assert.match(enabledReactPage, /artifact-react-frame/);
+      assert.match(enabledReactPage, /sandbox="allow-scripts"/);
+      assert.doesNotMatch(enabledReactPage, /allow-same-origin/);
+      const reactFrameResponse = await fetch(`${app.url}/artifacts/${reactArtifact.id}/react-frame`);
+      assert.equal(reactFrameResponse.status, 200);
+      assert.match(reactFrameResponse.headers.get("content-security-policy"), /unsafe-eval/);
+      const reactFrameHtml = await reactFrameResponse.text();
+      assert.match(reactFrameHtml, /\/vendor\/npm\/react\/umd\/react\.production\.min\.js/);
+      assert.match(reactFrameHtml, /\/vendor\/npm\/react-dom\/umd\/react-dom\.production\.min\.js/);
+      assert.match(reactFrameHtml, /\/vendor\/npm\/@babel\/standalone\/babel\.min\.js/);
+      assert.doesNotMatch(reactFrameHtml, /allow-same-origin/);
+    } finally {
+      if (previousReactFlag === undefined) {
+        delete process.env.ARTIFACTY_ENABLE_REACT_RENDERER;
+      } else {
+        process.env.ARTIFACTY_ENABLE_REACT_RENDERER = previousReactFlag;
+      }
+    }
+
     const newPageResponse = await fetch(`${app.url}/new`);
     const newPage = await newPageResponse.text();
     assert.equal(newPageResponse.status, 200);
@@ -54,6 +182,13 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.match(newPage, /data-artifacty-editor/);
     assert.match(newPage, /\/assets\/editor\.js/);
     assert.match(newPage, /window\.ARTIFACTY_I18N/);
+    assert.match(newPage, /<option value="code">Code<\/option>/);
+    assert.match(newPage, /<option value="svg">Svg<\/option>/);
+    assert.match(newPage, /<option value="mermaid">Mermaid<\/option>/);
+    assert.match(newPage, /<option value="react">React<\/option>/);
+    assert.match(newPage, /<option value="diagram">diagram<\/option>/);
+    assert.match(newPage, /<option value="component">component<\/option>/);
+    assert.match(newPage, /<option value="snippet">snippet<\/option>/);
 
     const koreanNewPageResponse = await fetch(`${app.url}/new?lang=ko`);
     const koreanNewPage = await koreanNewPageResponse.text();
@@ -66,7 +201,21 @@ test("serves HTTP API and browser artifact pages", async () => {
     const editorAssetResponse = await fetch(`${app.url}/assets/editor.js`);
     assert.equal(editorAssetResponse.status, 200);
     assert.match(editorAssetResponse.headers.get("content-type"), /text\/javascript/);
+    assert.equal(editorAssetResponse.headers.get("access-control-allow-origin"), null);
     assert.match(await editorAssetResponse.text(), /EditorView/);
+
+    const viewerAssetResponse = await fetch(`${app.url}/assets/viewer.js`);
+    assert.equal(viewerAssetResponse.status, 200);
+    assert.match(viewerAssetResponse.headers.get("content-type"), /text\/javascript/);
+    assert.equal(viewerAssetResponse.headers.get("access-control-allow-origin"), null);
+    assert.match(await viewerAssetResponse.text(), /data-artifacty-code-viewer/);
+
+    const opaqueViewerAssetResponse = await fetch(`${app.url}/assets/viewer.js`, {
+      headers: { origin: "null" }
+    });
+    assert.equal(opaqueViewerAssetResponse.status, 200);
+    assert.equal(opaqueViewerAssetResponse.headers.get("access-control-allow-origin"), "null");
+    assert.equal(opaqueViewerAssetResponse.headers.get("vary"), "Origin");
 
     const codeMirrorVendorResponse = await fetch(`${app.url}/vendor/npm/codemirror`);
     assert.equal(codeMirrorVendorResponse.status, 200);
@@ -75,6 +224,33 @@ test("serves HTTP API and browser artifact pages", async () => {
     const styleModVendorResponse = await fetch(`${app.url}/vendor/npm/style-mod`);
     assert.equal(styleModVendorResponse.status, 200);
     assert.match(await styleModVendorResponse.text(), /StyleModule/);
+
+    const mermaidVendorResponse = await fetch(`${app.url}/vendor/npm/mermaid/dist/mermaid.esm.min.mjs`);
+    assert.equal(mermaidVendorResponse.status, 200);
+    assert.equal(mermaidVendorResponse.headers.get("access-control-allow-origin"), null);
+    assert.match(await mermaidVendorResponse.text(), /mermaid/);
+
+    const opaqueMermaidVendorResponse = await fetch(`${app.url}/vendor/npm/mermaid/dist/mermaid.esm.min.mjs`, {
+      headers: { origin: "null" }
+    });
+    assert.equal(opaqueMermaidVendorResponse.status, 200);
+    assert.equal(opaqueMermaidVendorResponse.headers.get("access-control-allow-origin"), "null");
+    assert.equal(opaqueMermaidVendorResponse.headers.get("vary"), "Origin");
+
+    const reactVendorResponse = await fetch(`${app.url}/vendor/npm/react/umd/react.production.min.js`);
+    assert.equal(reactVendorResponse.status, 200);
+    assert.match(await reactVendorResponse.text(), /React/);
+
+    const reactDomVendorResponse = await fetch(`${app.url}/vendor/npm/react-dom/umd/react-dom.production.min.js`);
+    assert.equal(reactDomVendorResponse.status, 200);
+    assert.match(await reactDomVendorResponse.text(), /ReactDOM/);
+
+    const babelVendorResponse = await fetch(`${app.url}/vendor/npm/@babel/standalone/babel.min.js`);
+    assert.equal(babelVendorResponse.status, 200);
+    assert.match(await babelVendorResponse.text(), /Babel/);
+
+    const blockedVendorSubpathResponse = await fetch(`${app.url}/vendor/npm/mermaid/../package.json`);
+    assert.equal(blockedVendorSubpathResponse.status, 404);
 
     const blockedVendorResponse = await fetch(`${app.url}/vendor/npm/not-allowed`);
     assert.equal(blockedVendorResponse.status, 404);
@@ -171,6 +347,29 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.equal(imported.title, "Status");
     assert.equal(imported.converted.format, "html");
     assert.equal(imported.version.format, "html");
+
+    const codexImportResponse = await fetch(`${app.url}/api/import`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agent: "auto",
+        content: JSON.stringify({
+          agent: "codex",
+          title: "Implementation Handoff",
+          goal: "Finish the release checklist",
+          changedFiles: [
+            { path: "README.md", status: "modified", summary: "Add handoff scenario" }
+          ],
+          nextSteps: ["Run npm run release:check"]
+        })
+      })
+    });
+    assert.equal(codexImportResponse.status, 201);
+    const codexImported = await codexImportResponse.json();
+    assert.equal(codexImported.artifactType, "handoff");
+    assert.equal(codexImported.converted.sourceAgent, "codex");
+    assert.equal(codexImported.converted.metadata.originalPayloadShape, "codex-continuation");
+    assert.match(codexImported.content, /Finish the release checklist/);
   } finally {
     await app.close();
     await rm(home, { recursive: true, force: true });
@@ -207,6 +406,25 @@ test("requires API token when configured and blocks secrets", async () => {
     const secretBody = await secretResponse.json();
     assert.equal(secretBody.code, "SECRET_DETECTED");
     assert.equal(secretBody.findings[0].type, "github-token");
+
+    const secretImportResponse = await fetch(`${app.url}/api/import`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-artifacty-token": "test-token"
+      },
+      body: JSON.stringify({
+        agent: "gemini",
+        content: JSON.stringify({
+          title: "Secret import",
+          returnDisplay: `# Secret\n\n${fakeGithubToken}`
+        })
+      })
+    });
+    assert.equal(secretImportResponse.status, 400);
+    const secretImportBody = await secretImportResponse.json();
+    assert.equal(secretImportBody.code, "SECRET_DETECTED");
+    assert.equal(secretImportBody.findings[0].type, "github-token");
 
     const createResponse = await fetch(`${app.url}/api/artifacts`, {
       method: "POST",
@@ -280,3 +498,57 @@ test("keeps explicit port failures but supports intentional fallback", async () 
     await rm(fallbackHome, { recursive: true, force: true });
   }
 });
+
+test("allows null-origin CORS only for vendored JS assets, not sensitive routes", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-cors-"));
+  const app = await startServer({ port: 0, home });
+
+  // Vendored ES modules (e.g. the Mermaid renderer) are imported from a sandboxed
+  // iframe with no `allow-same-origin`, so its requests carry `Origin: null`. The
+  // asset route must echo `Access-Control-Allow-Origin: null` or the import is
+  // blocked by CORS and the diagram renders blank. Guards that regression headlessly.
+  const vendorPath = "/vendor/npm/mermaid/dist/mermaid.esm.min.mjs";
+
+  try {
+    const nullOrigin = await rawRequest(app.url, "HEAD", vendorPath, { Origin: "null" });
+    assert.equal(nullOrigin.status, 200);
+    assert.match(nullOrigin.headers["content-type"], /javascript/);
+    assert.equal(nullOrigin.headers["access-control-allow-origin"], "null");
+    assert.equal(nullOrigin.headers["vary"], "Origin");
+
+    const noOrigin = await rawRequest(app.url, "HEAD", vendorPath, {});
+    assert.equal(noOrigin.status, 200);
+    assert.equal(noOrigin.headers["access-control-allow-origin"], undefined);
+
+    const otherOrigin = await rawRequest(app.url, "HEAD", vendorPath, { Origin: "https://evil.example" });
+    assert.equal(otherOrigin.headers["access-control-allow-origin"], undefined);
+
+    // The allowance is scoped to static JS assets — sensitive routes never echo it.
+    const api = await rawRequest(app.url, "GET", "/api/artifacts", { Origin: "null" });
+    assert.equal(api.headers["access-control-allow-origin"], undefined);
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+function rawRequest(baseUrl, method, pathname, headers) {
+  const url = new URL(pathname, baseUrl);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method,
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        headers
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () => resolve({ status: res.statusCode, headers: res.headers }));
+      }
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}

@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  ARTIFACT_FORMATS,
+  ARTIFACT_TYPES,
   archiveArtifact,
+  contentTypeForFormat,
   createArtifact,
   createStore,
   getArtifact,
@@ -79,6 +82,75 @@ test("creates, lists, reads, and versions artifacts", async () => {
     assert.ok(actions.includes("read"));
     assert.ok(actions.includes("archive"));
     assert.ok(actions.includes("restore"));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("stores extended artifact formats and taxonomy", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-format-taxonomy-"));
+  try {
+    assert.ok(ARTIFACT_FORMATS.includes("code"));
+    assert.ok(ARTIFACT_FORMATS.includes("svg"));
+    assert.ok(ARTIFACT_FORMATS.includes("mermaid"));
+    assert.ok(ARTIFACT_FORMATS.includes("react"));
+    assert.ok(ARTIFACT_TYPES.includes("diagram"));
+    assert.ok(ARTIFACT_TYPES.includes("component"));
+    assert.ok(ARTIFACT_TYPES.includes("snippet"));
+
+    const store = createStore({ home });
+    const cases = [
+      {
+        title: "Snippet",
+        content: "console.log('ok');",
+        format: "code",
+        artifactType: "snippet",
+        extension: ".code"
+      },
+      {
+        title: "Diagram SVG",
+        content: "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+        format: "svg",
+        artifactType: "diagram",
+        extension: ".svg"
+      },
+      {
+        title: "Mermaid",
+        content: "flowchart TD\n  A --> B",
+        format: "mermaid",
+        artifactType: "diagram",
+        extension: ".mmd"
+      },
+      {
+        title: "Component",
+        content: "export default function App() { return <div />; }",
+        format: "react",
+        artifactType: "component",
+        extension: ".jsx"
+      }
+    ];
+
+    for (const item of cases) {
+      const artifact = await createArtifact(store, {
+        title: item.title,
+        content: item.content,
+        format: item.format,
+        artifactType: item.artifactType,
+        sourceAgent: "test"
+      });
+      assert.equal(artifact.version.format, item.format);
+      assert.equal(artifact.version.contentType, contentTypeForFormat(item.format));
+      assert.equal(artifact.artifactType, item.artifactType);
+      assert.ok(artifact.version.path.endsWith(item.extension));
+    }
+
+    const inferred = await createArtifact(store, {
+      title: "Inferred Mermaid",
+      content: "flowchart TD\n  A --> B",
+      format: "mermaid",
+      sourceAgent: "test"
+    });
+    assert.equal(inferred.artifactType, "diagram");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

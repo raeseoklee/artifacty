@@ -17,13 +17,15 @@ import {
 } from "./lib/storage.js";
 import { convertAgentArtifact } from "./lib/converters.js";
 import { createLineDiff } from "./lib/diff.js";
-import { EDITOR_CLIENT_PATH, editorClientFilePath, editorVendorPath } from "./lib/editor-assets.js";
+import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, viewerClientFilePath } from "./lib/editor-assets.js";
 import { localeFromBodyOrUrl, localeFromUrl, localizedHref } from "./lib/i18n.js";
 import { requireToken, securityConfig, validateServerExposure } from "./lib/security.js";
 import { writeServerState } from "./lib/server-state.js";
+import { generateToken } from "./lib/token.js";
 import {
   renderArtifactFormPage,
   renderArtifactPage,
+  renderReactFramePage,
   renderDashboard,
   renderDiffPage,
   renderImportArtifactPage,
@@ -146,7 +148,11 @@ export async function handleRequest({ request, response, store, host, port, secu
   const method = headOnly ? "GET" : request.method;
 
   if (method === "GET" && pathname === EDITOR_CLIENT_PATH) {
-    return sendJavaScriptFile(response, editorClientFilePath(PACKAGE_ROOT), headOnly);
+    return sendJavaScriptFile(response, editorClientFilePath(PACKAGE_ROOT), headOnly, request);
+  }
+
+  if (method === "GET" && pathname === VIEWER_CLIENT_PATH) {
+    return sendJavaScriptFile(response, viewerClientFilePath(PACKAGE_ROOT), headOnly, request);
   }
 
   if (method === "GET" && pathname.startsWith("/vendor/npm/")) {
@@ -155,7 +161,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     if (!vendorPath) {
       return sendJson(response, { error: "Not found" }, 404, headOnly);
     }
-    return sendJavaScriptFile(response, vendorPath, headOnly);
+    return sendJavaScriptFile(response, vendorPath, headOnly, request);
   }
 
   if (pathname.startsWith("/api/")) {
@@ -375,6 +381,27 @@ export async function handleRequest({ request, response, store, host, port, secu
     return sendJson(response, decorateArtifactUrls(artifact, baseUrl));
   }
 
+  const reactFrameMatch = /^\/artifacts\/([^/]+)\/react-frame$/.exec(pathname);
+  if (reactFrameMatch && method === "GET") {
+    if (process.env.ARTIFACTY_ENABLE_REACT_RENDERER !== "true") {
+      return sendJson(response, { error: "React renderer is disabled" }, 403, headOnly);
+    }
+    const artifact = await getArtifact(store, reactFrameMatch[1], {
+      version: url.searchParams.get("version") || undefined,
+      audit: auditContext(request, "web-react-frame")
+    });
+    if (artifact.version.format !== "react") {
+      return sendJson(response, { error: "Artifact version is not a React artifact" }, 400, headOnly);
+    }
+    return sendHtml(
+      response,
+      renderReactFramePage({ title: artifact.title, content: artifact.content }),
+      200,
+      headOnly,
+      reactFrameContentSecurityPolicy()
+    );
+  }
+
   const artifactMatch = /^\/artifacts\/([^/]+)(?:\/raw)?$/.exec(pathname);
   if (artifactMatch && method === "GET") {
     const artifact = await getArtifact(store, artifactMatch[1], {
@@ -477,33 +504,62 @@ export function sendJson(response, data, statusCode = 200, headOnly = false) {
   response.end(headOnly ? undefined : `${JSON.stringify(data, null, 2)}\n`);
 }
 
-export function sendHtml(response, html, statusCode = 200, headOnly = false) {
+export function sendHtml(response, html, statusCode = 200, headOnly = false, contentSecurityPolicy = defaultContentSecurityPolicy()) {
   response.writeHead(statusCode, {
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
-    "content-security-policy": [
-      "default-src 'self' data: blob:",
-      "frame-src 'self' data: blob:",
-      "img-src 'self' data: blob:",
-      "style-src 'self' 'unsafe-inline'",
-      "script-src 'self' 'unsafe-inline'",
-      "object-src 'none'",
-      "base-uri 'none'",
-      "form-action 'self'"
-    ].join("; ")
+    "content-security-policy": contentSecurityPolicy
   });
   response.end(headOnly ? undefined : html);
 }
 
-export async function sendJavaScriptFile(response, filePath, headOnly = false) {
+function defaultContentSecurityPolicy() {
+  return [
+    "default-src 'self' data: blob:",
+    "frame-src 'self' data: blob:",
+    "img-src 'self' data: blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self' 'unsafe-inline'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'"
+  ].join("; ");
+}
+
+function reactFrameContentSecurityPolicy() {
+  return [
+    "default-src 'none'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src data: blob:",
+    "font-src data:",
+    "connect-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'"
+  ].join("; ");
+}
+
+export async function sendJavaScriptFile(response, filePath, headOnly = false, request = null) {
   const content = headOnly ? "" : await readFile(filePath, "utf8");
   response.writeHead(200, {
     "content-type": "text/javascript; charset=utf-8",
     "cache-control": "no-store",
+    ...javascriptCorsHeaders(request),
     "x-content-type-options": "nosniff"
   });
   response.end(headOnly ? undefined : content);
+}
+
+function javascriptCorsHeaders(request) {
+  if (request?.headers?.origin !== "null") {
+    return {};
+  }
+  return {
+    "access-control-allow-origin": "null",
+    vary: "Origin"
+  };
 }
 
 export function sendRedirect(response, location) {
@@ -548,16 +604,29 @@ function isMain(metaUrl) {
 }
 
 if (isMain(import.meta.url)) {
-  const options = parseServerArgs(process.argv.slice(2));
-  startServer(options)
-    .then(({ url, store }) => {
-      process.stderr.write(`Artifacty listening on ${url}\n`);
-      process.stderr.write(`Store: ${store.home}\n`);
-    })
-    .catch((error) => {
-      process.stderr.write(`${error.stack || error.message}\n`);
-      process.exitCode = 1;
-    });
+  runServerMain(parseServerArgs(process.argv.slice(2))).catch((error) => {
+    process.stderr.write(`${error.stack || error.message}\n`);
+    process.exitCode = 1;
+  });
+}
+
+async function runServerMain(options) {
+  if (options.generateToken && options.apiToken) {
+    throw new Error("Use either --api-token or --generate-token, not both");
+  }
+  const generatedToken = options.generateToken ? generateToken(options) : null;
+  const { url, store } = await startServer({
+    ...options,
+    apiToken: generatedToken?.token || options.apiToken
+  });
+  process.stderr.write(`Artifacty listening on ${url}\n`);
+  process.stderr.write(`Store: ${store.home}\n`);
+  if (generatedToken) {
+    process.stderr.write(`API token: ${generatedToken.token}\n`);
+    process.stderr.write(`HTTP header: ${generatedToken.header}\n`);
+    process.stderr.write(`Create URL: ${url}/new?token=${encodeURIComponent(generatedToken.token)}\n`);
+    process.stderr.write(`Import URL: ${url}/import?token=${encodeURIComponent(generatedToken.token)}\n`);
+  }
 }
 
 function parseServerArgs(args) {
@@ -570,6 +639,16 @@ function parseServerArgs(args) {
       options.port = Number(args[++index]);
     } else if (arg === "--home") {
       options.home = args[++index];
+    } else if (arg === "--api-token") {
+      options.apiToken = args[++index];
+    } else if (arg === "--share-mode") {
+      options.shareMode = args[++index];
+    } else if (arg === "--bytes") {
+      options.bytes = Number(args[++index]);
+    } else if (arg === "--generate-token") {
+      options.generateToken = true;
+    } else if (arg === "--allow-secrets") {
+      options.allowSecrets = true;
     }
   }
   return options;

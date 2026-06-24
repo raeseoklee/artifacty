@@ -15,6 +15,8 @@ const messages = {
   ...(globalThis.ARTIFACTY_I18N || {})
 };
 
+const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "mermaid", "react"];
+
 const editorTheme = EditorView.theme({
   "&": {
     minHeight: "52vh",
@@ -146,6 +148,16 @@ function enhanceTextarea(textarea) {
       return;
     }
 
+    if (format === "svg") {
+      const frame = document.createElement("iframe");
+      frame.className = "editor-preview-frame";
+      frame.setAttribute("sandbox", "");
+      frame.srcdoc = content;
+      preview.append(frame);
+      status.textContent = formatLabel(format);
+      return;
+    }
+
     if (format === "json") {
       const pre = document.createElement("pre");
       try {
@@ -176,7 +188,7 @@ function enhanceTextarea(textarea) {
 }
 
 function languageExtension(format) {
-  if (format === "html") {
+  if (format === "html" || format === "svg") {
     return html();
   }
   if (format === "json") {
@@ -189,7 +201,7 @@ function languageExtension(format) {
 }
 
 function detectFormat({ explicit, fileName, content }) {
-  if (["markdown", "html", "json", "text"].includes(explicit)) {
+  if (SUPPORTED_FORMATS.includes(explicit)) {
     return explicit;
   }
 
@@ -203,8 +215,29 @@ function detectFormat({ explicit, fileName, content }) {
   if (lowerName.endsWith(".json")) {
     return "json";
   }
+  if (lowerName.endsWith(".svg")) {
+    return "svg";
+  }
+  if (lowerName.endsWith(".mmd") || lowerName.endsWith(".mermaid")) {
+    return "mermaid";
+  }
+  if (lowerName.endsWith(".jsx") || lowerName.endsWith(".tsx")) {
+    return "react";
+  }
+  if (/\.(js|ts|py|rb|go|rs|java|c|cc|cpp|cs|php|swift|kt|sh|bash|zsh)$/.test(lowerName)) {
+    return "code";
+  }
 
   const trimmed = String(content || "").trimStart();
+  if (/^(?:<\?xml[\s\S]*?\?>\s*)?<svg[\s>]/i.test(trimmed)) {
+    return "svg";
+  }
+  if (/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|stateDiagram-v2|erDiagram|gantt|pie|mindmap|journey)\b/m.test(trimmed)) {
+    return "mermaid";
+  }
+  if (/\b(import\s+React|from\s+['"]react['"]|export\s+default\s+function|export\s+default\s+\()/m.test(trimmed) || /<[A-Z][A-Za-z0-9]*[\s/>]/.test(trimmed)) {
+    return "react";
+  }
   if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html") || trimmed.startsWith("<")) {
     return "html";
   }

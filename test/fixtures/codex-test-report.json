@@ -1,0 +1,7 @@
+{
+  "title": "Codex Verification",
+  "sourceAgent": "codex",
+  "artifactType": "test-report",
+  "format": "markdown",
+  "content": "# Verification\\n\\n- `npm test` passed."
+}

@@ -37,6 +37,128 @@ test("converts fixture-based agent artifacts", async () => {
   assert.equal(codex.artifactType, "handoff");
 });
 
+test("converts Claude structured and sniffed artifact formats", async () => {
+  const code = convertAgentArtifact({
+    agent: "claude",
+    content: await readFile("test/fixtures/claude-code.json", "utf8")
+  });
+  assert.equal(code.format, "code");
+  assert.equal(code.artifactType, "snippet");
+  assert.equal(code.metadata.artifactyImport.contentType, "application/vnd.ant.code");
+  assert.equal(code.metadata.language, "javascript");
+
+  const svg = convertAgentArtifact({
+    agent: "claude",
+    fileName: "claude-diagram.svg",
+    content: await readFile("test/fixtures/claude-diagram.svg", "utf8")
+  });
+  assert.equal(svg.format, "svg");
+  assert.equal(svg.artifactType, "diagram");
+
+  const mermaid = convertAgentArtifact({
+    agent: "claude",
+    fileName: "claude-flow.mmd",
+    content: await readFile("test/fixtures/claude-flow.mmd", "utf8")
+  });
+  assert.equal(mermaid.format, "mermaid");
+  assert.equal(mermaid.artifactType, "diagram");
+
+  const react = convertAgentArtifact({
+    agent: "claude",
+    content: await readFile("test/fixtures/claude-react.json", "utf8")
+  });
+  assert.equal(react.format, "react");
+  assert.equal(react.artifactType, "component");
+  assert.equal(react.metadata.language, "tsx");
+});
+
+test("preserves explicit Codex continuation artifact types", async () => {
+  for (const [fixture, artifactType] of [
+    ["test/fixtures/codex-diff.json", "diff-walkthrough"],
+    ["test/fixtures/codex-review.json", "code-review"],
+    ["test/fixtures/codex-test-report.json", "test-report"]
+  ]) {
+    const converted = convertAgentArtifact({
+      agent: "codex",
+      content: await readFile(fixture, "utf8")
+    });
+    assert.equal(converted.sourceAgent, "codex");
+    assert.equal(converted.artifactType, artifactType);
+    assert.equal(converted.format, "markdown");
+  }
+});
+
+test("converts structured Codex continuation payloads to markdown artifacts", async () => {
+  const handoff = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/codex-structured-handoff.json", "utf8")
+  });
+  assert.equal(handoff.sourceAgent, "codex");
+  assert.equal(handoff.artifactType, "handoff");
+  assert.equal(handoff.format, "markdown");
+  assert.match(handoff.content, /## Changed Files/);
+  assert.match(handoff.content, /src\/lib\/converters\.js/);
+  assert.match(handoff.content, /## Next Steps/);
+  assert.equal(handoff.metadata.originalPayloadShape, "codex-continuation");
+  assert.equal(handoff.metadata.codexContinuation.changedFiles[0].path, "src/lib/converters.js");
+  assert.equal(handoff.metadata.codexContinuation.commands[0].status, "passed");
+
+  const review = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/codex-structured-review.json", "utf8")
+  });
+  assert.equal(review.artifactType, "code-review");
+  assert.match(review.content, /## Findings/);
+  assert.equal(review.metadata.codexContinuation.findings[0].severity, "low");
+
+  const verification = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/codex-structured-verification.json", "utf8")
+  });
+  assert.equal(verification.artifactType, "test-report");
+  assert.match(verification.content, /## Tests/);
+  assert.equal(verification.metadata.codexContinuation.testStatus, "passed");
+  assert.equal(verification.metadata.codexContinuation.tests[0].status, "passed");
+
+  const argumentScoped = convertAgentArtifact({
+    agent: "codex",
+    payload: {
+      title: "Argument Scoped Handoff",
+      summary: "Agent is supplied by the converter call, not the payload.",
+      nextSteps: ["Continue Phase 3."]
+    }
+  });
+  assert.equal(argumentScoped.artifactType, "handoff");
+  assert.equal(argumentScoped.metadata.codexContinuation.nextSteps[0], "Continue Phase 3.");
+});
+
+test("preserves Codex continuation metadata in file bundles", async () => {
+  const converted = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/codex-bundle-metadata.json", "utf8")
+  });
+  const bundle = JSON.parse(converted.content);
+
+  assert.equal(converted.sourceAgent, "codex");
+  assert.equal(converted.artifactType, "bundle");
+  assert.equal(bundle.files.length, 2);
+  assert.equal(bundle.codexContinuation.changedFiles[0].path, "README.md");
+  assert.equal(converted.metadata.codexContinuation.tests[0].command, "npm test");
+  assert.equal(converted.metadata.codexContinuation.nextSteps[0], "Render code artifacts with CodeMirror.");
+});
+
+test("does not infer Codex continuation type from plain Markdown", () => {
+  const converted = convertAgentArtifact({
+    agent: "codex",
+    content: "# Notes\n\n- This is just a Markdown note."
+  });
+
+  assert.equal(converted.sourceAgent, "codex");
+  assert.equal(converted.format, "markdown");
+  assert.equal(converted.artifactType, "document");
+  assert.equal(converted.metadata.originalPayloadShape, undefined);
+});
+
 test("converts Gemini returnDisplay payloads", () => {
   const converted = convertAgentArtifact({
     agent: "gemini",
@@ -52,6 +174,58 @@ test("converts Gemini returnDisplay payloads", () => {
   assert.equal(converted.content, "# Gemini plan\n\n- Step one");
   assert.equal(converted.sourceAgent, "gemini");
   assert.ok(converted.tags.includes("plan"));
+});
+
+test("converts fenced Gemini JSON displays as JSON content", () => {
+  const converted = convertAgentArtifact({
+    agent: "auto",
+    payload: {
+      title: "Structured result",
+      returnDisplay: "```json\n{\"status\":\"ok\",\"count\":2}\n```"
+    }
+  });
+
+  assert.equal(converted.sourceAgent, "gemini");
+  assert.equal(converted.format, "json");
+  assert.equal(converted.content, "{\"status\":\"ok\",\"count\":2}");
+  assert.equal(converted.metadata.originalPayloadShape, "gemini-returnDisplay");
+});
+
+test("converts mixed content blocks without dropping text parts", () => {
+  const converted = convertAgentArtifact({
+    agent: "auto",
+    payload: {
+      agent: "claude",
+      title: "Block report",
+      content: [
+        { type: "text", value: "# Block report" },
+        { text: "- finding one" },
+        { content: "- finding two" },
+        { type: "image", data: "ignored" }
+      ],
+      tags: ["review"]
+    }
+  });
+
+  assert.equal(converted.sourceAgent, "claude");
+  assert.equal(converted.format, "markdown");
+  assert.equal(converted.content, "# Block report\n\n- finding one\n\n- finding two");
+  assert.equal(converted.metadata.originalPayloadShape, "content-blocks");
+  assert.equal(converted.metadata.partCount, 4);
+  assert.ok(converted.tags.includes("review"));
+});
+
+test("preserves invalid JSON-looking text without parsing metadata", () => {
+  const converted = convertAgentArtifact({
+    agent: "generic",
+    fileName: "broken.json",
+    content: "{\"title\":\"Broken\",\"content\":}"
+  });
+
+  assert.equal(converted.sourceAgent, "generic");
+  assert.equal(converted.format, "json");
+  assert.equal(converted.content, "{\"title\":\"Broken\",\"content\":}");
+  assert.equal(converted.metadata.originalPayloadShape, undefined);
 });
 
 test("converts Gemini multimodal payloads into bundle artifacts", async () => {

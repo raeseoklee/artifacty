@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 const SUPPORTED_AGENTS = new Set(["all", "claude", "codex", "gemini"]);
+const DEFAULT_MCP_TIMEOUT_MS = 30000;
 
 export async function installAgent(agent, options = {}) {
   const normalized = normalizeAgent(agent);
@@ -81,7 +82,7 @@ export async function installGemini(options = {}) {
       ...(existing.mcpServers || {}),
       artifacty: {
         ...createMcpServerConfig(options),
-        timeout: options.timeout || 30000,
+        timeout: normalizeTimeoutMs(options.timeout),
         trust: Boolean(options.trust)
       }
     }
@@ -98,7 +99,9 @@ export async function installGemini(options = {}) {
 export async function installCodex(options = {}) {
   const targetPath = path.resolve(options.configPath || path.join(homedir(), ".codex", "config.toml"));
   const existing = await readTextFile(targetPath, "");
-  const block = codexTomlBlock(createMcpServerConfig(options));
+  const block = codexTomlBlock(createMcpServerConfig(options), {
+    timeoutMs: normalizeTimeoutMs(options.timeout)
+  });
   const next = replaceTomlBlock(existing, "mcp_servers.artifacty", block);
 
   return writeInstallFile({
@@ -109,16 +112,17 @@ export async function installCodex(options = {}) {
   });
 }
 
-export function codexTomlBlock(config) {
+export function codexTomlBlock(config, options = {}) {
   const envPairs = Object.entries(config.env || {})
     .map(([key, value]) => `${key} = ${quoteTomlString(value)}`)
     .join(", ");
+  const startupTimeoutSec = normalizeTimeoutMs(options.timeoutMs) / 1000;
 
   return [
     "[mcp_servers.artifacty]",
     `command = ${quoteTomlString(config.command)}`,
     `args = [${config.args.map(quoteTomlString).join(", ")}]`,
-    "startup_timeout_sec = 5.0",
+    `startup_timeout_sec = ${startupTimeoutSec.toFixed(1)}`,
     `env = { ${envPairs} }`,
     ""
   ].join("\n");
@@ -176,6 +180,11 @@ async function readTextFile(filePath, fallback) {
 
 function normalizeAgent(agent) {
   return String(agent || "").trim().toLowerCase();
+}
+
+function normalizeTimeoutMs(value) {
+  const timeout = Number(value ?? DEFAULT_MCP_TIMEOUT_MS);
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_MCP_TIMEOUT_MS;
 }
 
 function quoteTomlString(value) {

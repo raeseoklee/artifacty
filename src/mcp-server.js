@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 import {
+  ARTIFACT_FORMATS,
+  ARTIFACT_TYPES,
   archiveArtifact,
   createArtifact,
   createStore,
@@ -23,12 +25,12 @@ const nativeArtifactInputSchema = {
     content: { type: "string", description: "Artifact content." },
     format: {
       type: "string",
-      enum: ["html", "markdown", "text", "json"],
+      enum: ARTIFACT_FORMATS,
       description: "Content format."
     },
     artifactType: {
       type: "string",
-      enum: ["document", "html-page", "handoff", "code-review", "test-report", "dashboard", "design-option", "diff-walkthrough", "bundle", "asset", "unknown"]
+      enum: ARTIFACT_TYPES
     },
     schemaVersion: {
       type: "number",
@@ -109,11 +111,11 @@ const tools = [
         payload: { type: "object", description: "Structured agent payload when available." },
         format: {
           type: "string",
-          enum: ["html", "markdown", "text", "json"]
+          enum: ARTIFACT_FORMATS
         },
         artifactType: {
           type: "string",
-          enum: ["document", "html-page", "handoff", "code-review", "test-report", "dashboard", "design-option", "diff-walkthrough", "bundle", "asset", "unknown"]
+          enum: ARTIFACT_TYPES
         },
         schemaVersion: {
           type: "number",
@@ -166,11 +168,11 @@ const tools = [
         content: { type: "string" },
         format: {
           type: "string",
-          enum: ["html", "markdown", "text", "json"]
+          enum: ARTIFACT_FORMATS
         },
         artifactType: {
           type: "string",
-          enum: ["document", "html-page", "handoff", "code-review", "test-report", "dashboard", "design-option", "diff-walkthrough", "bundle", "asset", "unknown"]
+          enum: ARTIFACT_TYPES
         },
         schemaVersion: {
           type: "number",

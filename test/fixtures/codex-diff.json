@@ -1,0 +1,7 @@
+{
+  "title": "Codex Diff Walkthrough",
+  "sourceAgent": "codex",
+  "artifactType": "diff-walkthrough",
+  "format": "markdown",
+  "content": "# Diff Walkthrough\\n\\n- Updated storage format handling.\\n- Added converter fixtures."
+}

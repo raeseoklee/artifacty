@@ -1,0 +1,6 @@
+{
+  "title": "Claude React component",
+  "type": "application/vnd.ant.react",
+  "language": "tsx",
+  "content": "export default function Badge({ label }) {\\n  return <span className=\"badge\">{label}</span>;\\n}"
+}

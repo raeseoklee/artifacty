@@ -1,0 +1,7 @@
+{
+  "title": "Codex Review",
+  "sourceAgent": "codex",
+  "artifactType": "code-review",
+  "format": "markdown",
+  "content": "# Review\\n\\n## Findings\\n\\n- No blocking issues."
+}

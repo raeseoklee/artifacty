@@ -1,5 +1,6 @@
-import { EDITOR_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
+import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
 import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, switchLocaleHref } from "./i18n.js";
+import { ARTIFACT_FORMATS, ARTIFACT_TYPES } from "./storage.js";
 
 export function renderDashboard({ artifacts, baseUrl, filters = {}, locale = DEFAULT_LOCALE, currentPath = "/" }) {
   const view = viewContext(locale, currentPath);
@@ -204,7 +205,12 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
     })
     .join("");
 
-  const rendered = renderContent(version.format, content);
+  const rendered = renderContent(version.format, content, version.metadata || {}, {
+    reactFrameUrl: reactRendererEnabled()
+      ? view.href(`/artifacts/${encodeURIComponent(artifact.id)}/react-frame?version=${version.version}`)
+      : ""
+  });
+  const needsViewerScript = version.format === "code";
   const rawUrl = `/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`;
   const archiveAction = artifact.archivedAt ? "restore" : "archive";
   const archiveLabel = artifact.archivedAt ? view.text("artifact.restore") : view.text("artifact.archive");
@@ -244,7 +250,8 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
         ${rendered}
       </main>
     `,
-    afterBody: frameResizeScript(),
+    head: needsViewerScript ? editorHead() : "",
+    afterBody: `${frameResizeScript()}${needsViewerScript ? viewerScript() : ""}`,
     locale: view.locale
   });
 }
@@ -314,9 +321,17 @@ export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, 
   });
 }
 
-export function renderContent(format, content) {
+export function renderContent(format, content, metadata = {}, options = {}) {
   if (format === "html") {
     return `<iframe class="artifact-frame" sandbox="allow-scripts allow-forms allow-popups" srcdoc="${escapeAttribute(htmlFrameContent(content))}"></iframe>`;
+  }
+
+  if (format === "svg") {
+    return `<iframe class="artifact-frame artifact-svg-frame" sandbox srcdoc="${escapeAttribute(svgFrameContent(content))}"></iframe>`;
+  }
+
+  if (format === "mermaid") {
+    return `<iframe class="artifact-frame artifact-mermaid-frame" sandbox="allow-scripts" srcdoc="${escapeAttribute(mermaidFrameContent(content))}"></iframe>`;
   }
 
   if (format === "markdown") {
@@ -327,7 +342,103 @@ export function renderContent(format, content) {
     return `<pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>`;
   }
 
+  if (format === "code") {
+    const language = metadata.language || metadata.artifactyImport?.language || "";
+    return `<section class="artifact-code-viewer" data-artifacty-code-viewer data-language="${escapeAttribute(language)}">
+      <textarea hidden>${escapeHtml(content)}</textarea>
+      <pre class="artifact-code artifact-code-fallback"><code>${escapeHtml(content)}</code></pre>
+    </section>`;
+  }
+
+  if (format === "react") {
+    if (options.reactFrameUrl) {
+      return `<iframe class="artifact-frame artifact-react-frame" sandbox="allow-scripts" src="${escapeAttribute(options.reactFrameUrl)}"></iframe>`;
+    }
+    return `<section class="artifact-react-disabled">
+      <p>React rendering is disabled. Set <code>ARTIFACTY_ENABLE_REACT_RENDERER=true</code> to run this component in a sandboxed frame.</p>
+      <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>
+    </section>`;
+  }
+
   return `<pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>`;
+}
+
+export function renderReactFramePage({ title, content }) {
+  const source = jsonForScript(content);
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #fff; color: #111827; }
+    body { padding: 16px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    #root { min-height: 120px; }
+    .error { white-space: pre-wrap; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="application/json" id="artifacty-react-source">${source}</script>
+  <script src="/vendor/npm/react/umd/react.production.min.js"></script>
+  <script src="/vendor/npm/react-dom/umd/react-dom.production.min.js"></script>
+  <script src="/vendor/npm/@babel/standalone/babel.min.js"></script>
+  <script>
+    const rootElement = document.getElementById("root");
+    function report() {
+      const doc = document.documentElement;
+      const body = document.body;
+      const height = Math.max(doc.scrollHeight, doc.offsetHeight, body ? body.scrollHeight : 0, body ? body.offsetHeight : 0);
+      parent.postMessage({ __artifactyHeight: height }, "*");
+    }
+    function showError(error) {
+      rootElement.innerHTML = "";
+      const pre = document.createElement("pre");
+      pre.className = "error";
+      pre.textContent = error && error.stack ? error.stack : String(error);
+      rootElement.append(pre);
+      report();
+    }
+    try {
+      const source = JSON.parse(document.getElementById("artifacty-react-source").textContent);
+      const transformed = Babel.transform(source, {
+        filename: "artifact.jsx",
+        presets: [
+          ["typescript", { allExtensions: true, isTSX: true }],
+          ["react", { runtime: "classic" }]
+        ],
+        plugins: ["transform-modules-commonjs"]
+      }).code;
+      const module = { exports: {} };
+      const exports = module.exports;
+      const require = function(name) {
+        if (name === "react") return React;
+        if (name === "react-dom") return ReactDOM;
+        throw new Error("Unsupported import in React artifact: " + name);
+      };
+      new Function("React", "ReactDOM", "module", "exports", "require", transformed)(React, ReactDOM, module, exports, require);
+      const Component = module.exports.default || exports.default || module.exports;
+      if (typeof Component !== "function") {
+        throw new Error("React artifact must export a component as default.");
+      }
+      if (ReactDOM.createRoot) {
+        ReactDOM.createRoot(rootElement).render(React.createElement(Component, {}));
+      } else {
+        ReactDOM.render(React.createElement(Component, {}), rootElement);
+      }
+      window.addEventListener("resize", report);
+      if (window.ResizeObserver) {
+        try { new ResizeObserver(report).observe(document.documentElement); } catch (error) {}
+      }
+      setTimeout(report, 0);
+      setTimeout(report, 250);
+    } catch (error) {
+      showError(error);
+    }
+  </script>
+</body>
+</html>`;
 }
 
 export function pageShell({ title, body, head = "", afterBody = "", locale = DEFAULT_LOCALE }) {
@@ -791,11 +902,18 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .badge.t-diff-walkthrough { --bh: #14b8a6; }
     .badge.t-bundle { --bh: #8a8d98; }
     .badge.t-asset { --bh: #f59e0b; }
+    .badge.t-diagram { --bh: #0ea5e9; }
+    .badge.t-component { --bh: #7c3aed; }
+    .badge.t-snippet { --bh: #64748b; }
     .badge.t-unknown { --bh: #94a3b8; }
     .badge.f-html { --bh: #e0795b; }
     .badge.f-markdown { --bh: #3b82f6; }
     .badge.f-text { --bh: #5b6b7f; }
     .badge.f-json { --bh: #16a34a; }
+    .badge.f-code { --bh: #64748b; }
+    .badge.f-svg { --bh: #0ea5e9; }
+    .badge.f-mermaid { --bh: #14b8a6; }
+    .badge.f-react { --bh: #7c3aed; }
     .badge.s-archived { --bh: #94a3b8; }
     .empty {
       padding: 28px;
@@ -920,6 +1038,44 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       background: var(--panel-2);
       font-size: 0.88em;
     }
+    .artifact-table-scroll {
+      width: 100%;
+      margin: 20px 0;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--bg);
+    }
+    .artifact-table {
+      width: 100%;
+      min-width: max-content;
+      border-collapse: collapse;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .artifact-table th,
+    .artifact-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+      white-space: normal;
+    }
+    .artifact-table th:last-child,
+    .artifact-table td:last-child {
+      border-right: 0;
+    }
+    .artifact-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+    .artifact-table th {
+      background: var(--panel-2);
+      color: var(--text);
+      font-weight: 650;
+    }
+    .artifact-table .align-center { text-align: center; }
+    .artifact-table .align-right { text-align: right; }
     .artifact-code {
       padding: 22px;
       overflow: auto;
@@ -928,6 +1084,39 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       min-height: 50vh;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+    }
+    .artifact-code-viewer {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--code);
+    }
+    .artifact-code-viewer .cm-editor {
+      min-height: 50vh;
+      background: var(--code);
+      color: var(--code-text);
+    }
+    .artifact-code-viewer .cm-scroller {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .artifact-code-viewer .cm-gutters {
+      background: color-mix(in srgb, var(--code) 84%, white);
+      color: var(--muted);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+    .artifact-react-disabled {
+      display: grid;
+      gap: 12px;
+    }
+    .artifact-react-disabled > p {
+      margin: 0;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel-2);
+      color: var(--muted);
     }
     code,
     pre {
@@ -972,7 +1161,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
 
 function formatSelect(selected) {
   return `<select name="format">
-    ${["markdown", "html", "text", "json"].map((format) => {
+    ${ARTIFACT_FORMATS.map((format) => {
       const label = format[0].toUpperCase() + format.slice(1);
       return `<option value="${format}"${format === selected ? " selected" : ""}>${label}</option>`;
     }).join("")}
@@ -980,9 +1169,8 @@ function formatSelect(selected) {
 }
 
 function artifactTypeSelect(selected) {
-  const types = ["document", "html-page", "handoff", "code-review", "test-report", "dashboard", "design-option", "diff-walkthrough", "bundle", "asset", "unknown"];
   return `<select name="artifactType">
-    ${types.map((type) => `<option value="${type}"${type === selected ? " selected" : ""}>${escapeHtml(type)}</option>`).join("")}
+    ${ARTIFACT_TYPES.map((type) => `<option value="${type}"${type === selected ? " selected" : ""}>${escapeHtml(type)}</option>`).join("")}
   </select>`;
 }
 
@@ -1065,8 +1253,90 @@ function htmlFrameContent(content) {
   return `${content}${reporter}`;
 }
 
+function svgFrameContent(content) {
+  const sanitized = sanitizeSvg(content);
+  return `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;min-height:100%;background:#fff;}body{display:grid;place-items:center;padding:16px;box-sizing:border-box;}svg{max-width:100%;height:auto;}</style></head><body>${sanitized}</body></html>`;
+}
+
+function mermaidFrameContent(content) {
+  const source = jsonForScript(content);
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #fff; color: #111827; }
+    body { padding: 16px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    #artifacty-mermaid { display: grid; place-items: center; min-height: 240px; }
+    #artifacty-mermaid svg { max-width: 100%; height: auto; }
+    .error { white-space: pre-wrap; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; }
+  </style>
+</head>
+<body>
+  <div id="artifacty-mermaid"></div>
+  <script type="application/json" id="artifacty-mermaid-source">${source}</script>
+  <script type="module">
+    import mermaid from "/vendor/npm/mermaid/dist/mermaid.esm.min.mjs";
+    const source = JSON.parse(document.getElementById("artifacty-mermaid-source").textContent);
+    const target = document.getElementById("artifacty-mermaid");
+    function report() {
+      const doc = document.documentElement;
+      const body = document.body;
+      const height = Math.max(doc.scrollHeight, doc.offsetHeight, body ? body.scrollHeight : 0, body ? body.offsetHeight : 0);
+      parent.postMessage({ __artifactyHeight: height }, "*");
+    }
+    try {
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+      const result = await mermaid.render("artifacty-mermaid-svg", source);
+      target.innerHTML = result.svg;
+    } catch (error) {
+      target.innerHTML = "";
+      const pre = document.createElement("pre");
+      pre.className = "error";
+      pre.textContent = error && error.message ? error.message : String(error);
+      target.append(pre);
+    }
+    window.addEventListener("resize", report);
+    if (window.ResizeObserver) {
+      try { new ResizeObserver(report).observe(document.documentElement); } catch (error) {}
+    }
+    report();
+    setTimeout(report, 250);
+  </script>
+</body>
+</html>`;
+}
+
+function sanitizeSvg(content) {
+  return String(content || "")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "")
+    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "")
+    .replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "")
+    .replace(/\s(?:href|xlink:href)\s*=\s*"javascript:[^"]*"/gi, "")
+    .replace(/\s(?:href|xlink:href)\s*=\s*'javascript:[^']*'/gi, "")
+    .replace(/\s(?:href|xlink:href)\s*=\s*javascript:[^\s>]+/gi, "");
+}
+
+function jsonForScript(value) {
+  return JSON.stringify(String(value || ""))
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026")
+    .replaceAll("\\u2028", "\\\\u2028")
+    .replaceAll("\\u2029", "\\\\u2029");
+}
+
 function frameResizeScript() {
   return `<script>(function(){var frame=document.querySelector(".artifact-frame");if(!frame){return;}window.addEventListener("message",function(event){if(event.source!==frame.contentWindow){return;}var data=event.data;if(!data||typeof data.__artifactyHeight!=="number"){return;}var height=Math.min(Math.max(Math.ceil(data.__artifactyHeight),200),200000);frame.style.height=height+"px";});})();</script>`;
+}
+
+function viewerScript() {
+  return `<script type="module" src="${VIEWER_CLIENT_PATH}"></script>`;
+}
+
+function reactRendererEnabled() {
+  return process.env.ARTIFACTY_ENABLE_REACT_RENDERER === "true";
 }
 
 function languageSwitcher(view) {
@@ -1112,7 +1382,8 @@ function markdownToHtml(markdown) {
     }
   };
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     if (line.startsWith("```")) {
       flushParagraph();
       closeList();
@@ -1134,6 +1405,15 @@ function markdownToHtml(markdown) {
     if (line.trim() === "") {
       flushParagraph();
       closeList();
+      continue;
+    }
+
+    if (isMarkdownTableStart(lines, index)) {
+      flushParagraph();
+      closeList();
+      const { html: tableHtml, nextIndex } = renderMarkdownTable(lines, index);
+      html.push(tableHtml);
+      index = nextIndex;
       continue;
     }
 
@@ -1170,6 +1450,66 @@ function markdownToHtml(markdown) {
 
 function inlineMarkdown(value) {
   return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function isMarkdownTableStart(lines, index) {
+  return isMarkdownTableRow(lines[index]) && isMarkdownTableSeparator(lines[index + 1]);
+}
+
+function renderMarkdownTable(lines, startIndex) {
+  const headers = splitMarkdownTableRow(lines[startIndex]);
+  const alignments = splitMarkdownTableRow(lines[startIndex + 1]).map(tableAlignment);
+  const rows = [];
+  let index = startIndex + 2;
+
+  for (; index < lines.length; index += 1) {
+    if (!isMarkdownTableRow(lines[index])) {
+      break;
+    }
+    rows.push(splitMarkdownTableRow(lines[index]));
+  }
+
+  const headerHtml = headers.map((cell, cellIndex) =>
+    `<th${alignmentAttribute(alignments[cellIndex])}>${inlineMarkdown(cell)}</th>`
+  ).join("");
+  const bodyHtml = rows.map((row) => `<tr>${headers.map((_, cellIndex) => {
+    const alignment = alignments[cellIndex];
+    return `<td${alignmentAttribute(alignment)}>${inlineMarkdown(row[cellIndex] || "")}</td>`;
+  }).join("")}</tr>`).join("\n");
+
+  return {
+    html: `<div class="artifact-table-scroll"><table class="artifact-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
+    nextIndex: index - 1
+  };
+}
+
+function isMarkdownTableRow(line = "") {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+function isMarkdownTableSeparator(line = "") {
+  const cells = splitMarkdownTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitMarkdownTableRow(line = "") {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function tableAlignment(cell = "") {
+  const trimmed = cell.trim();
+  if (trimmed.startsWith(":") && trimmed.endsWith(":")) {
+    return "center";
+  }
+  if (trimmed.endsWith(":")) {
+    return "right";
+  }
+  return "left";
+}
+
+function alignmentAttribute(alignment) {
+  return alignment ? ` class="align-${alignment}"` : "";
 }
 
 function formatJson(content) {
