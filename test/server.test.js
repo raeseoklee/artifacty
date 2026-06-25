@@ -42,6 +42,7 @@ test("serves HTTP API and browser artifact pages", async () => {
     const page = await pageResponse.text();
     assert.equal(pageResponse.status, 200);
     assert.match(page, /Artifacty|Demo/);
+    assert.match(page, /<main class="artifact-view artifact-view-wide">/);
 
     const rawResponse = await fetch(created.rawUrl);
     assert.equal(await rawResponse.text(), "<h1>Hello</h1>");
@@ -63,6 +64,7 @@ test("serves HTTP API and browser artifact pages", async () => {
     });
     const markdownTableArtifact = await markdownTableResponse.json();
     const markdownTablePage = await (await fetch(markdownTableArtifact.url)).text();
+    assert.doesNotMatch(markdownTablePage, /artifact-view artifact-view-wide/);
     assert.match(markdownTablePage, /artifact-table-scroll/);
     assert.match(markdownTablePage, /<table class="artifact-table">/);
     assert.match(markdownTablePage, /<th class="align-left">Name<\/th>/);

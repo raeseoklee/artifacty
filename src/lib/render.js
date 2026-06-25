@@ -212,6 +212,7 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
       ? view.href(`/artifacts/${encodeURIComponent(artifact.id)}/react-frame?version=${version.version}`)
       : ""
   });
+  const viewClass = artifactViewClass({ artifact, version });
   const needsViewerScript = version.format === "code";
   const rawUrl = `/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`;
   const archiveAction = artifact.archivedAt ? "restore" : "archive";
@@ -233,7 +234,7 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
           ${languageSwitcher(view)}
         </nav>
       </header>
-      <main class="artifact-view">
+      <main class="${viewClass}">
         <section class="meta-strip">
           ${formatBadge(version.format)}
           ${typeBadge(artifact.artifactType || "document")}
@@ -256,6 +257,16 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
     afterBody: `${frameResizeScript()}${needsViewerScript ? viewerScript() : ""}`,
     locale: view.locale
   });
+}
+
+function artifactViewClass({ artifact, version }) {
+  const wideFormats = new Set(["html", "svg", "mermaid", "react"]);
+  const wideTypes = new Set(["dashboard", "design-option", "diff-walkthrough"]);
+  const classes = ["artifact-view"];
+  if (wideFormats.has(version.format) || wideTypes.has(artifact.artifactType)) {
+    classes.push("artifact-view-wide");
+  }
+  return classes.join(" ");
 }
 
 export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, toContent, diffRows, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/" }) {
@@ -599,6 +610,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .artifact-editor {
       width: min(1180px, calc(100vw - 32px));
       margin: 28px auto 72px;
+    }
+    .artifact-view-wide {
+      width: min(1760px, calc(100vw - 24px));
     }
     .toolbar {
       font-family: var(--mono);
