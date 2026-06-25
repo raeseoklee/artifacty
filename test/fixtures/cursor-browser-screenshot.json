@@ -1,0 +1,10 @@
+{
+  "sourceAgent": "cursor",
+  "title": "Cursor Browser Screenshot",
+  "screenshot": {
+    "mimeType": "image/png",
+    "data": "iVBORw0KGgo=",
+    "caption": "Dashboard rendered after visual smoke."
+  },
+  "tags": ["visual", "screenshot"]
+}

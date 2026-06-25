@@ -209,7 +209,7 @@ function decodePayload(parsed, agent) {
 function decodeObjectPayload(value, agent) {
   const artifactObject = value.artifact && typeof value.artifact === "object" ? value.artifact : value;
 
-  if (Array.isArray(artifactObject.files) || artifactObject.bundle) {
+  if (Array.isArray(artifactObject.files) || Array.isArray(artifactObject.assets) || Array.isArray(artifactObject.media) || Array.isArray(artifactObject.attachments) || artifactObject.bundle) {
     return decodeBundlePayload(artifactObject, agent);
   }
 
@@ -417,6 +417,8 @@ function mediaObjectContent(object, format, mediaValue) {
 function decodeBundlePayload(object, agent) {
   const bundle = object.bundle && typeof object.bundle === "object" ? object.bundle : object;
   const files = Array.isArray(bundle.files) ? bundle.files : [];
+  const assets = normalizeBundleAssets(firstPresent(bundle.assets, bundle.media, bundle.attachments));
+  const parts = normalizeBundleParts(bundle.parts, assets, optionalString(bundle.summary || object.summary || bundle.text));
   const sourceAgent = object.sourceAgent || object.source_agent || object.agent || agent;
   const continuationAgent = detectContinuationAgent({ agent: sourceAgent }, "auto");
   const continuationMetadata = continuationAgent
@@ -441,6 +443,9 @@ function decodeBundlePayload(object, agent) {
       schemaVersion: 1,
       artifactType: "bundle",
       title: object.title || bundle.title || "Artifact bundle",
+      text: optionalString(bundle.text || bundle.summary || object.summary),
+      parts,
+      assets,
       files: normalizedFiles,
       ...bundleDocumentMetadata(continuationMetadata)
     }, null, 2),
@@ -453,10 +458,55 @@ function decodeBundlePayload(object, agent) {
     metadata: {
       originalPayloadShape: "artifact-bundle",
       fileCount: normalizedFiles.length,
+      assetCount: assets.length,
       bundlePolicy: "text-files-stored-inline-in-bundle-json",
+      assetPolicy: assets.length > 0 ? "base64-assets-stored-inline-in-bundle-json" : undefined,
       ...continuationMetadata
     }
   };
+}
+
+function normalizeBundleAssets(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((asset, index) => {
+    if (!asset || typeof asset !== "object") {
+      return null;
+    }
+    const rawData = optionalString(asset.data || asset.base64 || asset.content || asset.url);
+    const dataUrl = parseDataUrl(rawData);
+    const mimeType = dataUrl?.mimeType ||
+      mediaMimeTypeFromContentType(asset.mimeType || asset.mime_type || asset.contentType || asset.content_type || asset.type, "image") ||
+      mediaMimeTypeFromContentType(asset.mimeType || asset.mime_type || asset.contentType || asset.content_type || asset.type, "video") ||
+      mediaMimeTypeFromFileName(asset.fileName || asset.filename || asset.name || asset.path) ||
+      "application/octet-stream";
+    const data = dataUrl?.base64 || normalizeBase64(rawData);
+    if (!data) {
+      return null;
+    }
+    return pruneEmpty({
+      id: optionalString(asset.id) || `asset-${index + 1}`,
+      name: optionalString(asset.name || asset.fileName || asset.filename || asset.path),
+      role: optionalString(asset.role || asset.kind || asset.type),
+      mimeType,
+      encoding: "base64",
+      data,
+      sizeBytes: Buffer.byteLength(data, "base64"),
+      sha256: createHash("sha256").update(Buffer.from(data, "base64")).digest("hex"),
+      caption: optionalString(asset.caption || asset.alt || asset.description)
+    });
+  }).filter(Boolean);
+}
+
+function normalizeBundleParts(value, assets, text) {
+  if (Array.isArray(value) && value.length > 0) {
+    return value;
+  }
+  return [
+    text ? { type: "text", text } : null,
+    ...assets.map((asset) => ({ type: "asset-ref", assetId: asset.id, mimeType: asset.mimeType }))
+  ].filter(Boolean);
 }
 
 function decodeContinuationPayload(object, agent) {

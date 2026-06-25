@@ -191,6 +191,56 @@ test("converts first-class media output artifacts", () => {
   assert.equal(video.metadata.mimeType, "video/webm");
 });
 
+test("converts Copilot and Cursor fixture examples", async () => {
+  const copilotReview = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/copilot-pr-review.json", "utf8")
+  });
+  assert.equal(copilotReview.sourceAgent, "copilot");
+  assert.equal(copilotReview.artifactType, "code-review");
+  assert.equal(copilotReview.format, "markdown");
+  assert.match(copilotReview.content, /Source: GitHub Copilot/);
+  assert.match(copilotReview.content, /Handle missing artifact version/);
+  assert.equal(copilotReview.metadata.copilotContinuation.findings[0].file, "src/server.js");
+
+  const cursorScreenshot = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/cursor-browser-screenshot.json", "utf8")
+  });
+  assert.equal(cursorScreenshot.sourceAgent, "cursor");
+  assert.equal(cursorScreenshot.format, "image");
+  assert.equal(cursorScreenshot.artifactType, "asset");
+  assert.equal(cursorScreenshot.contentType, "image/png");
+  assert.equal(cursorScreenshot.content, "iVBORw0KGgo=");
+  assert.equal(cursorScreenshot.metadata.mimeType, "image/png");
+
+  const cursorVideo = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/cursor-demo-video.json", "utf8")
+  });
+  assert.equal(cursorVideo.sourceAgent, "cursor");
+  assert.equal(cursorVideo.format, "video");
+  assert.equal(cursorVideo.artifactType, "asset");
+  assert.equal(cursorVideo.contentType, "video/webm");
+  assert.equal(cursorVideo.metadata.mimeType, "video/webm");
+
+  const visualBundle = convertAgentArtifact({
+    agent: "auto",
+    content: await readFile("test/fixtures/cursor-visual-evidence-bundle.json", "utf8")
+  });
+  const bundle = JSON.parse(visualBundle.content);
+  assert.equal(visualBundle.sourceAgent, "cursor");
+  assert.equal(visualBundle.artifactType, "bundle");
+  assert.equal(visualBundle.format, "json");
+  assert.equal(bundle.assets.length, 2);
+  assert.equal(bundle.assets[0].mimeType, "image/png");
+  assert.equal(bundle.assets[1].mimeType, "video/webm");
+  assert.equal(bundle.parts[0].type, "text");
+  assert.equal(bundle.parts[1].assetId, "screenshot");
+  assert.equal(visualBundle.metadata.assetCount, 2);
+  assert.equal(visualBundle.metadata.assetPolicy, "base64-assets-stored-inline-in-bundle-json");
+});
+
 test("preserves explicit Codex continuation artifact types", async () => {
   for (const [fixture, artifactType] of [
     ["test/fixtures/codex-diff.json", "diff-walkthrough"],

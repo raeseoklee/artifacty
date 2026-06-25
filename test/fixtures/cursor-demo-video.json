@@ -1,0 +1,10 @@
+{
+  "sourceAgent": "cursor",
+  "title": "Cursor Demo Recording",
+  "video": {
+    "mimeType": "video/webm",
+    "data": "d2VibS1kZW1v",
+    "caption": "Short browser interaction recording."
+  },
+  "tags": ["visual", "demo"]
+}

@@ -206,6 +206,8 @@ node src/cli.js import --agent codex --file ./handoff.md --tag handoff
 node src/cli.js import --agent codex --content '{"agent":"codex","title":"Verification","verification":{"status":"passed","commands":[{"command":"npm test","status":"passed"}]}}'
 node src/cli.js import --agent copilot --content '{"agent":"github-copilot","title":"PR Review","findings":[{"severity":"medium","file":"src/app.js","line":42,"title":"Handle missing state"}]}'
 node src/cli.js import --agent cursor --content '{"sourceAgent":"cursor","title":"Cursor Handoff","summary":"Editor pass complete.","nextSteps":["Run visual QA."]}'
+node src/cli.js import --agent cursor --file ./browser-screenshot.png --tag visual
+node src/cli.js import --agent cursor --file ./demo.webm --tag demo
 node src/cli.js import --agent gemini --content '{"title":"Options","returnDisplay":"# Options\n- A\n- B"}'
 ```
 
@@ -214,11 +216,15 @@ Supported converter inputs:
 - Claude: local `.html`, `.htm`, `.md`, `.svg`, `.mmd`, `.jsx`, `.tsx`, source files, or JSON payloads with `title`/`content`/Claude artifact `type`.
 - Codex: markdown/text/json handoff files; Artifacty-compatible JSON payloads; structured handoff, bundle, diff, review, and verification JSON payloads with `agent` or `sourceAgent` set to `codex`.
 - GitHub Copilot: markdown/text/json outputs; Artifacty-compatible JSON payloads; structured handoff, review, diff, and verification JSON payloads with `agent` or `sourceAgent` set to `github-copilot` or `copilot`.
-- Cursor: markdown/text/json outputs; Artifacty-compatible JSON payloads; structured handoff, review, diff, and verification JSON payloads with `agent` or `sourceAgent` set to `cursor`.
+- Cursor: markdown/text/json outputs; Artifacty-compatible JSON payloads; structured handoff, review, diff, verification, screenshot, demo/video, and visual evidence bundle JSON payloads with `agent` or `sourceAgent` set to `cursor`.
 - Gemini: `returnDisplay`, `llmContent`, text blocks, or local markdown/text/json files.
-- Generic: file extension, content type, HTML doctype, JSON shape, and markdown headings are used to infer format and title.
+- Generic: file extension, content type, HTML doctype, JSON shape, media data URLs, and markdown headings are used to infer format and title.
 
 The converter adds `imported` and source-agent tags, preserves the raw content as an immutable Artifacty version, and records source details under `metadata.artifactyImport`.
+
+Fixture examples for Copilot/Cursor PR review, screenshot, demo recording, and
+visual evidence bundle live under `test/fixtures/` and are covered by converter
+tests.
 
 ## HTTP API
 

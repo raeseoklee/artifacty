@@ -1,0 +1,27 @@
+{
+  "sourceAgent": "cursor",
+  "title": "Cursor Visual Evidence Bundle",
+  "summary": "Browser visual QA captured a screenshot and a demo recording for handoff.",
+  "assets": [
+    {
+      "id": "screenshot",
+      "name": "dashboard.png",
+      "role": "screenshot",
+      "mimeType": "image/png",
+      "data": "iVBORw0KGgo=",
+      "caption": "Dashboard after rendering."
+    },
+    {
+      "id": "demo",
+      "name": "handoff.webm",
+      "role": "demo",
+      "mimeType": "video/webm",
+      "data": "d2VibS1kZW1v",
+      "caption": "Agent-to-agent handoff flow."
+    }
+  ],
+  "nextSteps": [
+    "Share the visual evidence with the next agent.",
+    "Attach the screenshot to the release notes if needed."
+  ]
+}

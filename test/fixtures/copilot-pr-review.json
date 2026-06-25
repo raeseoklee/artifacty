@@ -1,0 +1,18 @@
+{
+  "agent": "github-copilot",
+  "title": "Copilot PR Review",
+  "summary": "Review found a nullable state path in the dashboard route.",
+  "findings": [
+    {
+      "severity": "medium",
+      "file": "src/server.js",
+      "line": 214,
+      "title": "Handle missing artifact version",
+      "message": "The route assumes the latest version exists before reading content."
+    }
+  ],
+  "nextSteps": [
+    "Return a 404 when the artifact exists without the requested version.",
+    "Add a regression test for an invalid version query."
+  ]
+}
