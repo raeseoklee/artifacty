@@ -19,7 +19,9 @@ export const ARTIFACT_FORMATS = [
   "mermaid",
   "react",
   "sarif",
-  "csv"
+  "csv",
+  "image",
+  "video"
 ];
 export const ARTIFACT_TYPES = [
   "document",
@@ -50,7 +52,9 @@ const FORMAT_TO_EXTENSION = {
   mermaid: "mmd",
   react: "jsx",
   sarif: "sarif",
-  csv: "csv"
+  csv: "csv",
+  image: "image",
+  video: "video"
 };
 
 const FORMAT_TO_CONTENT_TYPE = {
@@ -63,7 +67,9 @@ const FORMAT_TO_CONTENT_TYPE = {
   mermaid: "text/vnd.mermaid; charset=utf-8",
   react: "text/jsx; charset=utf-8",
   sarif: "application/sarif+json; charset=utf-8",
-  csv: "text/csv; charset=utf-8"
+  csv: "text/csv; charset=utf-8",
+  image: "application/vnd.artifacty.image+base64; charset=utf-8",
+  video: "application/vnd.artifacty.video+base64; charset=utf-8"
 };
 
 export function createStore(options = {}) {
@@ -825,6 +831,9 @@ function inferArtifactType(input) {
       ? "analysis-report"
       : "table";
   }
+  if (format === "image" || format === "video") {
+    return "asset";
+  }
   return "document";
 }
 
@@ -870,6 +879,12 @@ function inferFormat(contentType) {
   }
   if (value.includes("svg")) {
     return "svg";
+  }
+  if (value.startsWith("image/")) {
+    return "image";
+  }
+  if (value.startsWith("video/")) {
+    return "video";
   }
   if (value.includes("vnd.ant.mermaid") || value.includes("mermaid")) {
     return "mermaid";

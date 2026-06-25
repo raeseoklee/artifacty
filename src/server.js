@@ -410,12 +410,13 @@ export async function handleRequest({ request, response, store, host, port, secu
     });
 
     if (pathname.endsWith("/raw")) {
+      const raw = rawArtifactResponse(artifact);
       response.writeHead(200, {
-        "content-type": artifact.version.contentType,
+        "content-type": raw.contentType,
         "cache-control": "no-store",
         "x-content-type-options": "nosniff"
       });
-      response.end(headOnly ? undefined : artifact.content);
+      response.end(headOnly ? undefined : raw.body);
       return;
     }
 
@@ -512,6 +513,44 @@ export function sendHtml(response, html, statusCode = 200, headOnly = false, con
     "content-security-policy": contentSecurityPolicy
   });
   response.end(headOnly ? undefined : html);
+}
+
+function rawArtifactResponse(artifact) {
+  if (artifact.version.format === "image" || artifact.version.format === "video") {
+    const decoded = decodeMediaContent(artifact.content);
+    if (decoded) {
+      return {
+        body: decoded,
+        contentType: mediaContentType(artifact)
+      };
+    }
+  }
+  return {
+    body: artifact.content,
+    contentType: artifact.version.contentType
+  };
+}
+
+function mediaContentType(artifact) {
+  const metadataType = String(artifact.version.metadata?.mimeType || "").toLowerCase();
+  if (metadataType.startsWith("image/") || metadataType.startsWith("video/")) {
+    return metadataType;
+  }
+  const versionType = String(artifact.version.contentType || "").toLowerCase().split(";")[0];
+  if (versionType.startsWith("image/") || versionType.startsWith("video/")) {
+    return versionType;
+  }
+  return artifact.version.format === "video" ? "video/mp4" : "image/png";
+}
+
+function decodeMediaContent(content) {
+  const value = String(content || "").trim();
+  const dataUrl = /^data:[^;,]+;base64,([A-Za-z0-9+/=_-\s]+)$/i.exec(value);
+  const base64 = (dataUrl ? dataUrl[1] : value).replace(/\s+/g, "").replaceAll("-", "+").replaceAll("_", "/");
+  if (!base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    return null;
+  }
+  return Buffer.from(base64, "base64");
 }
 
 function defaultContentSecurityPolicy() {

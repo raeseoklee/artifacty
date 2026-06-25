@@ -35,6 +35,8 @@ Allowed `artifactType` values:
 - `diagram`
 - `component`
 - `snippet`
+- `analysis-report`
+- `table`
 - `unknown`
 
 Unknown legacy or external types should be mapped to `unknown`, not rejected during conversion. Native create/update rejects unsupported explicit types.
@@ -57,7 +59,7 @@ Each version is immutable and points at one content file.
 ```
 
 Allowed `format` values are `html`, `markdown`, `text`, `json`, `code`, `svg`,
-`mermaid`, `react`, `sarif`, and `csv`.
+`mermaid`, `react`, `sarif`, `csv`, `image`, and `video`.
 
 Common `artifactType` values include `document`, `handoff`, `code-review`,
 `test-report`, `dashboard`, `bundle`, `diagram`, `component`, `snippet`,
@@ -80,6 +82,9 @@ viewer concern and must treat all source as untrusted:
   execution.
 - `sarif`: bounded findings summary plus a formatted raw JSON details panel.
 - `csv`: RFC 4180-style escaped table rendering with bounded rows and columns.
+- `image`: base64 media source rendered with `<img>`; `/raw` decodes bytes.
+- `video`: base64 media source rendered with `<video controls>`; `/raw` decodes
+  bytes.
 
 ## Metadata
 
@@ -127,4 +132,12 @@ Gemini multimodal payloads use the same bundle type with `parts` and `assets`.
 
 ## Asset Policy
 
-Base64 assets are preserved inline inside bundle JSON with `encoding: "base64"`, `mimeType`, `sizeBytes`, and `sha256`. Consumers must treat decoded assets as untrusted. Large binary asset externalization is intentionally deferred; schema v1 keeps all converted assets inspectable and portable.
+Base64 assets are preserved inline inside bundle JSON with `encoding: "base64"`, `mimeType`, `sizeBytes`, and `sha256`. Consumers must treat decoded assets as untrusted.
+
+First-class `image` and `video` artifacts store base64 content in the immutable
+version file. Importers should set `metadata.encoding: "base64"` and
+`metadata.mimeType` to one of the supported media types. Browser `/raw` decodes
+the stored base64 into bytes with the media content type, while API and MCP reads
+return the stored base64 string. Supported media types are PNG, JPEG, GIF, WebP,
+MP4, and WebM. Large binary externalization is intentionally deferred; schema v1
+keeps converted assets inspectable and portable.

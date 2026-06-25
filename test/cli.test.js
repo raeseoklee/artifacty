@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -133,6 +133,36 @@ test("starts, reports, and stops a background server", async () => {
     assert.equal(stopped.managed, false);
   } finally {
     await execFileAsync(process.execPath, ["src/cli.js", "stop", "--home", home]).catch(() => {});
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("imports media files as base64 artifacts", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-cli-media-"));
+  try {
+    const pngBytes = Buffer.from("89504e470d0a", "hex");
+    const pngPath = path.join(home, "screenshot.png");
+    await writeFile(pngPath, pngBytes);
+
+    const { stdout } = await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "import",
+      "--home",
+      home,
+      "--agent",
+      "cursor",
+      "--file",
+      pngPath
+    ]);
+    const imported = JSON.parse(stdout);
+
+    assert.equal(imported.version.format, "image");
+    assert.equal(imported.version.contentType, "image/png");
+    assert.equal(imported.artifactType, "asset");
+    assert.equal(imported.content, pngBytes.toString("base64"));
+    assert.equal(imported.version.metadata.mimeType, "image/png");
+    assert.equal(imported.version.metadata.encoding, "base64");
+  } finally {
     await rm(home, { recursive: true, force: true });
   }
 });

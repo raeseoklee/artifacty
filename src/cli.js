@@ -311,12 +311,26 @@ function parseArgs(args) {
 
 async function readContent(options) {
   if (options.file) {
-    return readFile(options.file, "utf8");
+    const filePath = path.resolve(options.file);
+    if (shouldReadFileAsBase64(options, filePath)) {
+      return (await readFile(filePath)).toString("base64");
+    }
+    return readFile(filePath, "utf8");
   }
   if (options.content !== undefined) {
     return options.content;
   }
   throw new Error("Provide --file or --content");
+}
+
+function shouldReadFileAsBase64(options, filePath) {
+  const format = String(options.format || "").toLowerCase();
+  const contentType = String(options.contentType || "").toLowerCase();
+  return format === "image" ||
+    format === "video" ||
+    contentType.startsWith("image/") ||
+    contentType.startsWith("video/") ||
+    /\.(png|jpe?g|gif|webp|mp4|webm)$/i.test(filePath);
 }
 
 async function withUrls(store, artifact) {

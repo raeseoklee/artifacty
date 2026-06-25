@@ -210,7 +210,8 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
   const rendered = renderContent(version.format, content, version.metadata || {}, {
     reactFrameUrl: reactRendererEnabled()
       ? view.href(`/artifacts/${encodeURIComponent(artifact.id)}/react-frame?version=${version.version}`)
-      : ""
+      : "",
+    rawUrl: view.href(`/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`)
   });
   const viewClass = artifactViewClass({ artifact, version });
   const needsViewerScript = version.format === "code";
@@ -260,7 +261,7 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
 }
 
 function artifactViewClass({ artifact, version }) {
-  const wideFormats = new Set(["html", "svg", "mermaid", "react", "sarif", "csv"]);
+  const wideFormats = new Set(["html", "svg", "mermaid", "react", "sarif", "csv", "image", "video"]);
   const wideTypes = new Set(["dashboard", "design-option", "diff-walkthrough"]);
   const classes = ["artifact-view"];
   if (wideFormats.has(version.format) || wideTypes.has(artifact.artifactType)) {
@@ -361,6 +362,14 @@ export function renderContent(format, content, metadata = {}, options = {}) {
 
   if (format === "csv") {
     return renderCsv(content);
+  }
+
+  if (format === "image") {
+    return renderMediaArtifact("image", content, metadata, options);
+  }
+
+  if (format === "video") {
+    return renderMediaArtifact("video", content, metadata, options);
   }
 
   if (format === "code") {
@@ -942,6 +951,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .badge.f-react { --bh: #7c3aed; }
     .badge.f-sarif { --bh: #dc2626; }
     .badge.f-csv { --bh: #0891b2; }
+    .badge.f-image { --bh: #f59e0b; }
+    .badge.f-video { --bh: #db2777; }
     .badge.s-archived { --bh: #94a3b8; }
     .empty {
       padding: 28px;
@@ -1176,6 +1187,32 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       border: 0;
       border-top: 1px solid var(--line);
       border-radius: 0;
+    }
+    .artifact-media {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .artifact-media img,
+    .artifact-media video {
+      display: block;
+      width: 100%;
+      max-height: 76vh;
+      object-fit: contain;
+      border-radius: 8px;
+      background: var(--panel-2);
+    }
+    .artifact-media figcaption,
+    .artifact-media-note {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12.5px;
+      overflow-wrap: anywhere;
     }
     .artifact-code {
       padding: 22px;
@@ -1616,6 +1653,55 @@ function alignmentAttribute(alignment) {
 const CSV_RENDER_ROW_LIMIT = 1000;
 const CSV_RENDER_COLUMN_LIMIT = 80;
 const SARIF_RENDER_RESULT_LIMIT = 500;
+
+function renderMediaArtifact(format, content, metadata = {}, options = {}) {
+  const mimeType = mediaMimeType(metadata, format);
+  const source = options.rawUrl || mediaDataUrl(content, mimeType);
+  if (!source) {
+    return `<section class="artifact-media-note">
+      Media preview is unavailable because this artifact does not contain valid base64 media content.
+    </section>
+    <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>`;
+  }
+
+  const label = [
+    mimeType || format,
+    metadata.encoding ? `encoding: ${metadata.encoding}` : "",
+    metadata.originalEncoding ? `source: ${metadata.originalEncoding}` : ""
+  ].filter(Boolean).join(" · ");
+
+  if (format === "video") {
+    return `<figure class="artifact-media artifact-video">
+      <video controls preload="metadata" src="${escapeAttribute(source)}"></video>
+      <figcaption>${escapeHtml(label || "video artifact")}</figcaption>
+    </figure>`;
+  }
+
+  return `<figure class="artifact-media artifact-image">
+    <img src="${escapeAttribute(source)}" alt="Image artifact">
+    <figcaption>${escapeHtml(label || "image artifact")}</figcaption>
+  </figure>`;
+}
+
+function mediaMimeType(metadata = {}, format) {
+  const explicit = String(metadata.mimeType || "").toLowerCase();
+  if (explicit.startsWith("image/") || explicit.startsWith("video/")) {
+    return explicit;
+  }
+  return format === "video" ? "video/mp4" : "image/png";
+}
+
+function mediaDataUrl(content, mimeType) {
+  const value = String(content || "").trim();
+  if (/^data:[^;,]+;base64,/i.test(value)) {
+    return value;
+  }
+  const base64 = value.replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    return "";
+  }
+  return `data:${mimeType};base64,${base64}`;
+}
 
 function renderCsv(content) {
   const parsed = parseCsv(content);

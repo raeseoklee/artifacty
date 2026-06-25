@@ -51,6 +51,8 @@ test("mcp server initializes and exposes artifact tools", async () => {
     assert.ok(createTool.inputSchema.properties.format.enum.includes("react"));
     assert.ok(createTool.inputSchema.properties.format.enum.includes("sarif"));
     assert.ok(createTool.inputSchema.properties.format.enum.includes("csv"));
+    assert.ok(createTool.inputSchema.properties.format.enum.includes("image"));
+    assert.ok(createTool.inputSchema.properties.format.enum.includes("video"));
     assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("diagram"));
     assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("component"));
     assert.ok(createTool.inputSchema.properties.artifactType.enum.includes("snippet"));

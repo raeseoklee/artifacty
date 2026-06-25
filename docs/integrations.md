@@ -42,7 +42,7 @@ Create artifacts directly in the browser at `http://127.0.0.1:8787/new`.
 
 For LAN or VPN sharing, keep the default local binding unless you intentionally need another machine to reach the server. See [network-sharing.md](network-sharing.md) before using `--host 0.0.0.0`.
 
-The browser create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, source-like text, SVG, Mermaid, React, SARIF, and CSV artifact editing. Editor and renderer assets are served from local npm dependencies through `/assets/*.js` and allowlisted `/vendor/npm/*` module routes. For sandboxed iframe imports, `Origin: null` requests receive `Access-Control-Allow-Origin: null`, which lets opaque-origin iframes import local ESM without `allow-same-origin`.
+The browser create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, source-like text, SVG, Mermaid, React, SARIF, CSV, image, and video artifact editing. Editor and renderer assets are served from local npm dependencies through `/assets/*.js` and allowlisted `/vendor/npm/*` module routes. For sandboxed iframe imports, `Origin: null` requests receive `Access-Control-Allow-Origin: null`, which lets opaque-origin iframes import local ESM without `allow-same-origin`.
 
 The browser UI defaults to English. Add `?lang=ko` to browser routes to use Korean UI labels; API and MCP payloads are not localized.
 
@@ -255,6 +255,7 @@ Renderer notes:
 - `react` artifacts are source-only unless `ARTIFACTY_ENABLE_REACT_RENDERER=true` is set. When enabled, JSX transformation and React execution happen only in `/artifacts/:id/react-frame`, with `unsafe-eval` scoped to that frame CSP.
 - `sarif` artifacts render a bounded findings summary and keep the complete formatted JSON available in the browser viewer and `/raw`.
 - `csv` artifacts render as an escaped table with bounded rows and columns; `/raw` preserves the original CSV text.
+- `image` and `video` artifacts store base64 content inline, render with native browser media elements, and decode bytes through `/raw`.
 
 ## Background Service
 

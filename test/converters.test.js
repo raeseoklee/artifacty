@@ -146,6 +146,51 @@ test("converts SARIF and CSV output artifacts", () => {
   assert.equal(plainCsv.artifactType, "table");
 });
 
+test("converts first-class media output artifacts", () => {
+  const pngBase64 = "iVBORw0KGgo=";
+  const image = convertAgentArtifact({
+    agent: "cursor",
+    fileName: "browser-screenshot.png",
+    content: pngBase64
+  });
+  assert.equal(image.format, "image");
+  assert.equal(image.content, pngBase64);
+  assert.equal(image.contentType, "image/png");
+  assert.equal(image.artifactType, "asset");
+  assert.equal(image.metadata.mimeType, "image/png");
+  assert.equal(image.metadata.encoding, "base64");
+  assert.equal(image.metadata.originalEncoding, "base64");
+
+  const dataUrlImage = convertAgentArtifact({
+    agent: "copilot",
+    payload: {
+      title: "Visual Evidence",
+      screenshot: `data:image/png;base64,${pngBase64}`
+    }
+  });
+  assert.equal(dataUrlImage.format, "image");
+  assert.equal(dataUrlImage.content, pngBase64);
+  assert.equal(dataUrlImage.contentType, "image/png");
+  assert.equal(dataUrlImage.metadata.originalEncoding, "data-url");
+
+  const videoBytes = Buffer.from("webm-demo").toString("base64");
+  const video = convertAgentArtifact({
+    agent: "cursor",
+    payload: {
+      title: "Browser Demo",
+      video: {
+        mimeType: "video/webm",
+        data: videoBytes
+      }
+    }
+  });
+  assert.equal(video.format, "video");
+  assert.equal(video.content, videoBytes);
+  assert.equal(video.contentType, "video/webm");
+  assert.equal(video.artifactType, "asset");
+  assert.equal(video.metadata.mimeType, "video/webm");
+});
+
 test("preserves explicit Codex continuation artifact types", async () => {
   for (const [fixture, artifactType] of [
     ["test/fixtures/codex-diff.json", "diff-walkthrough"],

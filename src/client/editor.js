@@ -15,7 +15,7 @@ const messages = {
   ...(globalThis.ARTIFACTY_I18N || {})
 };
 
-const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "mermaid", "react", "sarif", "csv"];
+const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "mermaid", "react", "sarif", "csv", "image", "video"];
 
 const editorTheme = EditorView.theme({
   "&": {
@@ -218,6 +218,12 @@ function detectFormat({ explicit, fileName, content }) {
   if (lowerName.endsWith(".csv")) {
     return "csv";
   }
+  if (/\.(png|jpe?g|gif|webp)$/.test(lowerName)) {
+    return "image";
+  }
+  if (/\.(mp4|webm)$/.test(lowerName)) {
+    return "video";
+  }
   if (lowerName.endsWith(".json")) {
     return "json";
   }
@@ -252,6 +258,12 @@ function detectFormat({ explicit, fileName, content }) {
   }
   if (looksLikeCsv(trimmed)) {
     return "csv";
+  }
+  if (/^data:image\/(?:png|jpeg|gif|webp);base64,/i.test(trimmed)) {
+    return "image";
+  }
+  if (/^data:video\/(?:mp4|webm);base64,/i.test(trimmed)) {
+    return "video";
   }
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     return "json";

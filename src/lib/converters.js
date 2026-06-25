@@ -13,12 +13,21 @@ export function convertAgentArtifact(input = {}) {
   const sourcePath = optionalString(input.sourcePath || input.path || input.file);
   const fileName = optionalString(input.fileName || input.filename || (sourcePath ? path.basename(sourcePath) : ""));
   const explicitContentType = optionalString(input.contentType || input.mimeType || input.mime_type);
-  const content = String(decoded.content ?? input.content ?? payload ?? "");
+  let content = String(decoded.content ?? input.content ?? payload ?? "");
   const format = normalizeFormat(
     input.format ||
       decoded.format ||
       detectFormat({ content, contentType: explicitContentType || decoded.contentType, fileName })
   );
+  const media = normalizeMediaContent({
+    content,
+    format,
+    contentType: explicitContentType || decoded.contentType,
+    fileName
+  });
+  if (media) {
+    content = media.content;
+  }
   const sourceAgent = optionalString(input.sourceAgent || input.source_agent || decoded.sourceAgent) ||
     (originalAgent === "auto" ? detectAgent(parsed, fileName) : originalAgent);
 
@@ -27,7 +36,7 @@ export function convertAgentArtifact(input = {}) {
     optionalString(decoded.title) ||
     inferTitle({ content, format, fileName, sourceAgent });
 
-  const contentType = explicitContentType || decoded.contentType || contentTypeForFormat(format);
+  const contentType = explicitContentType || decoded.contentType || media?.mimeType || contentTypeForFormat(format);
   const artifactType = normalizeArtifactType(
     input.artifactType ||
       input.artifact_type ||
@@ -53,6 +62,7 @@ export function convertAgentArtifact(input = {}) {
     metadata: {
       ...normalizeMetadata(decoded.metadata),
       ...normalizeMetadata(input.metadata),
+      ...mediaMetadata(media),
       artifactyImport: {
         converter: "agent-artifact-v1",
         originalAgent,
@@ -81,6 +91,12 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (type.includes("svg")) {
     return "svg";
   }
+  if (isSupportedImageMime(type)) {
+    return "image";
+  }
+  if (isSupportedVideoMime(type)) {
+    return "video";
+  }
   if (type.includes("vnd.ant.mermaid") || type.includes("mermaid")) {
     return "mermaid";
   }
@@ -106,6 +122,12 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   }
   if (lowerName.endsWith(".csv")) {
     return "csv";
+  }
+  if (isImageFileName(lowerName)) {
+    return "image";
+  }
+  if (isVideoFileName(lowerName)) {
+    return "video";
   }
 
   const extension = path.extname(lowerName);
@@ -143,6 +165,12 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   }
   if (looksLikeReact(trimmed)) {
     return "react";
+  }
+  if (looksLikeMediaDataUrl(trimmed, "image")) {
+    return "image";
+  }
+  if (looksLikeMediaDataUrl(trimmed, "video")) {
+    return "video";
   }
   if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
     return "html";
@@ -242,6 +270,14 @@ function decodeObjectPayload(value, agent) {
 
   if (typeof artifactObject.react === "string" || typeof artifactObject.jsx === "string") {
     return objectContent(artifactObject, "react", artifactObject.react || artifactObject.jsx, "react");
+  }
+
+  if (artifactObject.image !== undefined || artifactObject.screenshot !== undefined) {
+    return mediaObjectContent(artifactObject, "image", artifactObject.image ?? artifactObject.screenshot);
+  }
+
+  if (artifactObject.video !== undefined || artifactObject.recording !== undefined || artifactObject.demo !== undefined) {
+    return mediaObjectContent(artifactObject, "video", artifactObject.video ?? artifactObject.recording ?? artifactObject.demo);
   }
 
   if (typeof artifactObject.sarif === "string") {
@@ -356,6 +392,28 @@ function objectContent(object, shape, content, format) {
   };
 }
 
+function mediaObjectContent(object, format, mediaValue) {
+  const sourceContentType = object.contentType || object.content_type || object.mimeType || object.mime_type || object.type;
+  const content = typeof mediaValue === "string"
+    ? mediaValue
+    : optionalString(mediaValue?.data || mediaValue?.base64 || mediaValue?.content || mediaValue?.url);
+  const contentType = optionalString(mediaValue?.mimeType || mediaValue?.mime_type || sourceContentType);
+  return {
+    content,
+    format,
+    contentType,
+    title: object.title || object.name,
+    sourceAgent: object.sourceAgent || object.source_agent || object.agent,
+    artifactType: object.artifactType || object.artifact_type || "asset",
+    tags: object.tags,
+    metadata: {
+      originalPayloadShape: format,
+      originalId: object.id,
+      originalContentType: sourceContentType || contentType
+    }
+  };
+}
+
 function decodeBundlePayload(object, agent) {
   const bundle = object.bundle && typeof object.bundle === "object" ? object.bundle : object;
   const files = Array.isArray(bundle.files) ? bundle.files : [];
@@ -445,7 +503,12 @@ function hasDirectContentField(object) {
     typeof object.react === "string" ||
     typeof object.jsx === "string" ||
     typeof object.sarif === "string" ||
-    typeof object.csv === "string";
+    typeof object.csv === "string" ||
+    object.image !== undefined ||
+    object.screenshot !== undefined ||
+    object.video !== undefined ||
+    object.recording !== undefined ||
+    object.demo !== undefined;
 }
 
 function detectContinuationAgent(object, agent) {
@@ -795,6 +858,12 @@ function safeFormat(value) {
   if (normalized === "csv" || normalized.includes("csv")) {
     return "csv";
   }
+  if (isSupportedImageMime(normalized) || normalized === "image") {
+    return "image";
+  }
+  if (isSupportedVideoMime(normalized) || normalized === "video") {
+    return "video";
+  }
   if (normalized === "html" || normalized.includes("html")) {
     return "html";
   }
@@ -973,6 +1042,9 @@ function inferArtifactType({ format, content, fileName, metadata }) {
       ? "analysis-report"
       : "table";
   }
+  if (format === "image" || format === "video") {
+    return "asset";
+  }
   const lowerName = optionalString(fileName).toLowerCase();
   if (lowerName.includes("handoff")) {
     return "handoff";
@@ -1082,6 +1154,107 @@ function csvFieldCount(line) {
     }
   }
   return count;
+}
+
+function looksLikeMediaDataUrl(value, kind) {
+  const match = /^data:([^;,]+);base64,/i.exec(optionalString(value));
+  if (!match) {
+    return false;
+  }
+  const mimeType = match[1].toLowerCase();
+  return kind === "image" ? isSupportedImageMime(mimeType) : isSupportedVideoMime(mimeType);
+}
+
+function normalizeMediaContent({ content, format, contentType, fileName }) {
+  if (format !== "image" && format !== "video") {
+    return null;
+  }
+  const dataUrl = parseDataUrl(content);
+  const mimeType = dataUrl?.mimeType ||
+    mediaMimeTypeFromContentType(contentType, format) ||
+    mediaMimeTypeFromFileName(fileName) ||
+    "";
+  const normalized = dataUrl?.base64 || normalizeBase64(content);
+  if (!normalized) {
+    return null;
+  }
+  return {
+    content: normalized,
+    mimeType,
+    encoding: "base64",
+    originalEncoding: dataUrl ? "data-url" : "base64"
+  };
+}
+
+function mediaMetadata(media) {
+  if (!media) {
+    return {};
+  }
+  return {
+    mimeType: media.mimeType || undefined,
+    encoding: media.encoding,
+    mediaPolicy: "base64-media-stored-inline; /raw decodes bytes for preview and download",
+    originalEncoding: media.originalEncoding
+  };
+}
+
+function parseDataUrl(value) {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=_-]+)$/i.exec(optionalString(value).replace(/\s+/g, ""));
+  if (!match) {
+    return null;
+  }
+  return {
+    mimeType: match[1].toLowerCase(),
+    base64: normalizeBase64(match[2])
+  };
+}
+
+function normalizeBase64(value) {
+  const normalized = optionalString(value).replace(/\s+/g, "").replaceAll("-", "+").replaceAll("_", "/");
+  if (!normalized || !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
+    return "";
+  }
+  return normalized;
+}
+
+function mediaMimeTypeFromContentType(contentType, format) {
+  const normalized = optionalString(contentType).toLowerCase().split(";")[0];
+  if (format === "image" && isSupportedImageMime(normalized)) {
+    return normalized;
+  }
+  if (format === "video" && isSupportedVideoMime(normalized)) {
+    return normalized;
+  }
+  return "";
+}
+
+function mediaMimeTypeFromFileName(fileName) {
+  const extension = path.extname(optionalString(fileName).toLowerCase());
+  return {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm"
+  }[extension] || "";
+}
+
+function isImageFileName(fileName) {
+  return isSupportedImageMime(mediaMimeTypeFromFileName(fileName));
+}
+
+function isVideoFileName(fileName) {
+  return isSupportedVideoMime(mediaMimeTypeFromFileName(fileName));
+}
+
+function isSupportedImageMime(value) {
+  return new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]).has(optionalString(value).toLowerCase().split(";")[0]);
+}
+
+function isSupportedVideoMime(value) {
+  return new Set(["video/mp4", "video/webm"]).has(optionalString(value).toLowerCase().split(";")[0]);
 }
 
 function looksLikeMermaid(value) {

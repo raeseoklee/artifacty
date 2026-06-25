@@ -96,6 +96,8 @@ test("stores extended artifact formats and taxonomy", async () => {
     assert.ok(ARTIFACT_FORMATS.includes("react"));
     assert.ok(ARTIFACT_FORMATS.includes("sarif"));
     assert.ok(ARTIFACT_FORMATS.includes("csv"));
+    assert.ok(ARTIFACT_FORMATS.includes("image"));
+    assert.ok(ARTIFACT_FORMATS.includes("video"));
     assert.ok(ARTIFACT_TYPES.includes("diagram"));
     assert.ok(ARTIFACT_TYPES.includes("component"));
     assert.ok(ARTIFACT_TYPES.includes("snippet"));
@@ -154,6 +156,22 @@ test("stores extended artifact formats and taxonomy", async () => {
         format: "csv",
         artifactType: "table",
         extension: ".csv"
+      },
+      {
+        title: "Screenshot",
+        content: "iVBORw0KGgo=",
+        format: "image",
+        artifactType: "asset",
+        contentType: "image/png",
+        extension: ".image"
+      },
+      {
+        title: "Demo Video",
+        content: Buffer.from("webm").toString("base64"),
+        format: "video",
+        artifactType: "asset",
+        contentType: "video/webm",
+        extension: ".video"
       }
     ];
 
@@ -163,10 +181,11 @@ test("stores extended artifact formats and taxonomy", async () => {
         content: item.content,
         format: item.format,
         artifactType: item.artifactType,
+        contentType: item.contentType,
         sourceAgent: "test"
       });
       assert.equal(artifact.version.format, item.format);
-      assert.equal(artifact.version.contentType, contentTypeForFormat(item.format));
+      assert.equal(artifact.version.contentType, item.contentType || contentTypeForFormat(item.format));
       assert.equal(artifact.artifactType, item.artifactType);
       assert.ok(artifact.version.path.endsWith(item.extension));
     }
@@ -194,6 +213,15 @@ test("stores extended artifact formats and taxonomy", async () => {
       sourceAgent: "test"
     });
     assert.equal(inferredFindingsCsv.artifactType, "analysis-report");
+
+    const inferredImage = await createArtifact(store, {
+      title: "Inferred Image",
+      content: "iVBORw0KGgo=",
+      contentType: "image/png",
+      sourceAgent: "test"
+    });
+    assert.equal(inferredImage.version.format, "image");
+    assert.equal(inferredImage.artifactType, "asset");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

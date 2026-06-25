@@ -144,6 +144,52 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.doesNotMatch(csvPage, /<script>alert\(1\)<\/script>/);
     assert.equal(await (await fetch(csvArtifact.rawUrl)).text(), csvContent);
 
+    const pngBase64 = "iVBORw0KGgo=";
+    const pngBytes = Buffer.from(pngBase64, "base64");
+    const imageResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Screenshot",
+        content: pngBase64,
+        format: "image",
+        contentType: "image/png",
+        sourceAgent: "test",
+        metadata: { mimeType: "image/png", encoding: "base64" }
+      })
+    });
+    const imageArtifact = await imageResponse.json();
+    assert.equal(imageArtifact.artifactType, "asset");
+    const imagePage = await (await fetch(imageArtifact.url)).text();
+    assert.match(imagePage, /artifact-image/);
+    assert.match(imagePage, /<img src="\/artifacts\/screenshot-[^"]+\/raw\?version=1" alt="Image artifact">/);
+    const imageRawResponse = await fetch(imageArtifact.rawUrl);
+    assert.equal(imageRawResponse.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await imageRawResponse.arrayBuffer()), pngBytes);
+
+    const videoBytes = Buffer.from("webm-demo");
+    const videoBase64 = videoBytes.toString("base64");
+    const videoResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Demo Video",
+        content: videoBase64,
+        format: "video",
+        contentType: "video/webm",
+        sourceAgent: "test",
+        metadata: { mimeType: "video/webm", encoding: "base64" }
+      })
+    });
+    const videoArtifact = await videoResponse.json();
+    assert.equal(videoArtifact.artifactType, "asset");
+    const videoPage = await (await fetch(videoArtifact.url)).text();
+    assert.match(videoPage, /artifact-video/);
+    assert.match(videoPage, /<video controls preload="metadata" src="\/artifacts\/demo-video-[^"]+\/raw\?version=1"><\/video>/);
+    const videoRawResponse = await fetch(videoArtifact.rawUrl);
+    assert.equal(videoRawResponse.headers.get("content-type"), "video/webm");
+    assert.deepEqual(Buffer.from(await videoRawResponse.arrayBuffer()), videoBytes);
+
     const codeResponse = await fetch(`${app.url}/api/artifacts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -262,6 +308,8 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.match(newPage, /<option value="react">React<\/option>/);
     assert.match(newPage, /<option value="sarif">Sarif<\/option>/);
     assert.match(newPage, /<option value="csv">Csv<\/option>/);
+    assert.match(newPage, /<option value="image">Image<\/option>/);
+    assert.match(newPage, /<option value="video">Video<\/option>/);
     assert.match(newPage, /<option value="diagram">diagram<\/option>/);
     assert.match(newPage, /<option value="component">component<\/option>/);
     assert.match(newPage, /<option value="snippet">snippet<\/option>/);
