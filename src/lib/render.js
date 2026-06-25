@@ -2,17 +2,26 @@ import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./e
 import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, switchLocaleHref } from "./i18n.js";
 import { ARTIFACT_FORMATS, ARTIFACT_TYPES } from "./storage.js";
 
-export function renderDashboard({ artifacts, baseUrl, filters = {}, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/" }) {
   const view = viewContext(locale, currentPath);
+  const total = pagination?.total ?? artifacts.length;
+  const start = artifacts.length ? (pagination?.offset ?? 0) + 1 : 0;
+  const end = artifacts.length ? (pagination?.offset ?? 0) + artifacts.length : 0;
+  const searchBackend = pagination?.search?.backend;
+  const pager = renderDashboardPager({ pagination, filters, view });
   const rows = artifacts
     .map((artifact) => {
       const tags = artifact.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
       const status = artifact.archivedAt ? statusBadge("archived") : "";
+      const snippet = artifact.searchSnippet
+        ? `<span class="row-snippet">${escapeHtml(artifact.searchSnippet)}</span>`
+        : "";
       return `
         <a class="artifact-row" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">
           <span class="row-main">
             <strong>${escapeHtml(artifact.title)}</strong>
             <span>${escapeHtml(artifact.id)}</span>
+            ${snippet}
           </span>
           <span>${escapeHtml(artifact.sourceAgent)}</span>
           ${typeBadge(artifact.artifactType || "document")}
@@ -44,10 +53,12 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, locale = DEF
       </header>
       <main class="dashboard">
         <section class="toolbar">
-          <span>${view.text("dashboard.count", { count: artifacts.length })}</span>
+          <span>${view.text("dashboard.range", { start, end, total })}</span>
+          ${searchBackend ? `<span>${view.text("dashboard.searchBackend", { backend: searchBackend })}</span>` : ""}
         </section>
         <form class="filter-form" method="get" action="/">
           ${localeInput(view.locale)}
+          ${filters.limit ? `<input type="hidden" name="limit" value="${escapeAttribute(filters.limit)}">` : ""}
           <input name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("filter.search")}">
           <input name="tag" value="${escapeAttribute(filters.tag || "")}" placeholder="${view.attr("filter.tag")}">
           <input name="sourceAgent" value="${escapeAttribute(filters.sourceAgent || "")}" placeholder="${view.attr("filter.source")}">
@@ -58,10 +69,50 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, locale = DEF
         <section class="artifact-list">
           ${rows || `<div class="empty">${view.text("dashboard.empty")}</div>`}
         </section>
+        ${pager}
       </main>
     `,
     locale: view.locale
   });
+}
+
+function renderDashboardPager({ pagination, filters, view }) {
+  if (!pagination || pagination.total <= pagination.limit) {
+    return "";
+  }
+
+  const previous = pagination.previousOffset === null
+    ? `<span class="pager-disabled">${view.text("dashboard.previous")}</span>`
+    : `<a href="${view.href(dashboardPageHref(filters, pagination.previousOffset))}">${view.text("dashboard.previous")}</a>`;
+  const next = pagination.nextOffset === null
+    ? `<span class="pager-disabled">${view.text("dashboard.next")}</span>`
+    : `<a href="${view.href(dashboardPageHref(filters, pagination.nextOffset))}">${view.text("dashboard.next")}</a>`;
+
+  return `<nav class="pager" aria-label="Pagination">${previous}${next}</nav>`;
+}
+
+function dashboardPageHref(filters, offset) {
+  const params = new URLSearchParams();
+  if (filters.query) {
+    params.set("q", filters.query);
+  }
+  if (filters.tag) {
+    params.set("tag", filters.tag);
+  }
+  if (filters.sourceAgent) {
+    params.set("sourceAgent", filters.sourceAgent);
+  }
+  if (filters.includeArchived) {
+    params.set("includeArchived", "true");
+  }
+  if (filters.limit) {
+    params.set("limit", filters.limit);
+  }
+  if (offset > 0) {
+    params.set("offset", String(offset));
+  }
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
 }
 
 export function renderArtifactFormPage({ mode, baseUrl, artifact, version, content, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/" }) {
@@ -705,6 +756,34 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       background: var(--panel);
       box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
+    .pager {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 14px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+    .pager a,
+    .pager-disabled {
+      display: inline-flex;
+      min-height: 34px;
+      align-items: center;
+      justify-content: center;
+      padding: 5px 12px;
+      border: 1px solid var(--line-2);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+    }
+    .pager a:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      text-decoration: none;
+    }
+    .pager-disabled {
+      opacity: 0.55;
+    }
     .editor-form {
       display: grid;
       gap: 16px;
@@ -888,6 +967,13 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       font-family: var(--mono);
       font-size: 12px;
       color: var(--faint);
+    }
+    .row-main .row-snippet {
+      color: var(--muted);
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      overflow-wrap: anywhere;
     }
     .artifact-row > span:not(.row-main):not(.tags):not(.badge) {
       font-family: var(--mono);

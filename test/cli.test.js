@@ -167,6 +167,92 @@ test("imports media files as base64 artifacts", async () => {
   }
 });
 
+test("lists paginated artifacts and checks store integrity from the CLI", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-cli-search-"));
+  try {
+    for (const title of ["One", "Two", "Three"]) {
+      await execFileAsync(process.execPath, [
+        "src/cli.js",
+        "publish",
+        "--home",
+        home,
+        "--title",
+        title,
+        "--format",
+        "markdown",
+        "--content",
+        `# ${title}`
+      ]);
+    }
+
+    const list = JSON.parse((await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "list",
+      "--home",
+      home,
+      "--limit",
+      "2",
+      "--offset",
+      "1"
+    ])).stdout);
+    assert.equal(list.artifacts.length, 2);
+    assert.equal(list.pagination.total, 3);
+    assert.equal(list.pagination.offset, 1);
+    assert.equal(list.pagination.previousOffset, 0);
+
+    const integrity = JSON.parse((await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "integrity",
+      "--home",
+      home
+    ])).stdout);
+    assert.equal(integrity.ok, true);
+    assert.equal(integrity.artifactCount, 3);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("rebuilds the search index from the CLI when FTS5 is available", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-cli-index-"));
+  try {
+    await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "publish",
+      "--home",
+      home,
+      "--title",
+      "Indexed",
+      "--format",
+      "text",
+      "--content",
+      "searchable"
+    ]);
+
+    let result;
+    try {
+      result = JSON.parse((await execFileAsync(process.execPath, [
+        "src/cli.js",
+        "index",
+        "rebuild",
+        "--home",
+        home
+      ])).stdout);
+    } catch (error) {
+      result = JSON.parse(error.stdout);
+    }
+
+    if (result.fts5) {
+      assert.equal(result.indexed, 1);
+      assert.deepEqual(result.skipped, []);
+    } else {
+      assert.match(result.message, /FTS5 is unavailable/);
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("server entrypoint can generate and enforce a startup API token", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-server-"));
   const child = spawn(process.execPath, [

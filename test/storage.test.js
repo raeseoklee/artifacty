@@ -8,12 +8,15 @@ import {
   ARTIFACT_FORMATS,
   ARTIFACT_TYPES,
   archiveArtifact,
+  checkStoreIntegrity,
   contentTypeForFormat,
   createArtifact,
   createStore,
   getArtifact,
   listAuditEvents,
   listArtifacts,
+  listArtifactsPage,
+  rebuildSearchIndex,
   restoreArtifact,
   updateArtifact
 } from "../src/lib/storage.js";
@@ -298,6 +301,100 @@ test("migrates legacy JSON index into SQLite store", async () => {
     const artifact = await getArtifact(store, "legacy-note");
     assert.equal(artifact.content, "# Legacy");
     assert.deepEqual(artifact.version.metadata, { migrated: true });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("paginates artifact lists and searches latest content with FTS5 when available", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-search-"));
+  try {
+    const store = createStore({ home });
+    const first = await createArtifact(store, {
+      title: "First Note",
+      content: "metadata only",
+      format: "markdown",
+      sourceAgent: "test"
+    });
+    const second = await createArtifact(store, {
+      title: "Second Note",
+      content: "body-only-needle lives here",
+      format: "markdown",
+      sourceAgent: "test"
+    });
+    await createArtifact(store, {
+      title: "Third Note",
+      content: "another note",
+      format: "markdown",
+      sourceAgent: "test"
+    });
+
+    const page = await listArtifactsPage(store, { limit: 2, offset: 1 });
+    assert.equal(page.total, 3);
+    assert.equal(page.limit, 2);
+    assert.equal(page.offset, 1);
+    assert.equal(page.artifacts.length, 2);
+    assert.equal(page.hasMore, false);
+    assert.equal(page.previousOffset, 0);
+
+    const rebuild = await rebuildSearchIndex(store);
+    if (!rebuild.fts5) {
+      assert.equal(rebuild.ok, false);
+      return;
+    }
+
+    const bodySearch = await listArtifactsPage(store, { query: "body-only-needle" });
+    assert.equal(bodySearch.search.backend, "fts5");
+    assert.equal(bodySearch.total, 1);
+    assert.equal(bodySearch.artifacts[0].id, second.id);
+    assert.match(bodySearch.artifacts[0].searchSnippet, /body-only-needle/);
+
+    await updateArtifact(store, second.id, {
+      content: "latest-only-token replaces the previous body",
+      format: "markdown",
+      sourceAgent: "test"
+    });
+    const oldBodySearch = await listArtifactsPage(store, { query: "body-only-needle" });
+    assert.equal(oldBodySearch.total, 0);
+    const latestBodySearch = await listArtifactsPage(store, { query: "latest-only-token" });
+    assert.equal(latestBodySearch.total, 1);
+    assert.equal(latestBodySearch.artifacts[0].id, second.id);
+
+    const metadataSearch = await listArtifacts(store, { query: "First Note" });
+    assert.equal(metadataSearch.length, 1);
+    assert.equal(metadataSearch[0].id, first.id);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("checks store integrity for missing, changed, and orphaned version files", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-integrity-"));
+  try {
+    const store = createStore({ home });
+    const artifact = await createArtifact(store, {
+      title: "Integrity Note",
+      content: "original",
+      format: "text",
+      sourceAgent: "test"
+    });
+
+    const clean = await checkStoreIntegrity(store);
+    assert.equal(clean.ok, true);
+    assert.equal(clean.artifactCount, 1);
+    assert.equal(clean.versionCount, 1);
+
+    await writeFile(path.join(store.home, artifact.version.path), "changed!", "utf8");
+    await mkdir(path.join(store.artifactsDir, "orphan"), { recursive: true });
+    await writeFile(path.join(store.artifactsDir, "orphan", "v1.txt"), "orphan", "utf8");
+
+    const broken = await checkStoreIntegrity(store);
+    assert.equal(broken.ok, false);
+    assert.equal(broken.hashMismatches.length, 1);
+    assert.equal(broken.hashMismatches[0].artifactId, artifact.id);
+    assert.equal(broken.sizeMismatches.length, 0);
+    assert.equal(broken.orphanFiles.length, 1);
+    assert.equal(broken.orphanFiles[0].path, path.join("artifacts", "orphan", "v1.txt"));
   } finally {
     await rm(home, { recursive: true, force: true });
   }

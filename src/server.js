@@ -9,7 +9,7 @@ import {
   createArtifact,
   createStore,
   getArtifact,
-  listArtifacts,
+  listArtifactsPage,
   listAuditEvents,
   MAX_ARTIFACT_BYTES,
   restoreArtifact,
@@ -177,15 +177,19 @@ export async function handleRequest({ request, response, store, host, port, secu
       query: url.searchParams.get("q") || "",
       tag: url.searchParams.get("tag") || "",
       sourceAgent: url.searchParams.get("sourceAgent") || "",
-      includeArchived: url.searchParams.get("includeArchived") === "true"
+      includeArchived: url.searchParams.get("includeArchived") === "true",
+      limit: url.searchParams.get("limit") || undefined,
+      offset: url.searchParams.get("offset") || undefined
     };
-    const artifacts = await listArtifacts(store, {
+    const page = await listArtifactsPage(store, {
       query: filters.query || undefined,
       tag: filters.tag || undefined,
       sourceAgent: filters.sourceAgent || undefined,
-      includeArchived: filters.includeArchived
+      includeArchived: filters.includeArchived,
+      limit: filters.limit,
+      offset: filters.offset
     });
-    return sendHtml(response, renderDashboard({ artifacts, baseUrl, filters, locale, currentPath }), 200, headOnly);
+    return sendHtml(response, renderDashboard({ artifacts: page.artifacts, baseUrl, filters, pagination: page, locale, currentPath }), 200, headOnly);
   }
 
   if (method === "GET" && pathname === "/new") {
@@ -240,14 +244,19 @@ export async function handleRequest({ request, response, store, host, port, secu
   }
 
   if (method === "GET" && pathname === "/api/artifacts") {
-    const artifacts = await listArtifacts(store, {
+    const page = await listArtifactsPage(store, {
       query: url.searchParams.get("q") || undefined,
       tag: url.searchParams.get("tag") || undefined,
       sourceAgent: url.searchParams.get("sourceAgent") || undefined,
       includeArchived: url.searchParams.get("includeArchived") === "true",
-      limit: url.searchParams.get("limit") || undefined
+      limit: url.searchParams.get("limit") || undefined,
+      offset: url.searchParams.get("offset") || undefined
     });
-    return sendJson(response, { artifacts }, 200, headOnly);
+    return sendJson(response, {
+      artifacts: page.artifacts,
+      pagination: paginationJson(page),
+      search: page.search
+    }, 200, headOnly);
   }
 
   if (method === "GET" && pathname === "/api/audit") {
@@ -439,6 +448,17 @@ export function decorateArtifactUrls(artifact, baseUrl) {
     ...artifact,
     url: `${baseUrl}/artifacts/${encodeURIComponent(artifact.id)}`,
     rawUrl: `${baseUrl}/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${artifact.version.version}`
+  };
+}
+
+function paginationJson(page) {
+  return {
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
+    hasMore: page.hasMore,
+    nextOffset: page.nextOffset,
+    previousOffset: page.previousOffset
   };
 }
 

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -112,6 +112,7 @@ export async function writeIndex(store, index) {
   const db = openDatabase(store);
   try {
     transaction(db, () => {
+      clearSearchIndex(db);
       db.prepare("DELETE FROM artifact_versions").run();
       db.prepare("DELETE FROM artifacts").run();
       for (const artifact of index.artifacts) {
@@ -120,6 +121,7 @@ export async function writeIndex(store, index) {
           insertVersionRecord(db, artifact.id, version);
         }
       }
+      rebuildSearchIndexInDb(db, store);
     });
   } finally {
     db.close();
@@ -155,6 +157,7 @@ export async function createArtifact(store = createStore(), input = {}) {
 
       insertArtifactRecord(db, artifact);
       insertVersionRecord(db, id, version);
+      upsertSearchIndex(db, artifact, version, normalized.content);
       insertAuditRecord(db, {
         action: input.auditAction || "create",
         artifactId: id,
@@ -209,6 +212,7 @@ export async function updateArtifact(store = createStore(), id, input = {}) {
         artifact.id
       );
       insertVersionRecord(db, artifact.id, version);
+      upsertSearchIndex(db, artifact, version, normalized.content);
       insertAuditRecord(db, {
         action: input.auditAction || "update",
         artifactId: artifact.id,
@@ -280,30 +284,316 @@ export async function restoreArtifact(store = createStore(), id, options = {}) {
 }
 
 export async function listArtifacts(store = createStore(), filters = {}) {
-  const index = await loadIndex(store);
+  return (await listArtifactsPage(store, filters)).artifacts;
+}
+
+export async function listArtifactsPage(store = createStore(), filters = {}) {
+  const db = openDatabase(store);
   const limit = clampInteger(filters.limit, 1, 200, 50);
-  const query = normalizeOptionalString(filters.query).toLowerCase();
+  const offset = clampInteger(filters.offset, 0, 1_000_000, 0);
+  const query = normalizeOptionalString(filters.query);
+  const normalizedQuery = query.toLowerCase();
   const tag = normalizeOptionalString(filters.tag).toLowerCase();
   const sourceAgent = normalizeOptionalString(filters.sourceAgent).toLowerCase();
 
-  return index.artifacts
-    .filter((artifact) => {
-      if (!filters.includeArchived && artifact.archivedAt) {
-        return false;
+  try {
+    if (query && searchIndexAvailable(db)) {
+      const ftsQuery = toFtsQuery(query);
+      if (ftsQuery) {
+        try {
+          const page = listArtifactsPageWithFts(db, {
+            ftsQuery,
+            tag,
+            sourceAgent,
+            includeArchived: filters.includeArchived,
+            limit,
+            offset
+          });
+          if (page.total > 0) {
+            return page;
+          }
+        } catch {
+          // Keep search usable even if the SQLite FTS parser rejects a query.
+        }
       }
-      if (query && !artifactMatchesQuery(artifact, query)) {
-        return false;
+    }
+
+    return listArtifactsPageWithSql(db, {
+      query: normalizedQuery,
+      tag,
+      sourceAgent,
+      includeArchived: filters.includeArchived,
+      limit,
+      offset
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function rebuildSearchIndex(store = createStore()) {
+  const db = openDatabase(store);
+  try {
+    if (!searchIndexAvailable(db)) {
+      return {
+        ok: false,
+        fts5: false,
+        indexed: 0,
+        skipped: [],
+        message: "SQLite FTS5 is unavailable; metadata search fallback remains active."
+      };
+    }
+
+    return transaction(db, () => rebuildSearchIndexInDb(db, store));
+  } finally {
+    db.close();
+  }
+}
+
+export async function checkStoreIntegrity(store = createStore()) {
+  const db = openDatabase(store);
+  const checkedAt = new Date().toISOString();
+  try {
+    const artifacts = loadArtifacts(db);
+    const referencedPaths = new Set();
+    const missingFiles = [];
+    const hashMismatches = [];
+    const sizeMismatches = [];
+    const dbInconsistencies = [];
+    let totalBytes = 0;
+    let versionCount = 0;
+
+    for (const artifact of artifacts) {
+      if (!artifact.versions.length) {
+        dbInconsistencies.push({
+          artifactId: artifact.id,
+          issue: "artifact has no version rows"
+        });
       }
-      if (tag && !artifact.tags.some((item) => item.toLowerCase() === tag)) {
-        return false;
+      if (!artifact.versions.some((version) => version.version === artifact.latestVersion)) {
+        dbInconsistencies.push({
+          artifactId: artifact.id,
+          issue: `latest version ${artifact.latestVersion} has no version row`
+        });
       }
-      if (sourceAgent && artifact.sourceAgent.toLowerCase() !== sourceAgent) {
-        return false;
+
+      for (const version of artifact.versions) {
+        versionCount += 1;
+        const absolutePath = path.resolve(store.home, version.path);
+        referencedPaths.add(absolutePath);
+        if (!existsSync(absolutePath)) {
+          missingFiles.push({
+            artifactId: artifact.id,
+            version: version.version,
+            path: version.path
+          });
+          continue;
+        }
+
+        const content = readFileSync(absolutePath);
+        const actualSize = content.byteLength;
+        const actualSha256 = createHash("sha256").update(content).digest("hex");
+        totalBytes += actualSize;
+
+        if (actualSize !== version.sizeBytes) {
+          sizeMismatches.push({
+            artifactId: artifact.id,
+            version: version.version,
+            path: version.path,
+            expected: version.sizeBytes,
+            actual: actualSize
+          });
+        }
+        if (actualSha256 !== version.sha256) {
+          hashMismatches.push({
+            artifactId: artifact.id,
+            version: version.version,
+            path: version.path,
+            expected: version.sha256,
+            actual: actualSha256
+          });
+        }
       }
-      return true;
-    })
-    .slice(0, limit)
-    .map(toArtifactSummary);
+    }
+
+    const orphanFiles = listStoreFiles(store.artifactsDir)
+      .filter((filePath) => !referencedPaths.has(filePath))
+      .map((filePath) => {
+        const stat = statSync(filePath);
+        return {
+          path: path.relative(store.home, filePath),
+          sizeBytes: stat.size
+        };
+      });
+    const orphanBytes = orphanFiles.reduce((sum, file) => sum + file.sizeBytes, 0);
+    const ok =
+      missingFiles.length === 0 &&
+      hashMismatches.length === 0 &&
+      sizeMismatches.length === 0 &&
+      orphanFiles.length === 0 &&
+      dbInconsistencies.length === 0;
+
+    return {
+      ok,
+      checkedAt,
+      store: store.home,
+      artifactCount: artifacts.length,
+      versionCount,
+      totalBytes,
+      orphanBytes,
+      missingFiles,
+      hashMismatches,
+      sizeMismatches,
+      orphanFiles,
+      dbInconsistencies
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function listArtifactsPageWithSql(db, filters) {
+  const { clauses, params } = artifactWhereClauses(filters);
+  if (filters.query) {
+    const like = `%${escapeLike(filters.query)}%`;
+    clauses.push(`(
+      LOWER(id) LIKE ? ESCAPE '\\' OR
+      LOWER(title) LIKE ? ESCAPE '\\' OR
+      LOWER(source_agent) LIKE ? ESCAPE '\\' OR
+      LOWER(tags_json) LIKE ? ESCAPE '\\'
+    )`);
+    params.push(like, like, like, like);
+  }
+
+  const whereSql = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const total = db.prepare(`SELECT COUNT(*) AS total FROM artifacts ${whereSql}`).get(...params).total;
+  const rows = db.prepare(`
+    SELECT id, title, artifact_type, schema_version, source_agent, tags_json, created_at, updated_at, latest_version, archived_at
+    FROM artifacts
+    ${whereSql}
+    ORDER BY updated_at DESC, created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, filters.limit, filters.offset);
+
+  return pagedResult({
+    artifacts: rows.map((row) => toArtifactSummary(artifactFromRow(db, row))),
+    total,
+    limit: filters.limit,
+    offset: filters.offset,
+    searchBackend: filters.query ? "metadata" : "sqlite"
+  });
+}
+
+function listArtifactsPageWithFts(db, filters) {
+  const { clauses, params } = artifactWhereClauses(filters, "a");
+  clauses.unshift("artifact_search MATCH ?");
+  params.unshift(filters.ftsQuery);
+  const whereSql = `WHERE ${clauses.join(" AND ")}`;
+  const total = db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM artifact_search
+    JOIN artifacts a ON a.id = artifact_search.artifact_id
+    ${whereSql}
+  `).get(...params).total;
+  const rows = db.prepare(`
+    SELECT
+      a.id,
+      a.title,
+      a.artifact_type,
+      a.schema_version,
+      a.source_agent,
+      a.tags_json,
+      a.created_at,
+      a.updated_at,
+      a.latest_version,
+      a.archived_at,
+      bm25(artifact_search) AS search_rank,
+      snippet(artifact_search, 7, '', '', '...', 24) AS search_snippet
+    FROM artifact_search
+    JOIN artifacts a ON a.id = artifact_search.artifact_id
+    ${whereSql}
+    ORDER BY search_rank ASC, a.updated_at DESC, a.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, filters.limit, filters.offset);
+
+  return pagedResult({
+    artifacts: rows.map((row) => ({
+      ...toArtifactSummary(artifactFromRow(db, row)),
+      searchScore: row.search_rank,
+      searchSnippet: normalizeWhitespace(row.search_snippet)
+    })),
+    total,
+    limit: filters.limit,
+    offset: filters.offset,
+    searchBackend: "fts5"
+  });
+}
+
+function artifactWhereClauses(filters, alias = "") {
+  const prefix = alias ? `${alias}.` : "";
+  const clauses = [];
+  const params = [];
+
+  if (!filters.includeArchived) {
+    clauses.push(`${prefix}archived_at IS NULL`);
+  }
+  if (filters.tag) {
+    clauses.push(`LOWER(${prefix}tags_json) LIKE ? ESCAPE '\\'`);
+    params.push(`%"${escapeLike(filters.tag)}"%`);
+  }
+  if (filters.sourceAgent) {
+    clauses.push(`LOWER(${prefix}source_agent) = ?`);
+    params.push(filters.sourceAgent);
+  }
+
+  return { clauses, params };
+}
+
+function pagedResult({ artifacts, total, limit, offset, searchBackend }) {
+  return {
+    artifacts,
+    total,
+    limit,
+    offset,
+    hasMore: offset + artifacts.length < total,
+    nextOffset: offset + artifacts.length < total ? offset + limit : null,
+    previousOffset: offset > 0 ? Math.max(0, offset - limit) : null,
+    search: {
+      backend: searchBackend
+    }
+  };
+}
+
+function artifactFromRow(db, row) {
+  return {
+    id: row.id,
+    title: row.title,
+    artifactType: row.artifact_type,
+    schemaVersion: row.schema_version,
+    sourceAgent: row.source_agent,
+    tags: parseJson(row.tags_json, []),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    archivedAt: row.archived_at,
+    latestVersion: row.latest_version,
+    versions: loadVersions(db, row.id)
+  };
+}
+
+function escapeLike(value) {
+  return String(value).replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function normalizeWhitespace(value) {
+  return normalizeOptionalString(value).replace(/\s+/g, " ");
+}
+
+function toFtsQuery(value) {
+  const tokens = normalizeOptionalString(value).match(/[\p{L}\p{N}_-]+/gu) || [];
+  return tokens
+    .slice(0, 12)
+    .map((token) => `"${token.replaceAll("\"", "\"\"")}"`)
+    .join(" AND ");
 }
 
 export async function getArtifact(store = createStore(), id, options = {}) {
@@ -458,6 +748,7 @@ function openDatabase(store) {
   `);
   initializeSchema(db);
   migrateJsonIndex(db, store);
+  syncSearchIndexIfEmpty(db, store);
   return db;
 }
 
@@ -516,6 +807,7 @@ function initializeSchema(db) {
   ensureColumn(db, "artifacts", "schema_version", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "artifacts", "archived_at", "TEXT");
   db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('store_version', ?)").run(String(STORE_VERSION));
+  ensureSearchTable(db);
 }
 
 function migrateJsonIndex(db, store) {
@@ -549,6 +841,135 @@ function migrateJsonIndex(db, store) {
     }
     db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('json_index_migrated', 'true')").run();
   });
+}
+
+function ensureSearchTable(db) {
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS artifact_search USING fts5(
+        artifact_id UNINDEXED,
+        title,
+        source_agent,
+        artifact_type,
+        tags,
+        format,
+        metadata,
+        content
+      );
+    `);
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('fts5_enabled', 'true')").run();
+    return true;
+  } catch (error) {
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('fts5_enabled', ?)").run(`false:${error.message}`);
+    return false;
+  }
+}
+
+function searchIndexAvailable(db) {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'artifact_search'").get();
+  return Boolean(row) || ensureSearchTable(db);
+}
+
+function syncSearchIndexIfEmpty(db, store) {
+  if (!searchIndexAvailable(db)) {
+    return;
+  }
+  const artifactCount = db.prepare("SELECT COUNT(*) AS count FROM artifacts").get().count;
+  if (artifactCount === 0) {
+    return;
+  }
+  const indexedCount = db.prepare("SELECT COUNT(*) AS count FROM artifact_search").get().count;
+  if (indexedCount === 0) {
+    transaction(db, () => rebuildSearchIndexInDb(db, store));
+  }
+}
+
+function clearSearchIndex(db) {
+  if (searchIndexAvailable(db)) {
+    db.prepare("DELETE FROM artifact_search").run();
+  }
+}
+
+function rebuildSearchIndexInDb(db, store) {
+  if (!searchIndexAvailable(db)) {
+    return {
+      ok: false,
+      fts5: false,
+      indexed: 0,
+      skipped: []
+    };
+  }
+
+  db.prepare("DELETE FROM artifact_search").run();
+  const skipped = [];
+  let indexed = 0;
+  for (const artifact of loadArtifacts(db)) {
+    const latest = artifact.versions.find((version) => version.version === artifact.latestVersion);
+    if (!latest) {
+      skipped.push({ artifactId: artifact.id, reason: "latest version row missing" });
+      continue;
+    }
+    const absolutePath = path.join(store.home, latest.path);
+    if (!existsSync(absolutePath)) {
+      skipped.push({ artifactId: artifact.id, version: latest.version, reason: "version file missing" });
+      continue;
+    }
+    upsertSearchIndex(db, artifact, latest, readFileSync(absolutePath, "utf8"));
+    indexed += 1;
+  }
+  db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('search_index_built_at', ?)").run(new Date().toISOString());
+  return {
+    ok: skipped.length === 0,
+    fts5: true,
+    indexed,
+    skipped
+  };
+}
+
+function upsertSearchIndex(db, artifact, version, content) {
+  if (!searchIndexAvailable(db)) {
+    return;
+  }
+  db.prepare("DELETE FROM artifact_search WHERE artifact_id = ?").run(artifact.id);
+  db.prepare(`
+    INSERT INTO artifact_search (
+      artifact_id, title, source_agent, artifact_type, tags, format, metadata, content
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    artifact.id,
+    artifact.title,
+    artifact.sourceAgent,
+    artifact.artifactType,
+    artifact.tags.join(" "),
+    version.format,
+    metadataSearchText(version.metadata),
+    content
+  );
+}
+
+function metadataSearchText(metadata) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return "";
+  }
+  return JSON.stringify(metadata).slice(0, 64 * 1024);
+}
+
+function listStoreFiles(root) {
+  if (!existsSync(root)) {
+    return [];
+  }
+
+  const files = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listStoreFiles(fullPath));
+    } else if (entry.isFile()) {
+      files.push(path.resolve(fullPath));
+    }
+  }
+  return files;
 }
 
 function loadArtifacts(db) {
@@ -912,19 +1333,6 @@ function makeArtifactId(title) {
     .slice(0, 48) || "artifact";
 
   return `${slug}-${randomUUID().slice(0, 8)}`;
-}
-
-function artifactMatchesQuery(artifact, query) {
-  const haystack = [
-    artifact.id,
-    artifact.title,
-    artifact.sourceAgent,
-    ...artifact.tags
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  return haystack.includes(query);
 }
 
 function clampInteger(value, min, max, fallback) {

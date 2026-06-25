@@ -23,6 +23,8 @@ Artifacty shares LLM artifacts over HTTP, CLI, and MCP.
 - `node src/cli.js import --agent claude --file artifact.html`: convert and store an external artifact.
 - `node src/cli.js install claude --dry-run`: preview generated MCP config.
 - `node src/cli.js check`: verify MCP tool discovery.
+- `node src/cli.js index rebuild`: rebuild the optional SQLite FTS5 search index.
+- `node src/cli.js integrity`: verify version files, hashes, and orphaned files.
 
 ## Coding Style & Naming Conventions
 

@@ -496,6 +496,18 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.equal(codexImported.converted.sourceAgent, "codex");
     assert.equal(codexImported.converted.metadata.originalPayloadShape, "codex-continuation");
     assert.match(codexImported.content, /Finish the release checklist/);
+
+    const pagedList = await (await fetch(`${app.url}/api/artifacts?limit=2&offset=1`)).json();
+    assert.equal(pagedList.artifacts.length, 2);
+    assert.ok(pagedList.pagination.total > 2);
+    assert.equal(pagedList.pagination.limit, 2);
+    assert.equal(pagedList.pagination.offset, 1);
+    assert.equal(pagedList.pagination.previousOffset, 0);
+    assert.ok(pagedList.search.backend);
+
+    const pagedDashboard = await (await fetch(`${app.url}/?limit=2`)).text();
+    assert.match(pagedDashboard, /1-2 of \d+ artifacts/);
+    assert.match(pagedDashboard, /offset=2/);
   } finally {
     await app.close();
     await rm(home, { recursive: true, force: true });

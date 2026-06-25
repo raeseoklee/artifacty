@@ -4,11 +4,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   archiveArtifact,
+  checkStoreIntegrity,
   createArtifact,
   createStore,
   getArtifact,
   listAuditEvents,
-  listArtifacts,
+  listArtifactsPage,
+  rebuildSearchIndex,
   restoreArtifact,
   updateArtifact
 } from "./lib/storage.js";
@@ -200,14 +202,37 @@ async function main() {
   }
 
   if (command === "list") {
-    const artifacts = await listArtifacts(store, {
+    const page = await listArtifactsPage(store, {
       query: options.query,
       tag: Array.isArray(options.tag) ? options.tag[0] : options.tag,
       sourceAgent: options.source,
       includeArchived: options.includeArchived,
-      limit: options.limit
+      limit: options.limit,
+      offset: options.offset
     });
-    printJson({ artifacts });
+    printJson({
+      artifacts: page.artifacts,
+      pagination: paginationJson(page),
+      search: page.search
+    });
+    return;
+  }
+
+  if ((command === "index" || command === "search") && options._[0] === "rebuild") {
+    const result = await rebuildSearchIndex(store);
+    printJson(result);
+    if (!result.fts5) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  if (command === "integrity" || command === "check-store") {
+    const result = await checkStoreIntegrity(store);
+    printJson(result);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -298,7 +323,7 @@ function parseArgs(args) {
 
     if (key === "tag") {
       options.tag = [...(options.tag || []), value];
-    } else if (key === "port" || key === "limit" || key === "version" || key === "schema-version" || key === "timeout" || key === "bytes") {
+    } else if (key === "port" || key === "limit" || key === "offset" || key === "version" || key === "schema-version" || key === "timeout" || key === "bytes") {
       options[toCamelCase(key)] = Number(value);
     } else {
       options[toCamelCase(key)] = value;
@@ -342,6 +367,17 @@ async function withUrls(store, artifact) {
   };
 }
 
+function paginationJson(page) {
+  return {
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
+    hasMore: page.hasMore,
+    nextOffset: page.nextOffset,
+    previousOffset: page.previousOffset
+  };
+}
+
 function requireOption(options, name) {
   if (!options[name]) {
     throw new Error(`Missing required option --${name}`);
@@ -370,11 +406,13 @@ Usage:
   artifacty archive <id>
   artifacty restore <id>
   artifacty audit [--artifact <id>] [--limit 100]
+  artifacty index rebuild
+  artifacty integrity
   artifacty export --file <path>
   artifacty backup [--file <path>]
   artifacty import-store --file <path>
   artifacty service plist|install|uninstall [--dry-run] [--plist <path>]
-  artifacty list [--query text] [--tag tag] [--source agent] [--limit 50] [--include-archived]
+  artifacty list [--query text] [--tag tag] [--source agent] [--limit 50] [--offset 0] [--include-archived]
   artifacty show <id> [--version n] [--raw]
 
 Environment:

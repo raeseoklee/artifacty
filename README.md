@@ -165,6 +165,7 @@ List artifacts:
 
 ```bash
 artifacty list
+artifacty list --query review --limit 20 --offset 20
 ```
 
 Run the MCP server:
@@ -179,6 +180,8 @@ Operational commands:
 
 ```bash
 artifacty audit --limit 20
+artifacty index rebuild
+artifacty integrity
 artifacty backup
 artifacty export --file ./artifacty-backup.json
 artifacty import-store --file ./artifacty-backup.json
@@ -199,6 +202,13 @@ ARTIFACTY_HOME=/path/to/shared/store artifacty serve
 ```
 
 Artifact metadata is stored in `artifacty.sqlite`; artifact content is stored as immutable version files under `artifacts/`. The current browser server URL is written to `server.json` so MCP tools can return the correct links when the default port falls back. Existing `index.json` stores are migrated automatically on first access.
+
+Search uses a SQLite FTS5 index when the local Node SQLite build supports it. The index covers the latest version body plus title, tags, source agent, artifact type, format, and metadata summary. If FTS5 is unavailable, Artifacty keeps working with metadata search. Rebuild or check the store when needed:
+
+```bash
+artifacty index rebuild
+artifacty integrity
+```
 
 ## API Example
 
@@ -244,6 +254,13 @@ Browser routes:
 - `/artifacts/:id/edit`: save a new version with Markdown, HTML, JSON, text, code, SVG, Mermaid, React, SARIF, CSV, image, or video syntax support.
 - `/artifacts/:id/diff`: compare versions.
 - `/api/audit`: list audit events.
+
+List APIs support pagination with `limit` and `offset`. Responses keep the top-level `artifacts` array and include `pagination` and `search` metadata:
+
+```bash
+curl -s "http://127.0.0.1:8787/api/artifacts?q=handoff&limit=20&offset=0" \
+  -H "x-artifacty-token: $ARTIFACTY_API_TOKEN"
+```
 
 ## Interface Language
 

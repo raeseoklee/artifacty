@@ -8,7 +8,7 @@ import {
   createStore,
   getArtifact,
   listAuditEvents,
-  listArtifacts,
+  listArtifactsPage,
   restoreArtifact,
   updateArtifact
 } from "./lib/storage.js";
@@ -86,7 +86,8 @@ const tools = [
         tag: { type: "string" },
         sourceAgent: { type: "string" },
         includeArchived: { type: "boolean" },
-        limit: { type: "number" }
+        limit: { type: "number" },
+        offset: { type: "number" }
       }
     },
     annotations: {
@@ -315,7 +316,7 @@ async function handleRequest(message) {
       serverInfo: {
         name: "artifacty",
         title: "Artifacty",
-        version: "0.1.0"
+        version: "0.3.0"
       },
       instructions: "Use Artifacty to create, import, list, read, and update local artifacts that other agents can reuse."
     };
@@ -346,12 +347,21 @@ async function callTool(name, args) {
 
   if (name === "artifacty_list") {
     const publicBaseUrl = await resolvePublicBaseUrl(store);
-    const artifacts = await listArtifacts(store, args);
+    const page = await listArtifactsPage(store, args);
     return toolResult({
-      artifacts: artifacts.map((artifact) => ({
+      artifacts: page.artifacts.map((artifact) => ({
         ...artifact,
         url: `${publicBaseUrl}/artifacts/${encodeURIComponent(artifact.id)}`
-      }))
+      })),
+      pagination: {
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+        hasMore: page.hasMore,
+        nextOffset: page.nextOffset,
+        previousOffset: page.previousOffset
+      },
+      search: page.search
     });
   }
 
