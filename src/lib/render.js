@@ -260,7 +260,7 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
 }
 
 function artifactViewClass({ artifact, version }) {
-  const wideFormats = new Set(["html", "svg", "mermaid", "react"]);
+  const wideFormats = new Set(["html", "svg", "mermaid", "react", "sarif", "csv"]);
   const wideTypes = new Set(["dashboard", "design-option", "diff-walkthrough"]);
   const classes = ["artifact-view"];
   if (wideFormats.has(version.format) || wideTypes.has(artifact.artifactType)) {
@@ -353,6 +353,14 @@ export function renderContent(format, content, metadata = {}, options = {}) {
 
   if (format === "json") {
     return `<pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>`;
+  }
+
+  if (format === "sarif") {
+    return renderSarif(content);
+  }
+
+  if (format === "csv") {
+    return renderCsv(content);
   }
 
   if (format === "code") {
@@ -921,6 +929,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .badge.t-diagram { --bh: #0ea5e9; }
     .badge.t-component { --bh: #7c3aed; }
     .badge.t-snippet { --bh: #64748b; }
+    .badge.t-analysis-report { --bh: #dc2626; }
+    .badge.t-table { --bh: #0891b2; }
     .badge.t-unknown { --bh: #94a3b8; }
     .badge.f-html { --bh: #e0795b; }
     .badge.f-markdown { --bh: #3b82f6; }
@@ -930,6 +940,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .badge.f-svg { --bh: #0ea5e9; }
     .badge.f-mermaid { --bh: #14b8a6; }
     .badge.f-react { --bh: #7c3aed; }
+    .badge.f-sarif { --bh: #dc2626; }
+    .badge.f-csv { --bh: #0891b2; }
     .badge.s-archived { --bh: #94a3b8; }
     .empty {
       padding: 28px;
@@ -1092,6 +1104,79 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     .artifact-table .align-center { text-align: center; }
     .artifact-table .align-right { text-align: right; }
+    .artifact-csv,
+    .artifact-sarif {
+      display: grid;
+      gap: 14px;
+    }
+    .artifact-csv-note,
+    .artifact-sarif-note {
+      margin: 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .artifact-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+    }
+    .summary-card {
+      display: grid;
+      gap: 3px;
+      min-height: 72px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+    .summary-card span {
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .summary-card strong {
+      font-size: 20px;
+      line-height: 1.2;
+    }
+    .sarif-level {
+      display: inline-flex;
+      min-width: 68px;
+      justify-content: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--bh, var(--muted)) 14%, transparent);
+      color: color-mix(in srgb, var(--bh, var(--muted)) 70%, var(--text));
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    .sarif-level.error { --bh: #dc2626; }
+    .sarif-level.warning { --bh: #d97706; }
+    .sarif-level.note { --bh: #2563eb; }
+    .sarif-level.none { --bh: #64748b; }
+    .artifact-raw-details {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .artifact-raw-details summary {
+      padding: 10px 14px;
+      cursor: pointer;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+    .artifact-raw-details .artifact-code {
+      border: 0;
+      border-top: 1px solid var(--line);
+      border-radius: 0;
+    }
     .artifact-code {
       padding: 22px;
       overflow: auto;
@@ -1526,6 +1611,221 @@ function tableAlignment(cell = "") {
 
 function alignmentAttribute(alignment) {
   return alignment ? ` class="align-${alignment}"` : "";
+}
+
+const CSV_RENDER_ROW_LIMIT = 1000;
+const CSV_RENDER_COLUMN_LIMIT = 80;
+const SARIF_RENDER_RESULT_LIMIT = 500;
+
+function renderCsv(content) {
+  const parsed = parseCsv(content);
+  if (!parsed.ok) {
+    return `<section class="artifact-csv">
+      <p class="artifact-csv-note">CSV parsing failed: ${escapeHtml(parsed.error)}. Showing escaped source.</p>
+      <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>
+    </section>`;
+  }
+
+  if (parsed.rows.length === 0) {
+    return `<section class="artifact-csv"><p class="artifact-csv-note">Empty CSV artifact.</p></section>`;
+  }
+
+  const columnCount = Math.max(...parsed.rows.map((row) => row.length));
+  const visibleColumns = Math.min(columnCount, CSV_RENDER_COLUMN_LIMIT);
+  const header = parsed.rows[0];
+  const bodyRows = parsed.rows.slice(1, CSV_RENDER_ROW_LIMIT + 1);
+  const rowTruncated = parsed.rows.length - 1 > CSV_RENDER_ROW_LIMIT;
+  const columnTruncated = columnCount > CSV_RENDER_COLUMN_LIMIT;
+  const headerHtml = Array.from({ length: visibleColumns }, (_, index) =>
+    `<th>${escapeHtml(header[index] || `Column ${index + 1}`)}</th>`
+  ).join("");
+  const bodyHtml = bodyRows.map((row) =>
+    `<tr>${Array.from({ length: visibleColumns }, (_, index) =>
+      `<td>${escapeHtml(row[index] || "")}</td>`
+    ).join("")}</tr>`
+  ).join("\n");
+  const notes = [
+    `${parsed.rows.length - 1} data rows`,
+    `${columnCount} columns`,
+    rowTruncated ? `showing first ${CSV_RENDER_ROW_LIMIT} rows` : "",
+    columnTruncated ? `showing first ${CSV_RENDER_COLUMN_LIMIT} columns` : ""
+  ].filter(Boolean).join(" · ");
+
+  return `<section class="artifact-csv">
+    <p class="artifact-csv-note">${escapeHtml(notes)}</p>
+    <div class="artifact-table-scroll">
+      <table class="artifact-table">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>
+  </section>`;
+}
+
+function parseCsv(content) {
+  const text = String(content || "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === "\"") {
+      if (inQuotes && text[index + 1] === "\"") {
+        cell += "\"";
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && text[index + 1] === "\n") {
+        index += 1;
+      }
+      row.push(cell);
+      if (row.length > 1 || row[0] !== "") {
+        rows.push(row);
+      }
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  if (inQuotes) {
+    return { ok: false, error: "unterminated quoted field", rows: [] };
+  }
+  row.push(cell);
+  if (row.length > 1 || row[0] !== "") {
+    rows.push(row);
+  }
+  return { ok: true, rows };
+}
+
+function renderSarif(content) {
+  let sarif;
+  try {
+    sarif = JSON.parse(content);
+  } catch {
+    return `<section class="artifact-sarif">
+      <p class="artifact-sarif-note">Invalid SARIF JSON. Showing escaped source.</p>
+      <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>
+    </section>`;
+  }
+
+  if (!isSarifDocument(sarif)) {
+    return `<section class="artifact-sarif">
+      <p class="artifact-sarif-note">This JSON does not match the expected SARIF top-level shape. Showing formatted JSON.</p>
+      <pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>
+    </section>`;
+  }
+
+  const results = collectSarifResults(sarif);
+  const counts = countBy(results, (result) => result.level);
+  const visibleResults = results.slice(0, SARIF_RENDER_RESULT_LIMIT);
+  const rowHtml = visibleResults.map((result) => `<tr>
+    <td><span class="sarif-level ${escapeAttribute(result.level)}">${escapeHtml(result.level)}</span></td>
+    <td>${escapeHtml(result.ruleId)}</td>
+    <td>${escapeHtml(result.message)}</td>
+    <td>${escapeHtml(result.location)}</td>
+    <td>${escapeHtml(result.tool)}</td>
+  </tr>`).join("\n");
+  const note = results.length > SARIF_RENDER_RESULT_LIMIT
+    ? `Showing first ${SARIF_RENDER_RESULT_LIMIT} of ${results.length} results.`
+    : `${results.length} results.`;
+
+  return `<section class="artifact-sarif">
+    <div class="artifact-summary-grid">
+      ${summaryCard("Runs", sarif.runs.length)}
+      ${summaryCard("Results", results.length)}
+      ${summaryCard("Errors", counts.error || 0)}
+      ${summaryCard("Warnings", counts.warning || 0)}
+      ${summaryCard("Notes", counts.note || 0)}
+    </div>
+    <p class="artifact-sarif-note">${escapeHtml(note)}</p>
+    <div class="artifact-table-scroll">
+      <table class="artifact-table">
+        <thead><tr><th>Level</th><th>Rule</th><th>Message</th><th>Location</th><th>Tool</th></tr></thead>
+        <tbody>${rowHtml}</tbody>
+      </table>
+    </div>
+    <details class="artifact-raw-details">
+      <summary>Raw SARIF JSON</summary>
+      <pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>
+    </details>
+  </section>`;
+}
+
+function isSarifDocument(value) {
+  return value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Array.isArray(value.runs) &&
+    (typeof value.version === "string" || String(value.$schema || "").toLowerCase().includes("sarif"));
+}
+
+function collectSarifResults(sarif) {
+  return sarif.runs.flatMap((run) => {
+    const tool = run?.tool?.driver?.name || run?.tool?.driver?.fullName || "unknown";
+    const rules = new Map();
+    for (const [index, rule] of (run?.tool?.driver?.rules || []).entries()) {
+      if (rule?.id) {
+        rules.set(rule.id, rule);
+      }
+      rules.set(index, rule);
+    }
+    return (run?.results || []).map((result) => {
+      const rule = rules.get(result.ruleId) || rules.get(result.ruleIndex);
+      return {
+        level: normalizeSarifLevel(result.level || rule?.defaultConfiguration?.level),
+        ruleId: result.ruleId || rule?.id || (Number.isInteger(result.ruleIndex) ? `#${result.ruleIndex}` : "unknown"),
+        message: sarifMessage(result.message) || sarifMessage(rule?.shortDescription) || sarifMessage(rule?.fullDescription) || "",
+        location: sarifLocation(result),
+        tool
+      };
+    });
+  });
+}
+
+function normalizeSarifLevel(value) {
+  const normalized = String(value || "warning").toLowerCase();
+  return ["error", "warning", "note", "none"].includes(normalized) ? normalized : "warning";
+}
+
+function sarifMessage(message) {
+  if (!message || typeof message !== "object") {
+    return "";
+  }
+  return String(message.text || message.markdown || "").trim();
+}
+
+function sarifLocation(result) {
+  const physical = result?.locations?.[0]?.physicalLocation;
+  const uri = physical?.artifactLocation?.uri || physical?.artifactLocation?.uriBaseId || "";
+  const region = physical?.region || {};
+  const line = Number.isInteger(region.startLine) ? region.startLine : "";
+  const column = Number.isInteger(region.startColumn) ? region.startColumn : "";
+  return [
+    uri || "unknown",
+    line ? `:${line}` : "",
+    column ? `:${column}` : ""
+  ].join("");
+}
+
+function countBy(values, keyFn) {
+  return values.reduce((counts, value) => {
+    const key = keyFn(value);
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function summaryCard(label, value) {
+  return `<div class="summary-card"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
 function formatJson(content) {

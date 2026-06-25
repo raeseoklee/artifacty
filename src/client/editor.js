@@ -15,7 +15,7 @@ const messages = {
   ...(globalThis.ARTIFACTY_I18N || {})
 };
 
-const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "mermaid", "react"];
+const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "mermaid", "react", "sarif", "csv"];
 
 const editorTheme = EditorView.theme({
   "&": {
@@ -128,7 +128,7 @@ function enhanceTextarea(textarea) {
   updatePreview();
 
   function updateToolbar(format) {
-    formatJsonButton.hidden = format !== "json";
+    formatJsonButton.hidden = format !== "json" && format !== "sarif";
     status.textContent = formatLabel(format);
   }
 
@@ -158,7 +158,7 @@ function enhanceTextarea(textarea) {
       return;
     }
 
-    if (format === "json") {
+    if (format === "json" || format === "sarif") {
       const pre = document.createElement("pre");
       try {
         pre.textContent = JSON.stringify(JSON.parse(content), null, 2);
@@ -191,7 +191,7 @@ function languageExtension(format) {
   if (format === "html" || format === "svg") {
     return html();
   }
-  if (format === "json") {
+  if (format === "json" || format === "sarif") {
     return json();
   }
   if (format === "markdown") {
@@ -211,6 +211,12 @@ function detectFormat({ explicit, fileName, content }) {
   }
   if (lowerName.endsWith(".md") || lowerName.endsWith(".markdown")) {
     return "markdown";
+  }
+  if (lowerName.endsWith(".sarif") || lowerName.endsWith(".sarif.json")) {
+    return "sarif";
+  }
+  if (lowerName.endsWith(".csv")) {
+    return "csv";
   }
   if (lowerName.endsWith(".json")) {
     return "json";
@@ -241,6 +247,12 @@ function detectFormat({ explicit, fileName, content }) {
   if (trimmed.startsWith("<!doctype") || trimmed.startsWith("<html") || trimmed.startsWith("<")) {
     return "html";
   }
+  if (looksLikeSarif(trimmed)) {
+    return "sarif";
+  }
+  if (looksLikeCsv(trimmed)) {
+    return "csv";
+  }
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     return "json";
   }
@@ -253,6 +265,54 @@ function detectFormat({ explicit, fileName, content }) {
 function formatLabel(format) {
   const label = `${format[0].toUpperCase()}${format.slice(1)}`;
   return messages.mode.replaceAll("{format}", label);
+}
+
+function looksLikeSarif(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed.startsWith("{")) {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed &&
+      typeof parsed === "object" &&
+      Array.isArray(parsed.runs) &&
+      (typeof parsed.version === "string" || String(parsed.$schema || "").toLowerCase().includes("sarif"));
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeCsv(value) {
+  const lines = String(value || "")
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .slice(0, 5);
+  if (lines.length < 2 || lines[0].trimStart().startsWith("|")) {
+    return false;
+  }
+  const counts = lines.map(csvFieldCount);
+  return counts[0] > 1 && counts.every((count) => count === counts[0]);
+}
+
+function csvFieldCount(line) {
+  let count = 1;
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\"") {
+      if (inQuotes && line[index + 1] === "\"") {
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function invalidJsonMessage(error) {

@@ -94,11 +94,24 @@ test("stores extended artifact formats and taxonomy", async () => {
     assert.ok(ARTIFACT_FORMATS.includes("svg"));
     assert.ok(ARTIFACT_FORMATS.includes("mermaid"));
     assert.ok(ARTIFACT_FORMATS.includes("react"));
+    assert.ok(ARTIFACT_FORMATS.includes("sarif"));
+    assert.ok(ARTIFACT_FORMATS.includes("csv"));
     assert.ok(ARTIFACT_TYPES.includes("diagram"));
     assert.ok(ARTIFACT_TYPES.includes("component"));
     assert.ok(ARTIFACT_TYPES.includes("snippet"));
+    assert.ok(ARTIFACT_TYPES.includes("analysis-report"));
+    assert.ok(ARTIFACT_TYPES.includes("table"));
 
     const store = createStore({ home });
+    const sarifReport = JSON.stringify({
+      version: "2.1.0",
+      runs: [
+        {
+          tool: { driver: { name: "CodeQL" } },
+          results: []
+        }
+      ]
+    });
     const cases = [
       {
         title: "Snippet",
@@ -127,6 +140,20 @@ test("stores extended artifact formats and taxonomy", async () => {
         format: "react",
         artifactType: "component",
         extension: ".jsx"
+      },
+      {
+        title: "SARIF Report",
+        content: sarifReport,
+        format: "sarif",
+        artifactType: "analysis-report",
+        extension: ".sarif"
+      },
+      {
+        title: "CSV Table",
+        content: "name,count\nCodex,2\nArtifacty,10",
+        format: "csv",
+        artifactType: "table",
+        extension: ".csv"
       }
     ];
 
@@ -151,6 +178,22 @@ test("stores extended artifact formats and taxonomy", async () => {
       sourceAgent: "test"
     });
     assert.equal(inferred.artifactType, "diagram");
+
+    const inferredSarif = await createArtifact(store, {
+      title: "Inferred SARIF",
+      content: sarifReport,
+      format: "sarif",
+      sourceAgent: "test"
+    });
+    assert.equal(inferredSarif.artifactType, "analysis-report");
+
+    const inferredFindingsCsv = await createArtifact(store, {
+      title: "Security Findings",
+      content: "severity,file,message\nwarning,src/app.js,Check input",
+      format: "csv",
+      sourceAgent: "test"
+    });
+    assert.equal(inferredFindingsCsv.artifactType, "analysis-report");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

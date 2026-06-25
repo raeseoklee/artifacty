@@ -1,65 +1,44 @@
-# SARIF and CSV Artifact Support Plan
+# SARIF and CSV Artifact Support
 
-This plan scopes SARIF and CSV support to **output artifacts** that Codex or
-other agents generate for downstream review. It does not cover Codex input
-context, appshots, thread state, or client-specific UI state.
+Artifacty supports SARIF and CSV as **output artifacts** that Codex and other
+agents can hand off for downstream review. This scope excludes Codex input
+context, appshots, thread state, and client-specific UI state.
 
-## Goals
+## Implemented Behavior
 
-- Preserve SARIF and CSV files as immutable Artifacty versions.
-- Classify common Codex Security exports without requiring manual
-  `artifactType` overrides.
-- Render CSV outputs in a readable table view while keeping `/raw` unchanged.
-- Keep SARIF as JSON-first, with future room for a findings-focused viewer.
+- `sarif` and `csv` are first-class `format` values across HTTP, CLI, MCP,
+  storage, and browser forms.
+- `.sarif`, `.sarif.json`, `application/sarif+json`, `.csv`, and `text/csv`
+  inputs are detected during import.
+- SARIF top-level objects with `version` and `runs[]` are imported as
+  `analysis-report` artifacts.
+- CSV inputs default to `table`; CSV files that look like security or review
+  findings infer `analysis-report`.
+- `/raw` always returns the original stored source.
 
-## Current Behavior
+## Browser Rendering
 
-- `.sarif` content is stored as `json` when the payload is valid JSON, but it
-  currently falls back to `artifactType: "unknown"`.
-- `.csv` and `text/csv` content can be stored as `text`, but there is no CSV
-  detection, table renderer, or artifact-type inference.
-- Security findings exported as JSON, CSV, or SARIF can be shared today, but the
-  browsing experience is not yet tailored to review workflows.
+- SARIF renders a bounded findings summary with run, result, error, warning,
+  and note counts.
+- SARIF result rows show level, rule id, message, first location, and tool name.
+- The full formatted SARIF JSON remains available in a details panel.
+- CSV renders as an escaped table with bounded rows and columns.
+- Malformed CSV or non-SARIF JSON fails closed to escaped source or formatted
+  JSON fallback.
 
-## Phase 1: Detection and Taxonomy
+## Verification Coverage
 
-- Detect `.sarif` and `application/sarif+json` as `json`.
-- Detect SARIF shape (`version`, `runs[]`, `tool.driver`) and classify as
-  `code-review`.
-- Detect `.csv` and `text/csv` as either a new `csv` format or `text` with
-  `metadata.delimitedText`.
-- Infer `code-review` for CSV/SARIF files named like `findings`, `security`,
-  `review`, or containing columns such as `severity`, `file`, and `message`.
+- Storage round trips cover format enums, content types, extensions, and type
+  inference.
+- Converter tests cover SARIF extension/MIME/object detection, findings CSV,
+  and generic CSV.
+- Server tests cover SARIF summary rendering, CSV escaping, `/raw` fidelity,
+  and browser form options.
+- MCP tests assert the new format and artifact type enums are exposed.
 
-Exit criteria: CLI, HTTP, and MCP imports classify SARIF and common findings CSV
-without explicit overrides.
+## Future Extensions
 
-## Phase 2: CSV Viewer
-
-- Add a lightweight RFC 4180-style CSV parser for browser rendering.
-- Render CSV as a scrollable table with sticky headers and escaped cell content.
-- Cap rendered rows and columns for very large files, with a visible truncation
-  notice and a link to `/raw`.
-- Preserve plain text fallback when parsing fails.
-
-Exit criteria: CSV artifacts are readable in the browser and raw fidelity is
-unchanged.
-
-## Phase 3: SARIF Summary Viewer
-
-- Keep SARIF source as JSON.
-- Add an optional summary above the JSON view: rule id, severity/level, message,
-  file URI, region, and result count by level.
-- Avoid implementing the complete SARIF spec in v1; parse only stable top-level
-  fields and fail closed to JSON rendering.
-
-Exit criteria: SARIF exports are useful for quick triage while preserving the
-full JSON source.
-
-## Tests
-
-- Converter fixtures: Codex Security SARIF, findings CSV, generic CSV, malformed
-  CSV, and large CSV.
-- Storage round trips: content type, extension, size, hash, and `/raw` fidelity.
-- Server rendering: CSV table escaping, truncation notice, SARIF summary fallback.
-- MCP schema and import tests for explicit and inferred artifact types.
+- Add real-world fixtures from CodeQL, Semgrep, Trivy, and other scanners.
+- Add sorting/filtering for SARIF levels and CSV columns.
+- Add optional download helpers for filtered CSV/SARIF views without changing
+  immutable source storage.

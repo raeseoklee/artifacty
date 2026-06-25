@@ -17,7 +17,9 @@ export const ARTIFACT_FORMATS = [
   "code",
   "svg",
   "mermaid",
-  "react"
+  "react",
+  "sarif",
+  "csv"
 ];
 export const ARTIFACT_TYPES = [
   "document",
@@ -33,6 +35,8 @@ export const ARTIFACT_TYPES = [
   "diagram",
   "component",
   "snippet",
+  "analysis-report",
+  "table",
   "unknown"
 ];
 
@@ -44,7 +48,9 @@ const FORMAT_TO_EXTENSION = {
   code: "code",
   svg: "svg",
   mermaid: "mmd",
-  react: "jsx"
+  react: "jsx",
+  sarif: "sarif",
+  csv: "csv"
 };
 
 const FORMAT_TO_CONTENT_TYPE = {
@@ -55,7 +61,9 @@ const FORMAT_TO_CONTENT_TYPE = {
   code: "text/x-source-code; charset=utf-8",
   svg: "image/svg+xml; charset=utf-8",
   mermaid: "text/vnd.mermaid; charset=utf-8",
-  react: "text/jsx; charset=utf-8"
+  react: "text/jsx; charset=utf-8",
+  sarif: "application/sarif+json; charset=utf-8",
+  csv: "text/csv; charset=utf-8"
 };
 
 export function createStore(options = {}) {
@@ -397,6 +405,9 @@ export function normalizeFormat(value = "text") {
   }
   if (normalized === "jsx" || normalized === "tsx") {
     return "react";
+  }
+  if (normalized === "sarif+json") {
+    return "sarif";
   }
   if (ARTIFACT_FORMATS.includes(normalized)) {
     return normalized;
@@ -805,7 +816,24 @@ function inferArtifactType(input) {
   if (format === "code") {
     return "snippet";
   }
+  if (format === "sarif") {
+    return "analysis-report";
+  }
+  if (format === "csv") {
+    return looksLikeAnalysisCsv(input.content) ||
+      /findings?|security|review|scan/i.test(normalizeOptionalString(input.title))
+      ? "analysis-report"
+      : "table";
+  }
   return "document";
+}
+
+function looksLikeAnalysisCsv(content) {
+  const [header = ""] = normalizeOptionalString(content).split(/\r?\n/, 1);
+  const normalized = header.toLowerCase();
+  return normalized.includes("severity") &&
+    (normalized.includes("message") || normalized.includes("description")) &&
+    (normalized.includes("file") || normalized.includes("path") || normalized.includes("rule"));
 }
 
 function normalizeTags(tags) {
@@ -833,6 +861,12 @@ function inferFormat(contentType) {
   const value = normalizeOptionalString(contentType).toLowerCase();
   if (value.includes("vnd.ant.code") || value.includes("source-code")) {
     return "code";
+  }
+  if (value.includes("sarif")) {
+    return "sarif";
+  }
+  if (value.includes("csv")) {
+    return "csv";
   }
   if (value.includes("svg")) {
     return "svg";

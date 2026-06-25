@@ -72,6 +72,80 @@ test("converts Claude structured and sniffed artifact formats", async () => {
   assert.equal(react.metadata.language, "tsx");
 });
 
+test("converts SARIF and CSV output artifacts", () => {
+  const sarifContent = JSON.stringify({
+    version: "2.1.0",
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: "CodeQL",
+            rules: [
+              { id: "js/path-injection", shortDescription: { text: "Path injection" } }
+            ]
+          }
+        },
+        results: [
+          {
+            ruleId: "js/path-injection",
+            level: "warning",
+            message: { text: "Validate the path before use." },
+            locations: [
+              {
+                physicalLocation: {
+                  artifactLocation: { uri: "src/app.js" },
+                  region: { startLine: 42, startColumn: 7 }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  });
+
+  const sarifFile = convertAgentArtifact({
+    agent: "codex",
+    fileName: "codeql-results.sarif",
+    content: sarifContent
+  });
+  assert.equal(sarifFile.format, "sarif");
+  assert.equal(sarifFile.contentType, "application/sarif+json; charset=utf-8");
+  assert.equal(sarifFile.artifactType, "analysis-report");
+
+  const sarifMime = convertAgentArtifact({
+    agent: "generic",
+    contentType: "application/sarif+json",
+    content: sarifContent
+  });
+  assert.equal(sarifMime.format, "sarif");
+  assert.equal(sarifMime.artifactType, "analysis-report");
+
+  const sarifObject = convertAgentArtifact({
+    agent: "auto",
+    payload: JSON.parse(sarifContent)
+  });
+  assert.equal(sarifObject.format, "sarif");
+  assert.equal(sarifObject.metadata.originalPayloadShape, "sarif");
+
+  const findingsCsv = convertAgentArtifact({
+    agent: "codex",
+    fileName: "security-findings.csv",
+    content: "severity,file,message\nwarning,src/app.js,\"Validate, then open\""
+  });
+  assert.equal(findingsCsv.format, "csv");
+  assert.equal(findingsCsv.contentType, "text/csv; charset=utf-8");
+  assert.equal(findingsCsv.artifactType, "analysis-report");
+
+  const plainCsv = convertAgentArtifact({
+    agent: "generic",
+    contentType: "text/csv",
+    content: "name,count\nCodex,2\nArtifacty,10"
+  });
+  assert.equal(plainCsv.format, "csv");
+  assert.equal(plainCsv.artifactType, "table");
+});
+
 test("preserves explicit Codex continuation artifact types", async () => {
   for (const [fixture, artifactType] of [
     ["test/fixtures/codex-diff.json", "diff-walkthrough"],

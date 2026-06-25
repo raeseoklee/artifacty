@@ -241,7 +241,7 @@ Browser routes:
 - `/`: list artifacts with search, tag, and source filters.
 - `/new`: create an Artifacty-native artifact with the CodeMirror editor.
 - `/import`: paste an external agent artifact and convert it with automatic editor mode detection.
-- `/artifacts/:id/edit`: save a new version with Markdown, HTML, JSON, text, code, SVG, Mermaid, or React syntax support.
+- `/artifacts/:id/edit`: save a new version with Markdown, HTML, JSON, text, code, SVG, Mermaid, React, SARIF, or CSV syntax support.
 - `/artifacts/:id/diff`: compare versions.
 - `/api/audit`: list audit events.
 
@@ -254,8 +254,8 @@ Schema and storage:
 - Metadata lives in SQLite with `schemaVersion: 1`, `artifactType`, and `archivedAt`.
 - Archive hides artifacts from default lists without deleting versions.
 - Bundle artifacts store multiple files or base64 assets as portable JSON.
-- Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, and `react`.
-- Diagram, component, and source snippet artifacts use `diagram`, `component`, and `snippet` artifact types.
+- Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, and `csv`.
+- Diagram, component, source snippet, analysis report, and table artifacts use `diagram`, `component`, `snippet`, `analysis-report`, and `table` artifact types.
 - See [docs/artifact-schema-v1.md](docs/artifact-schema-v1.md).
 - See [docs/sarif-csv-artifact-plan.md](docs/sarif-csv-artifact-plan.md) for the SARIF/CSV output artifact roadmap.
 
@@ -273,6 +273,8 @@ Schema and storage:
 - SVG artifacts render in a scriptless sandboxed iframe and are sanitized for `<script>`, `on*` attributes, and `javascript:` links in the viewer. The raw source remains unchanged.
 - Mermaid artifacts render with the vendored local Mermaid package in a sandboxed iframe without `allow-same-origin`.
 - React artifacts are source-only by default. Set `ARTIFACTY_ENABLE_REACT_RENDERER=true` to execute them in a sandboxed frame with a frame-scoped CSP that permits JSX transformation.
+- SARIF artifacts render a bounded findings summary and keep the full formatted JSON behind a raw-source details panel.
+- CSV artifacts render as an escaped, bounded table; `/raw` preserves the original text.
 - Artifact content should still be treated as untrusted; use the raw view when handing content back to an agent.
 
 See [docs/release-checklist.md](docs/release-checklist.md) before publishing or running a shared instance.

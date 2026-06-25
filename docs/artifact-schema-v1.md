@@ -57,7 +57,11 @@ Each version is immutable and points at one content file.
 ```
 
 Allowed `format` values are `html`, `markdown`, `text`, `json`, `code`, `svg`,
-`mermaid`, and `react`.
+`mermaid`, `react`, `sarif`, and `csv`.
+
+Common `artifactType` values include `document`, `handoff`, `code-review`,
+`test-report`, `dashboard`, `bundle`, `diagram`, `component`, `snippet`,
+`analysis-report`, and `table`.
 
 ## Renderer Policy
 
@@ -74,6 +78,8 @@ viewer concern and must treat all source as untrusted:
 - `react`: source-only by default. `ARTIFACTY_ENABLE_REACT_RENDERER=true`
   enables a separate sandboxed frame with frame-scoped CSP for JSX transform and
   execution.
+- `sarif`: bounded findings summary plus a formatted raw JSON details panel.
+- `csv`: RFC 4180-style escaped table rendering with bounded rows and columns.
 
 ## Metadata
 

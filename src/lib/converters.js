@@ -72,6 +72,12 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (type.includes("vnd.ant.code") || type.includes("source-code")) {
     return "code";
   }
+  if (type.includes("sarif")) {
+    return "sarif";
+  }
+  if (type.includes("csv")) {
+    return "csv";
+  }
   if (type.includes("svg")) {
     return "svg";
   }
@@ -94,7 +100,15 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
     return "text";
   }
 
-  const extension = path.extname(fileName).toLowerCase();
+  const lowerName = optionalString(fileName).toLowerCase();
+  if (lowerName.endsWith(".sarif") || lowerName.endsWith(".sarif.json")) {
+    return "sarif";
+  }
+  if (lowerName.endsWith(".csv")) {
+    return "csv";
+  }
+
+  const extension = path.extname(lowerName);
   if (extension === ".html" || extension === ".htm") {
     return "html";
   }
@@ -133,8 +147,14 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
     return "html";
   }
+  if (looksLikeSarif(trimmed)) {
+    return "sarif";
+  }
   if (looksLikeJson(trimmed)) {
     return "json";
+  }
+  if (looksLikeCsv(trimmed)) {
+    return "csv";
   }
   if (/^#{1,3}\s+\S/m.test(trimmed) || /^[-*]\s+\S/m.test(trimmed)) {
     return "markdown";
@@ -168,6 +188,21 @@ function decodeObjectPayload(value, agent) {
   const continuation = decodeContinuationPayload(artifactObject, agent);
   if (continuation) {
     return continuation;
+  }
+
+  if (isSarifObject(artifactObject)) {
+    return {
+      content: JSON.stringify(artifactObject, null, 2),
+      format: "sarif",
+      contentType: "application/sarif+json; charset=utf-8",
+      title: artifactObject.title || artifactObject.name || "SARIF report",
+      sourceAgent: artifactObject.sourceAgent || artifactObject.source_agent || artifactObject.agent || (agent === "auto" ? undefined : agent),
+      artifactType: artifactObject.artifactType || artifactObject.artifact_type || "analysis-report",
+      tags: artifactObject.tags,
+      metadata: {
+        originalPayloadShape: "sarif"
+      }
+    };
   }
 
   if (typeof artifactObject.content === "string" && !Array.isArray(artifactObject.content)) {
@@ -207,6 +242,14 @@ function decodeObjectPayload(value, agent) {
 
   if (typeof artifactObject.react === "string" || typeof artifactObject.jsx === "string") {
     return objectContent(artifactObject, "react", artifactObject.react || artifactObject.jsx, "react");
+  }
+
+  if (typeof artifactObject.sarif === "string") {
+    return objectContent(artifactObject, "sarif", artifactObject.sarif, "sarif");
+  }
+
+  if (typeof artifactObject.csv === "string") {
+    return objectContent(artifactObject, "csv", artifactObject.csv, "csv");
   }
 
   if (typeof artifactObject.html === "string") {
@@ -400,7 +443,9 @@ function hasDirectContentField(object) {
     typeof object.svg === "string" ||
     typeof object.mermaid === "string" ||
     typeof object.react === "string" ||
-    typeof object.jsx === "string";
+    typeof object.jsx === "string" ||
+    typeof object.sarif === "string" ||
+    typeof object.csv === "string";
 }
 
 function detectContinuationAgent(object, agent) {
@@ -744,6 +789,12 @@ function safeFormat(value) {
   if (normalized === "code" || normalized.includes("vnd.ant.code") || normalized.includes("source-code")) {
     return "code";
   }
+  if (normalized === "sarif" || normalized.includes("sarif")) {
+    return "sarif";
+  }
+  if (normalized === "csv" || normalized.includes("csv")) {
+    return "csv";
+  }
   if (normalized === "html" || normalized.includes("html")) {
     return "html";
   }
@@ -897,7 +948,7 @@ function createBundleDocument({ title, text, assets, parts }) {
   };
 }
 
-function inferArtifactType({ format, fileName, metadata }) {
+function inferArtifactType({ format, content, fileName, metadata }) {
   if (metadata?.originalPayloadShape === "artifact-bundle") {
     return "bundle";
   }
@@ -913,6 +964,15 @@ function inferArtifactType({ format, fileName, metadata }) {
   if (format === "code") {
     return "snippet";
   }
+  if (format === "sarif") {
+    return "analysis-report";
+  }
+  if (format === "csv") {
+    return looksLikeAnalysisCsv(content) ||
+      /findings?|security|review|scan/i.test(optionalString(fileName))
+      ? "analysis-report"
+      : "table";
+  }
   const lowerName = optionalString(fileName).toLowerCase();
   if (lowerName.includes("handoff")) {
     return "handoff";
@@ -924,6 +984,14 @@ function inferArtifactType({ format, fileName, metadata }) {
     return "test-report";
   }
   return "document";
+}
+
+function looksLikeAnalysisCsv(content) {
+  const [header = ""] = optionalString(content).split(/\r?\n/, 1);
+  const normalized = header.toLowerCase();
+  return normalized.includes("severity") &&
+    (normalized.includes("message") || normalized.includes("description")) &&
+    (normalized.includes("file") || normalized.includes("path") || normalized.includes("rule"));
 }
 
 function normalizeArtifactType(value) {
@@ -964,6 +1032,56 @@ function looksLikeJson(value) {
   const trimmed = optionalString(value);
   return (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
     (trimmed.startsWith("[") && trimmed.endsWith("]"));
+}
+
+function looksLikeSarif(value) {
+  if (!looksLikeJson(value)) {
+    return false;
+  }
+  try {
+    return isSarifObject(JSON.parse(optionalString(value)));
+  } catch {
+    return false;
+  }
+}
+
+function isSarifObject(value) {
+  return value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Array.isArray(value.runs) &&
+    (typeof value.version === "string" || optionalString(value.$schema).toLowerCase().includes("sarif"));
+}
+
+function looksLikeCsv(value) {
+  const lines = optionalString(value)
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .slice(0, 5);
+  if (lines.length < 2 || lines[0].trimStart().startsWith("|")) {
+    return false;
+  }
+  const counts = lines.map(csvFieldCount);
+  return counts[0] > 1 && counts.every((count) => count === counts[0]);
+}
+
+function csvFieldCount(line) {
+  let count = 1;
+  let inQuotes = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\"") {
+      if (inQuotes && line[index + 1] === "\"") {
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function looksLikeMermaid(value) {

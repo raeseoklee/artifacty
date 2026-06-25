@@ -72,6 +72,78 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.match(markdownTablePage, /<th class="align-center">Status<\/th>/);
     assert.doesNotMatch(markdownTablePage, /\|:-----\|------:\|/);
 
+    const sarifContent = JSON.stringify({
+      version: "2.1.0",
+      runs: [
+        {
+          tool: {
+            driver: {
+              name: "CodeQL",
+              rules: [
+                { id: "js/path-injection", shortDescription: { text: "Path injection" } }
+              ]
+            }
+          },
+          results: [
+            {
+              ruleId: "js/path-injection",
+              level: "warning",
+              message: { text: "Validate the path before use." },
+              locations: [
+                {
+                  physicalLocation: {
+                    artifactLocation: { uri: "src/app.js" },
+                    region: { startLine: 42, startColumn: 7 }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    });
+    const sarifResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "SARIF Report",
+        content: sarifContent,
+        format: "sarif",
+        sourceAgent: "test"
+      })
+    });
+    const sarifArtifact = await sarifResponse.json();
+    assert.equal(sarifArtifact.artifactType, "analysis-report");
+    const sarifPage = await (await fetch(sarifArtifact.url)).text();
+    assert.match(sarifPage, /artifact-sarif/);
+    assert.match(sarifPage, /<main class="artifact-view artifact-view-wide">/);
+    assert.match(sarifPage, /js\/path-injection/);
+    assert.match(sarifPage, /Validate the path before use\./);
+    assert.match(sarifPage, /src\/app\.js:42:7/);
+    assert.match(sarifPage, /Raw SARIF JSON/);
+    assert.equal(await (await fetch(sarifArtifact.rawUrl)).text(), sarifContent);
+
+    const csvContent = "name,count,note\nCodex,2,\"Validate, then open\"\nArtifacty,10,\"<script>alert(1)</script>\"";
+    const csvResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "CSV Table",
+        content: csvContent,
+        format: "csv",
+        sourceAgent: "test"
+      })
+    });
+    const csvArtifact = await csvResponse.json();
+    assert.equal(csvArtifact.artifactType, "table");
+    const csvPage = await (await fetch(csvArtifact.url)).text();
+    assert.match(csvPage, /artifact-csv/);
+    assert.match(csvPage, /<main class="artifact-view artifact-view-wide">/);
+    assert.match(csvPage, /Validate, then open/);
+    assert.match(csvPage, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.doesNotMatch(csvPage, /<script>alert\(1\)<\/script>/);
+    assert.equal(await (await fetch(csvArtifact.rawUrl)).text(), csvContent);
+
     const codeResponse = await fetch(`${app.url}/api/artifacts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -188,9 +260,13 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.match(newPage, /<option value="svg">Svg<\/option>/);
     assert.match(newPage, /<option value="mermaid">Mermaid<\/option>/);
     assert.match(newPage, /<option value="react">React<\/option>/);
+    assert.match(newPage, /<option value="sarif">Sarif<\/option>/);
+    assert.match(newPage, /<option value="csv">Csv<\/option>/);
     assert.match(newPage, /<option value="diagram">diagram<\/option>/);
     assert.match(newPage, /<option value="component">component<\/option>/);
     assert.match(newPage, /<option value="snippet">snippet<\/option>/);
+    assert.match(newPage, /<option value="analysis-report">analysis-report<\/option>/);
+    assert.match(newPage, /<option value="table">table<\/option>/);
 
     const koreanNewPageResponse = await fetch(`${app.url}/new?lang=ko`);
     const koreanNewPage = await koreanNewPageResponse.text();
