@@ -8,7 +8,7 @@ Use this checklist before publishing or distributing Artifacty.
 npm run release:check
 ```
 
-This runs syntax checks, the full Node test suite, and a local smoke test that starts the HTTP server with token auth enabled, creates an artifact, verifies secret blocking, reads audit logs, writes a backup, and checks MCP tool discovery.
+This runs syntax checks, the full Node test suite, and a local smoke test that starts the HTTP server with token auth enabled, creates an artifact, verifies secret blocking, reads audit logs, writes a backup, and checks MCP tool/resource/prompt discovery.
 
 ## Packaging
 
@@ -23,7 +23,10 @@ This runs syntax checks, the full Node test suite, and a local smoke test that s
 
 - Keep the default HTTP bind address at `127.0.0.1`.
 - Require `ARTIFACTY_API_TOKEN` and `ARTIFACTY_SHARE_MODE=lan` or `team` before binding to `0.0.0.0`.
+- Confirm non-loopback startup output includes the LAN/team warning.
+- Prefer `x-artifacty-token` or `Authorization: Bearer <token>` over query tokens in scripts.
 - Review secret-scan bypasses. `--allow-secrets` and `ARTIFACTY_ALLOW_SECRETS=true` should be deliberate and temporary.
+- Review [../SECURITY.md](../SECURITY.md) and [threat-model.md](threat-model.md) when changing auth, rendering, MCP, or network-sharing behavior.
 - Treat artifact HTML and imported agent payloads as untrusted content.
 - Confirm scripted artifact iframes never include `allow-same-origin`.
 - Confirm `/assets/*` and `/vendor/npm/*` JavaScript responses return
@@ -35,6 +38,8 @@ This runs syntax checks, the full Node test suite, and a local smoke test that s
   not prove Mermaid or React rendered inside the iframe.
 - Keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled by default. Enable it only when the operator accepts arbitrary component execution risk.
 - Confirm parent app CSP does not include `unsafe-eval`; it should appear only on the React frame response CSP.
+- Confirm CodeQL, Scorecard, and Dependabot configuration changes are intentional.
+- Confirm npm publish still uses OIDC Trusted Publishing rather than a long-lived npm token.
 
 ## Operations
 

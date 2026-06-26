@@ -19,7 +19,7 @@ import { convertAgentArtifact } from "./lib/converters.js";
 import { createLineDiff } from "./lib/diff.js";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, viewerClientFilePath } from "./lib/editor-assets.js";
 import { localeFromBodyOrUrl, localeFromUrl, localizedHref } from "./lib/i18n.js";
-import { requireToken, securityConfig, validateServerExposure } from "./lib/security.js";
+import { exposureWarning, requireToken, securityConfig, validateServerExposure } from "./lib/security.js";
 import { writeServerState } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
 import {
@@ -78,6 +78,7 @@ export async function startServer(options = {}) {
     requestedPort,
     port: actualPort,
     portFallback: usedPortFallback,
+    securityWarning: exposureWarning({ host, config: security }),
     close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
   };
 }
@@ -674,12 +675,15 @@ async function runServerMain(options) {
     throw new Error("Use either --api-token or --generate-token, not both");
   }
   const generatedToken = options.generateToken ? generateToken(options) : null;
-  const { url, store } = await startServer({
+  const { url, store, securityWarning } = await startServer({
     ...options,
     apiToken: generatedToken?.token || options.apiToken
   });
   process.stderr.write(`Artifacty listening on ${url}\n`);
   process.stderr.write(`Store: ${store.home}\n`);
+  if (securityWarning) {
+    process.stderr.write(`${securityWarning}\n`);
+  }
   if (generatedToken) {
     process.stderr.write(`API token: ${generatedToken.token}\n`);
     process.stderr.write(`HTTP header: ${generatedToken.header}\n`);

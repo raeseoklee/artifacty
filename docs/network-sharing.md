@@ -30,6 +30,8 @@ The generated token protects HTTP API routes and browser write forms. Prefer the
 
 Artifacty does not terminate TLS. Do not expose it directly on the public internet. If a shared instance must cross an untrusted network, put it behind a TLS reverse proxy or a private VPN.
 
+When Artifacty binds outside loopback, startup output includes a warning that the server is reachable beyond the local machine and that TLS is not provided by Artifacty.
+
 ## Browser Write Behavior
 
 Remote browsers can read shared pages, but write actions are intentionally conservative. Mutating browser routes reject non-local `Origin` headers to reduce CSRF risk. For LAN sharing, prefer API or MCP writes with an explicit token header.
@@ -39,3 +41,5 @@ Do not relax the origin check just to make remote browser writes easier. A futur
 ## Renderer Guidance
 
 Artifact content is untrusted. HTML, SVG, Mermaid, and React artifacts are rendered with sandboxing and CSP controls, but shared viewing still means content reaches another user's browser. Keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled for LAN sessions unless every viewer trusts the artifact source.
+
+See [threat-model.md](threat-model.md) for the full trust-boundary summary.

@@ -285,9 +285,11 @@ Schema and storage:
 ## Security Model
 
 - The HTTP server binds to `127.0.0.1` by default.
-- If `ARTIFACTY_API_TOKEN` is set, HTTP API routes require `Authorization: Bearer <token>` or `x-artifacty-token`.
+- If `ARTIFACTY_API_TOKEN` is set, HTTP API routes require `Authorization: Bearer <token>` or `x-artifacty-token`; scripts should prefer headers over `?token=...` URLs.
+- API token checks use timing-safe digest comparison.
 - Binding outside localhost requires both `ARTIFACTY_SHARE_MODE=lan` or `team` and `ARTIFACTY_API_TOKEN`.
 - Non-local sharing is intended for trusted LAN or VPN sessions. Prefer a specific interface IP over `0.0.0.0`, keep React rendering disabled, and see [docs/network-sharing.md](docs/network-sharing.md).
+- Non-local binding prints a startup warning because Artifacty does not terminate TLS.
 - Artifact content is scanned for common API keys and private keys before storage. Use `--allow-secrets` or `ARTIFACTY_ALLOW_SECRETS=true` only for intentional exceptions.
 - Creates, updates, reads, imports, archives, and restores write audit events to SQLite.
 - CodeMirror editor/viewer and renderer assets are served from local npm dependencies through a package allowlist, not from a public CDN. JavaScript asset routes answer `Origin: null` requests with `Access-Control-Allow-Origin: null` so sandboxed renderer iframes can import local ESM without `allow-same-origin`.
@@ -300,5 +302,6 @@ Schema and storage:
 - CSV artifacts render as an escaped, bounded table; `/raw` preserves the original text.
 - Image and video artifacts store base64 media inline, render safe previews, and decode bytes through `/raw`.
 - Artifact content should still be treated as untrusted; use the raw view when handing content back to an agent.
+- npm releases are published with GitHub Actions OIDC Trusted Publishing after lint, test, and smoke checks pass.
 
-See [docs/release-checklist.md](docs/release-checklist.md) before publishing or running a shared instance.
+See [SECURITY.md](SECURITY.md), [docs/threat-model.md](docs/threat-model.md), and [docs/release-checklist.md](docs/release-checklist.md) before publishing or running a shared instance.

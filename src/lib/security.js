@@ -1,3 +1,5 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 const TOKEN_HEADER = "x-artifacty-token";
 
 const SECRET_PATTERNS = [
@@ -31,12 +33,23 @@ export function validateServerExposure({ host, config = securityConfig() }) {
   }
 }
 
+export function exposureWarning({ host, config = securityConfig() }) {
+  if (isLoopbackHost(host)) {
+    return "";
+  }
+  return [
+    `Warning: Artifacty is listening on ${host} in ${config.shareMode} share mode.`,
+    "HTTP is not encrypted by Artifacty; use only a trusted LAN/VPN or place it behind TLS.",
+    "Prefer x-artifacty-token or Authorization headers for scripts, and keep React rendering disabled unless every viewer trusts the artifact source."
+  ].join(" ");
+}
+
 export function requireToken({ request, url, body = {}, config = securityConfig() }) {
   if (!config.apiToken) {
     return;
   }
   const provided = extractToken({ request, url, body });
-  if (provided !== config.apiToken) {
+  if (!tokensEqual(provided, config.apiToken)) {
     throw Object.assign(new Error("Artifacty API token required"), {
       code: "AUTH_REQUIRED",
       statusCode: 401
@@ -85,6 +98,15 @@ export function assertNoSecrets(input = {}, options = {}) {
       preview: finding.preview
     }))
   };
+}
+
+export function tokensEqual(provided, expected) {
+  const providedText = String(provided ?? "");
+  const expectedText = String(expected ?? "");
+  const providedDigest = createHash("sha256").update(providedText).digest();
+  const expectedDigest = createHash("sha256").update(expectedText).digest();
+  return timingSafeEqual(providedDigest, expectedDigest) &&
+    Buffer.byteLength(providedText) === Buffer.byteLength(expectedText);
 }
 
 export function isLoopbackHost(host) {

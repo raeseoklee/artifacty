@@ -68,6 +68,9 @@ async function main() {
     });
     process.stderr.write(`Artifacty listening on ${server.url}\n`);
     process.stderr.write(`Store: ${server.store.home}\n`);
+    if (server.securityWarning) {
+      process.stderr.write(`${server.securityWarning}\n`);
+    }
     if (generatedToken) {
       process.stderr.write(`API token: ${generatedToken.token}\n`);
       process.stderr.write(`HTTP header: ${generatedToken.header}\n`);
