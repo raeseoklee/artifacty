@@ -24,6 +24,7 @@ This runs syntax checks, the full Node test suite, and a local smoke test that s
 - Keep the default HTTP bind address at `127.0.0.1`.
 - Require `ARTIFACTY_API_TOKEN` and `ARTIFACTY_SHARE_MODE=lan` or `team` before binding to `0.0.0.0`.
 - Confirm non-loopback startup output includes the LAN/team warning.
+- Confirm `artifacty serve` starts a managed background server and returns prompt-friendly JSON; use `artifacty serve --foreground` for attached log checks.
 - Prefer `x-artifacty-token` or `Authorization: Bearer <token>` over query tokens in scripts.
 - Review secret-scan bypasses. `--allow-secrets` and `ARTIFACTY_ALLOW_SECRETS=true` should be deliberate and temporary.
 - Review [../SECURITY.md](../SECURITY.md) and [threat-model.md](threat-model.md) when changing auth, rendering, MCP, or network-sharing behavior.

@@ -51,8 +51,8 @@ Controls:
 - Browser form token URLs exist only for local convenience.
 - Token comparisons use timing-safe digest comparison.
 
-Guidance: rotate tokens after sharing sessions and prefer foreground generated
-tokens for temporary LAN use.
+Guidance: rotate tokens after sharing sessions, prefer header-based tokens for
+scripts, and use generated startup tokens only for temporary interactive shares.
 
 ### Cross-Site Request Forgery
 

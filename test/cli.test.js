@@ -45,6 +45,7 @@ test("serve can generate and enforce a startup API token", async () => {
   const child = spawn(process.execPath, [
     "src/cli.js",
     "serve",
+    "--foreground",
     "--port",
     "0",
     "--home",
@@ -84,6 +85,52 @@ test("serve rejects conflicting token options", async () => {
     execFileAsync(process.execPath, ["src/cli.js", "serve", "--api-token", "configured", "--generate-token"]),
     /Use either --api-token or --generate-token, not both/
   );
+});
+
+test("serve rejects conflicting foreground and detach modes", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, ["src/cli.js", "serve", "--foreground", "--detach"]),
+    /Use either --foreground or --detach, not both/
+  );
+});
+
+test("serve starts a background server by default and returns generated auth", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-serve-background-"));
+  try {
+    const result = JSON.parse((await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "serve",
+      "--port",
+      "0",
+      "--home",
+      home,
+      "--generate-token",
+      "--bytes",
+      "16"
+    ])).stdout);
+
+    assert.equal(result.action, "start");
+    assert.equal(result.running, true);
+    assert.equal(result.home, home);
+    assert.match(result.url, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.match(result.auth.token, /^[A-Za-z0-9_-]{22}$/);
+    assert.equal(result.auth.header, `x-artifacty-token: ${result.auth.token}`);
+    assert.equal(result.auth.createUrl, `${result.url}/new?token=${encodeURIComponent(result.auth.token)}`);
+    assert.equal(result.auth.importUrl, `${result.url}/import?token=${encodeURIComponent(result.auth.token)}`);
+
+    const unauthorized = await fetch(`${result.url}/api/artifacts`);
+    assert.equal(unauthorized.status, 401);
+
+    const authorized = await fetch(`${result.url}/api/artifacts`, {
+      headers: {
+        "x-artifacty-token": result.auth.token
+      }
+    });
+    assert.equal(authorized.status, 200);
+  } finally {
+    await execFileAsync(process.execPath, ["src/cli.js", "stop", "--home", home, "--force"]).catch(() => {});
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("starts, reports, and stops a background server", async () => {

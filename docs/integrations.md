@@ -13,22 +13,23 @@ The dashboard prefers `http://127.0.0.1:8787`. If that port is busy and no expli
 Use a generated startup token when running a protected foreground server:
 
 ```bash
-node src/cli.js serve --generate-token
-node src/cli.js serve --host 0.0.0.0 --share-mode lan --generate-token
+node src/cli.js serve --foreground --generate-token
+node src/cli.js serve --foreground --host 0.0.0.0 --share-mode lan --generate-token
 npm start -- --generate-token
 ```
 
-The generated token is printed with ready-to-open create and import URLs.
+Foreground runs print the generated token with ready-to-open create and import URLs. Background runs return the same values in JSON.
 
 For prompt-friendly local background runs, use the lifecycle commands:
 
 ```bash
+node src/cli.js serve --port 8787
 node src/cli.js start --port 8787
 node src/cli.js status
 node src/cli.js stop
 ```
 
-`serve --detach` uses the same detached-process path as `start`. It writes `server.pid`, `server.json`, and logs under `ARTIFACTY_HOME` (default `~/.artifacty`). Prefer `start --api-token "$(node src/cli.js token --raw)"` when a background server needs API protection, because generated startup tokens are only visible in the server log.
+`serve`, `serve --detach`, and `start` use the same detached-process path. They write `server.pid`, `server.json`, and logs under `ARTIFACTY_HOME` (default `~/.artifacty`). `serve --generate-token` and `start --generate-token` generate the API token in the parent CLI process and return it in JSON along with ready-to-open create/import URLs. Use `serve --foreground` when you want attached logs for debugging.
 
 The lifecycle commands are intended to be cross-platform:
 
@@ -105,7 +106,7 @@ Generate a token for protected HTTP routes:
 node src/cli.js token
 node src/cli.js serve --generate-token
 npm start -- --generate-token
-ARTIFACTY_API_TOKEN="$(node src/cli.js token --raw)" node src/cli.js serve
+ARTIFACTY_API_TOKEN="$(node src/cli.js token --raw)" node src/cli.js serve --foreground
 ```
 
 ## Claude Code
@@ -308,7 +309,7 @@ node src/cli.js service install
 
 The generated service runs `src/server.js` with explicit `--host` and `--home` arguments. It includes `--port` only when you configure a port, which keeps the default port fallback available. Load or unload it manually with the `launchctl` commands returned by `service install`.
 
-For background services, prefer a stable `ARTIFACTY_API_TOKEN` in the service environment. `serve --generate-token` is intended for foreground runs where the operator can read the generated token from startup output.
+For background services, prefer a stable `ARTIFACTY_API_TOKEN` in the service environment. `serve --generate-token` is intended for temporary interactive sessions; the parent CLI returns the generated token in JSON.
 
 ## Backup and Audit
 

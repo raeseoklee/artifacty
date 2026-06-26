@@ -4,14 +4,23 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createStore } from "./storage.js";
 import { readServerState, serverStatePath } from "./server-state.js";
+import { exposureWarning, securityConfig } from "./security.js";
+import { generateToken } from "./token.js";
 
-const DEFAULT_READY_TIMEOUT_MS = 5000;
+const DEFAULT_READY_TIMEOUT_MS = 30000;
+const DEFAULT_HOST = "127.0.0.1";
 
 export async function startBackgroundServer(options = {}) {
   if (options.generateToken && options.apiToken) {
     throw new Error("Use either --api-token or --generate-token, not both");
   }
 
+  const generatedToken = options.generateToken ? generateToken(options) : null;
+  const serverOptions = {
+    ...options,
+    apiToken: generatedToken?.token || options.apiToken,
+    generateToken: false
+  };
   const store = createStore({ home: options.home });
   const paths = backgroundPaths(store);
   const current = await backgroundStatus({ home: store.home });
@@ -22,7 +31,7 @@ export async function startBackgroundServer(options = {}) {
   mkdirSync(paths.logDir, { recursive: true });
   mkdirSync(store.home, { recursive: true });
 
-  const child = spawnDetachedServer(options, store, paths);
+  const child = spawnDetachedServer(serverOptions, store, paths);
 
   writeFileSync(paths.pidFile, `${child.pid}\n`, "utf8");
 
@@ -39,6 +48,11 @@ export async function startBackgroundServer(options = {}) {
       pid: child.pid,
       url: ready.url,
       home: store.home,
+      auth: authResponse(generatedToken, ready.url),
+      securityWarning: exposureWarning({
+        host: serverOptions.host || process.env.ARTIFACTY_HOST || DEFAULT_HOST,
+        config: securityConfig(serverOptions)
+      }) || undefined,
       logs: {
         stdout: paths.stdoutLog,
         stderr: paths.stderrLog
@@ -58,6 +72,20 @@ export async function startBackgroundServer(options = {}) {
   }
 }
 
+function authResponse(generatedToken, url) {
+  if (!generatedToken) {
+    return null;
+  }
+  return {
+    token: generatedToken.token,
+    bytes: generatedToken.bytes,
+    header: generatedToken.header,
+    authorization: generatedToken.authorization,
+    createUrl: `${url}/new?token=${encodeURIComponent(generatedToken.token)}`,
+    importUrl: `${url}/import?token=${encodeURIComponent(generatedToken.token)}`
+  };
+}
+
 export async function stopBackgroundServer(options = {}) {
   const store = createStore({ home: options.home });
   const paths = backgroundPaths(store);
@@ -68,7 +96,7 @@ export async function stopBackgroundServer(options = {}) {
       action: "stop",
       stopped: false,
       running: status.running,
-      reason: status.pid ? "server was not started by artifacty start" : "server is not running",
+      reason: status.pid ? "server was not started by artifacty serve/start" : "server is not running",
       pid: status.pid || null,
       home: store.home
     };

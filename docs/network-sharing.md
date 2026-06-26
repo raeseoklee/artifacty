@@ -30,7 +30,7 @@ The generated token protects HTTP API routes and browser write forms. Prefer the
 
 Artifacty does not terminate TLS. Do not expose it directly on the public internet. If a shared instance must cross an untrusted network, put it behind a TLS reverse proxy or a private VPN.
 
-When Artifacty binds outside loopback, startup output includes a warning that the server is reachable beyond the local machine and that TLS is not provided by Artifacty.
+When Artifacty binds outside loopback, startup output includes a warning that the server is reachable beyond the local machine and that TLS is not provided by Artifacty. Background `serve` returns this warning in JSON; foreground `serve` and `src/server.js` also write it to stderr.
 
 ## Browser Write Behavior
 

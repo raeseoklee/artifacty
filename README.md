@@ -27,37 +27,43 @@ artifacty --help
 Run it without a global install:
 
 ```bash
-npx artifacty@latest serve
+npx artifacty@latest serve --foreground
 ```
 
-Start the local dashboard:
+Start the local dashboard in the background:
 
 ```bash
 artifacty serve
 ```
 
-Open the URL printed by the server. Artifacty prefers `http://127.0.0.1:8787`; if that default port is busy and no explicit port was configured, it starts on the next available local port and records the actual URL for CLI and MCP responses.
+Open the `url` printed in the JSON response. Artifacty prefers `http://127.0.0.1:8787`; if that default port is busy and no explicit port was configured, it starts on the next available local port and records the actual URL for CLI and MCP responses.
 
-Run it in the background and return to your prompt:
+Manage the background server:
 
 ```bash
-artifacty start
 artifacty status
 artifacty stop
 ```
 
-`artifacty serve --detach` is equivalent to `artifacty start`. Logs are written under `~/.artifacty/logs/`.
+`artifacty start` and `artifacty serve --detach` use the same lifecycle path as `artifacty serve`. Logs are written under `~/.artifacty/logs/`.
 These lifecycle commands use Node's detached process support and work on macOS, Linux, and Windows. `artifacty stop` uses Windows `taskkill` on Windows and process-group signals on macOS/Linux.
+
+For foreground debugging, keep the process attached:
+
+```bash
+artifacty serve --foreground
+npm start
+```
 
 Generate an API token at startup when you want to protect HTTP API and browser write routes:
 
 ```bash
 artifacty serve --generate-token
 artifacty serve --host 0.0.0.0 --share-mode lan --generate-token
-npm start -- --generate-token
+artifacty serve --foreground --generate-token
 ```
 
-The server prints the generated token plus `/new?token=...` and `/import?token=...` URLs. For scripts or background services that need a stable token, generate one first:
+Background `serve` returns the generated token and ready-to-open `/new?token=...` and `/import?token=...` URLs in JSON. Foreground `serve` prints the same values to stderr. For scripts or long-running services that need a stable token, generate one first:
 
 ```bash
 artifacty token
@@ -216,11 +222,11 @@ artifacty integrity
 
 ## API Example
 
-Start a protected server in another terminal, or generate a reusable shell token first:
+Start a protected server with a reusable shell token:
 
 ```bash
-artifacty serve --generate-token
 export ARTIFACTY_API_TOKEN="$(artifacty token --raw)"
+artifacty serve --api-token "$ARTIFACTY_API_TOKEN"
 ```
 
 ```bash
