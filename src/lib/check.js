@@ -14,10 +14,25 @@ export const REQUIRED_MCP_TOOLS = [
   "artifacty_info"
 ];
 
+export const REQUIRED_MCP_RESOURCES = [
+  "artifacty://recent",
+  "artifacty://schema/v1"
+];
+
+export const REQUIRED_MCP_PROMPTS = [
+  "artifacty_handoff",
+  "artifacty_review",
+  "artifacty_test_report",
+  "artifacty_visual_qa",
+  "artifacty_release_notes"
+];
+
 export async function checkMcpTools(options = {}) {
   const projectDir = path.resolve(options.projectDir || process.cwd());
   const serverPath = path.resolve(options.serverPath || path.join(projectDir, "src", "mcp-server.js"));
   const requiredTools = options.requiredTools || REQUIRED_MCP_TOOLS;
+  const requiredResources = options.requiredResources || REQUIRED_MCP_RESOURCES;
+  const requiredPrompts = options.requiredPrompts || REQUIRED_MCP_PROMPTS;
   const timeoutMs = Number(options.timeout || 5000);
   const client = spawnMcpClient({
     serverPath,
@@ -39,14 +54,26 @@ export async function checkMcpTools(options = {}) {
     const listed = await client.request("tools/list", {});
     const toolNames = (listed.tools || []).map((tool) => tool.name).sort();
     const missingTools = requiredTools.filter((tool) => !toolNames.includes(tool));
+    const listedResources = await client.request("resources/list", {});
+    const resourceUris = (listedResources.resources || []).map((resource) => resource.uri).sort();
+    const missingResources = requiredResources.filter((resource) => !resourceUris.includes(resource));
+    const listedPrompts = await client.request("prompts/list", {});
+    const promptNames = (listedPrompts.prompts || []).map((prompt) => prompt.name).sort();
+    const missingPrompts = requiredPrompts.filter((prompt) => !promptNames.includes(prompt));
 
     return {
-      ok: missingTools.length === 0,
+      ok: missingTools.length === 0 && missingResources.length === 0 && missingPrompts.length === 0,
       serverPath,
       protocolVersion: initialized.protocolVersion,
       toolCount: toolNames.length,
+      resourceCount: resourceUris.length,
+      promptCount: promptNames.length,
       tools: toolNames,
-      missingTools
+      resources: resourceUris,
+      prompts: promptNames,
+      missingTools,
+      missingResources,
+      missingPrompts
     };
   } finally {
     client.close();

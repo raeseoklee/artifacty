@@ -83,7 +83,21 @@ node src/cli.js check
 - Cursor: writes project `.cursor/mcp.json` using the Cursor `mcpServers` shape. Pass `--config ~/.cursor/mcp.json` for global Cursor setup.
 - `--dry-run` returns the generated config without writing it.
 - `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change Claude Code startup behavior; set `MCP_TIMEOUT` before launching Claude Code if you need a larger value there.
-- `check` starts the local MCP server and verifies required tools through `initialize` and `tools/list`.
+- `check` starts the local MCP server and verifies required tools, resources, and prompts through MCP discovery methods.
+
+## Client Compatibility Matrix
+
+| Client | Config shape | Scope | Timeout behavior | Restart requirement | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | `.mcp.json` `mcpServers` | project | parent `MCP_TIMEOUT`, default 30s | restart Claude Code | no per-server startup timeout field |
+| Codex | TOML `[mcp_servers.artifacty]` | user or explicit config | `startup_timeout_sec = 30.0` | restart Codex session | Windows cold starts may need the 30s default |
+| Gemini CLI | JSON `mcpServers` | user or project | `timeout: 30000` | reload `/mcp` or restart | `trust` is preserved from installer options |
+| GitHub Copilot in VS Code | `.vscode/mcp.json` `servers` | workspace or user profile | client-managed | reload VS Code MCP server | tools are the primary tested surface |
+| Cursor | `.cursor/mcp.json` `mcpServers` | workspace or global | client-managed | restart/reload Cursor MCP | tools are the primary tested surface |
+
+All clients should support MCP tools. Resource and prompt display varies by
+client, so Artifacty's core workflows continue to work through tools even when a
+client does not expose resources or prompts in its UI.
 
 Generate a token for protected HTTP routes:
 
@@ -195,6 +209,25 @@ Then run `/mcp` inside Gemini CLI to confirm that the Artifacty tools are connec
 - `artifacty_info`: inspect local server/store settings.
 
 Mutating MCP tools scan content for common API keys and private keys before storage. Pass `allowSecrets: true` only for intentional exceptions.
+
+## MCP Resources and Prompts
+
+Artifacty also exposes read-only MCP resources:
+
+- `artifacty://recent`: recent artifacts with pagination and browser URLs.
+- `artifacty://schema/v1`: Artifact schema v1 Markdown.
+- `artifacty://artifacts/{id}`: artifact JSON with metadata, content, and URLs.
+- `artifacty://artifacts/{id}/raw{?version}`: raw latest or versioned content.
+
+Prompt templates:
+
+- `artifacty_handoff`: continuation handoff.
+- `artifacty_review`: findings-first code review artifact.
+- `artifacty_test_report`: verification evidence.
+- `artifacty_visual_qa`: screenshot/media/browser evidence.
+- `artifacty_release_notes`: release notes with publish evidence and risks.
+
+See [mcp-public-api.md](mcp-public-api.md) for the public MCP surface.
 
 ## Importing Agent Artifacts
 

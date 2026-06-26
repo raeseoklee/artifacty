@@ -175,6 +175,10 @@ artifacty-mcp
 ```
 
 MCP clients can create artifacts with `artifacty_create`. `artifacty_publish` remains as a backwards-compatible alias.
+MCP clients that support resources or prompts can also read `artifacty://recent`,
+`artifacty://artifacts/{id}`, `artifacty://artifacts/{id}/raw{?version}`, and
+`artifacty://schema/v1`, or use prompt templates such as `artifacty_handoff`,
+`artifacty_review`, and `artifacty_release_notes`.
 
 Operational commands:
 
@@ -275,6 +279,7 @@ Schema and storage:
 - Diagram, component, source snippet, analysis report, table, and media assets use `diagram`, `component`, `snippet`, `analysis-report`, `table`, and `asset` artifact types.
 - Copilot/Cursor examples cover PR reviews, screenshots, demo recordings, and visual evidence bundles.
 - See [docs/artifact-schema-v1.md](docs/artifact-schema-v1.md).
+- See [docs/mcp-public-api.md](docs/mcp-public-api.md) for MCP tools, resources, prompts, and compatibility notes.
 - See [docs/sarif-csv-artifact-plan.md](docs/sarif-csv-artifact-plan.md) for the SARIF/CSV output artifact roadmap.
 
 ## Security Model

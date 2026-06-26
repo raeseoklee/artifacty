@@ -35,6 +35,8 @@ test("mcp server initializes and exposes artifact tools", async () => {
       clientInfo: { name: "test", version: "0.0.0" }
     });
     assert.equal(init.protocolVersion, "2025-06-18");
+    assert.equal(init.capabilities.resources.listChanged, false);
+    assert.equal(init.capabilities.prompts.listChanged, false);
 
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
 
@@ -62,6 +64,18 @@ test("mcp server initializes and exposes artifact tools", async () => {
     assert.ok(importTool.inputSchema.properties.agent.enum.includes("copilot"));
     assert.ok(importTool.inputSchema.properties.agent.enum.includes("cursor"));
 
+    const listedResources = await client.request("resources/list", {});
+    assert.ok(listedResources.resources.some((resource) => resource.uri === "artifacty://recent"));
+    assert.ok(listedResources.resources.some((resource) => resource.uri === "artifacty://schema/v1"));
+
+    const listedTemplates = await client.request("resources/templates/list", {});
+    assert.ok(listedTemplates.resourceTemplates.some((resource) => resource.uriTemplate === "artifacty://artifacts/{id}"));
+    assert.ok(listedTemplates.resourceTemplates.some((resource) => resource.uriTemplate === "artifacty://artifacts/{id}/raw{?version}"));
+
+    const listedPrompts = await client.request("prompts/list", {});
+    assert.ok(listedPrompts.prompts.some((prompt) => prompt.name === "artifacty_handoff"));
+    assert.ok(listedPrompts.prompts.some((prompt) => prompt.name === "artifacty_release_notes"));
+
     const info = await client.request("tools/call", {
       name: "artifacty_info",
       arguments: {}
@@ -88,6 +102,38 @@ test("mcp server initializes and exposes artifact tools", async () => {
     });
     assert.equal(fetched.structuredContent.content, "hello");
     assert.equal(fetched.structuredContent.schemaVersion, 1);
+
+    const recentResource = await client.request("resources/read", {
+      uri: "artifacty://recent"
+    });
+    const recent = JSON.parse(recentResource.contents[0].text);
+    assert.ok(recent.artifacts.some((artifact) => artifact.id === id));
+    assert.equal(recent.artifacts[0].url.startsWith("http://127.0.0.1:18888/"), true);
+
+    const artifactResource = await client.request("resources/read", {
+      uri: `artifacty://artifacts/${encodeURIComponent(id)}`
+    });
+    const resourceArtifact = JSON.parse(artifactResource.contents[0].text);
+    assert.equal(resourceArtifact.id, id);
+    assert.equal(resourceArtifact.content, "hello");
+
+    const rawResource = await client.request("resources/read", {
+      uri: `artifacty://artifacts/${encodeURIComponent(id)}/raw`
+    });
+    assert.equal(rawResource.contents[0].mimeType, "text/plain; charset=utf-8");
+    assert.equal(rawResource.contents[0].text, "hello");
+
+    const schemaResource = await client.request("resources/read", {
+      uri: "artifacty://schema/v1"
+    });
+    assert.match(schemaResource.contents[0].text, /# Artifact Schema v1/);
+
+    const handoffPrompt = await client.request("prompts/get", {
+      name: "artifacty_handoff",
+      arguments: { artifactId: id, goal: "Continue implementation" }
+    });
+    assert.match(handoffPrompt.messages[0].content.text, /artifacty:\/\/artifacts\//);
+    assert.match(handoffPrompt.messages[0].content.text, /Continue implementation/);
 
     const codeArtifact = await client.request("tools/call", {
       name: "artifacty_create",
