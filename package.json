@@ -28,7 +28,7 @@
     "start": "node src/server.js",
     "mcp": "node src/mcp-server.js",
     "test": "node --test",
-    "lint": "node --check src/*.js src/lib/*.js src/client/*.js test/*.test.js",
+    "lint": "node scripts/lint.mjs",
     "smoke": "bash scripts/smoke.sh",
     "release:check": "npm run lint && npm test && npm run smoke"
   },
@@ -42,6 +42,7 @@
     "docs/release-checklist.md",
     "docs/sarif-csv-artifact-plan.md",
     "docs/threat-model.md",
+    "scripts/lint.mjs",
     "scripts/smoke.sh",
     "README.md",
     "LICENSE",
