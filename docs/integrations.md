@@ -37,7 +37,7 @@ The lifecycle commands are intended to be cross-platform:
 - Windows: `start` hides the child console window, and `stop` uses `taskkill /PID <pid> /T`; `--force` adds `/F`.
 - All platforms: `status` combines the managed pid file with the HTTP `/health` endpoint, so a stale pid alone is not reported as healthy.
 
-For login/startup persistence, use the operating system's service manager. Artifacty's `service` command currently generates a macOS LaunchAgent plist; Linux systemd user units and Windows Task Scheduler/Service wrappers should be configured explicitly until first-class installers are added.
+For login/startup persistence, use the operating system's service manager. Artifacty's `service` command can generate macOS LaunchAgent, Linux systemd user-unit, and Windows Task Scheduler definitions.
 
 Create artifacts directly in the browser at `http://127.0.0.1:8787/new`.
 
@@ -299,17 +299,33 @@ Renderer notes:
 
 ## Background Service
 
-Generate or install a macOS LaunchAgent plist:
+Generate platform-specific service definitions:
 
 ```bash
-node src/cli.js service plist
-node src/cli.js service install --dry-run
-node src/cli.js service install
+node src/cli.js service plist --dry-run
+node src/cli.js service unit --dry-run
+node src/cli.js service task --dry-run
 ```
 
-The generated service runs `src/server.js` with explicit `--host` and `--home` arguments. It includes `--port` only when you configure a port, which keeps the default port fallback available. Load or unload it manually with the `launchctl` commands returned by `service install`.
+Install the definition for the current OS:
 
-For background services, prefer a stable `ARTIFACTY_API_TOKEN` in the service environment. `serve --generate-token` is intended for temporary interactive sessions; the parent CLI returns the generated token in JSON.
+```bash
+node src/cli.js service install --dry-run
+node src/cli.js service install
+node src/cli.js service uninstall --dry-run
+```
+
+Use `--platform macos|linux|windows` when preparing a definition for another host. Use `--path` to choose the output path, or the platform-specific aliases `--plist`, `--unit`, and `--script`.
+
+The generated service runs `src/server.js` with explicit `--host` and `--home` arguments. It includes `--port` only when you configure a port, which keeps the default port fallback available. `--api-token`, `--share-mode`, and `--allow-secrets` are preserved in the generated definition when explicitly provided.
+
+Activation is still delegated to the OS service manager:
+
+- macOS: `launchctl load ~/Library/LaunchAgents/com.artifacty.server.plist`
+- Linux: `systemctl --user enable --now com.artifacty.server.service`
+- Windows: run the generated PowerShell script, which registers and starts the `ArtifactyServer` scheduled task.
+
+For background services, prefer a stable `ARTIFACTY_API_TOKEN` or `--api-token` value. `serve --generate-token` is intended for temporary interactive sessions; the parent CLI returns the generated token in JSON.
 
 ## Backup and Audit
 

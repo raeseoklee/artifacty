@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { exportStore, importStore, defaultBackupPath } from "../src/lib/backup.js";
 import { createArtifact, createStore, getArtifact, listArtifacts } from "../src/lib/storage.js";
-import { createLaunchAgentPlist, serviceCommand } from "../src/lib/service.js";
+import { createLaunchAgentPlist, createSystemdUserUnit, createWindowsTaskScript, serviceCommand } from "../src/lib/service.js";
 
 test("exports and imports a complete store backup", async () => {
   const sourceHome = await mkdtemp(path.join(tmpdir(), "artifacty-backup-src-"));
@@ -51,6 +51,7 @@ test("builds LaunchAgent service definitions without writing in dry run", async 
     assert.match(plist, /ARTIFACTY_HOME/);
 
     const result = await serviceCommand("install", {
+      platform: "macos",
       projectDir: process.cwd(),
       home,
       plistPath,
@@ -60,6 +61,72 @@ test("builds LaunchAgent service definitions without writing in dry run", async 
     assert.equal(result.changed, true);
     assert.match(result.content, /ProgramArguments/);
     assert.ok(defaultBackupPath(createStore({ home })).startsWith(path.join(home, "backups")));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("builds Linux systemd user service definitions", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-service-linux-"));
+  try {
+    const unitPath = path.join(home, "com.artifacty.server.service");
+    const unit = createSystemdUserUnit({
+      projectDir: process.cwd(),
+      home,
+      host: "127.0.0.1",
+      port: 8787,
+      apiToken: "service-token"
+    });
+
+    assert.match(unit, /\[Unit\]/);
+    assert.match(unit, /ExecStart=/);
+    assert.match(unit, /ARTIFACTY_HOME=/);
+    assert.match(unit, /ARTIFACTY_API_TOKEN=service-token/);
+    assert.match(unit, /Restart=on-failure/);
+
+    const result = await serviceCommand("install", {
+      platform: "linux",
+      projectDir: process.cwd(),
+      home,
+      unitPath,
+      dryRun: true
+    });
+    assert.equal(result.platform, "linux");
+    assert.equal(result.path, unitPath);
+    assert.match(result.content, /WantedBy=default\.target/);
+    assert.ok(result.nextSteps.some((step) => step.includes("systemctl --user enable --now")));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("builds Windows scheduled task installer scripts", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-service-windows-"));
+  try {
+    const scriptPath = path.join(home, "install-artifacty-server-task.ps1");
+    const script = createWindowsTaskScript({
+      projectDir: process.cwd(),
+      home,
+      host: "127.0.0.1",
+      port: 8787,
+      apiToken: "service-token"
+    });
+
+    assert.match(script, /Register-ScheduledTask/);
+    assert.match(script, /ArtifactyServer/);
+    assert.match(script, /Start-ScheduledTask/);
+    assert.match(script, /--api-token service-token/);
+
+    const result = await serviceCommand("task", {
+      platform: "windows",
+      projectDir: process.cwd(),
+      home,
+      scriptPath
+    });
+    assert.equal(result.platform, "windows");
+    assert.equal(result.path, scriptPath);
+    assert.match(result.content, /New-ScheduledTaskAction/);
+    assert.ok(result.nextSteps.some((step) => step.includes("powershell")));
   } finally {
     await rm(home, { recursive: true, force: true });
   }

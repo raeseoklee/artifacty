@@ -280,6 +280,13 @@ async function main() {
       projectDir: options.projectDir || PACKAGE_ROOT,
       serverPath: options.serverPath,
       plistPath: options.plist,
+      unitPath: options.unit,
+      scriptPath: options.script,
+      servicePath: options.path,
+      platform: options.platform,
+      apiToken: options.apiToken,
+      shareMode: options.shareMode,
+      allowSecrets: options.allowSecrets,
       host: options.host,
       port: options.port,
       home: options.home,
@@ -418,7 +425,7 @@ Usage:
   artifacty export --file <path>
   artifacty backup [--file <path>]
   artifacty import-store --file <path>
-  artifacty service plist|install|uninstall [--dry-run] [--plist <path>]
+  artifacty service plist|unit|task|install|uninstall [--platform macos|linux|windows] [--dry-run] [--path <path>]
   artifacty list [--query text] [--tag tag] [--source agent] [--limit 50] [--offset 0] [--include-archived]
   artifacty show <id> [--version n] [--raw]
 

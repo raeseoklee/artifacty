@@ -199,6 +199,8 @@ artifacty start
 artifacty status
 artifacty stop
 artifacty service install --dry-run
+artifacty service unit --dry-run
+artifacty service task --dry-run
 ```
 
 When working from a source checkout without global installation, replace `artifacty` with `node src/cli.js` and `artifacty-mcp` with `node src/mcp-server.js`.

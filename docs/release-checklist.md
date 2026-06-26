@@ -25,6 +25,7 @@ This runs syntax checks, the full Node test suite, and a local smoke test that s
 - Require `ARTIFACTY_API_TOKEN` and `ARTIFACTY_SHARE_MODE=lan` or `team` before binding to `0.0.0.0`.
 - Confirm non-loopback startup output includes the LAN/team warning.
 - Confirm `artifacty serve` starts a managed background server and returns prompt-friendly JSON; use `artifacty serve --foreground` for attached log checks.
+- Confirm `artifacty service plist|unit|task --dry-run` renders macOS, Linux, and Windows service definitions.
 - Prefer `x-artifacty-token` or `Authorization: Bearer <token>` over query tokens in scripts.
 - Review secret-scan bypasses. `--allow-secrets` and `ARTIFACTY_ALLOW_SECRETS=true` should be deliberate and temporary.
 - Review [../SECURITY.md](../SECURITY.md) and [threat-model.md](threat-model.md) when changing auth, rendering, MCP, or network-sharing behavior.
@@ -46,4 +47,4 @@ This runs syntax checks, the full Node test suite, and a local smoke test that s
 
 - Export a backup before upgrades: `artifacty backup`.
 - Confirm `artifacty audit --limit 20` shows recent create/update/read/archive events.
-- For macOS background service installs, dry-run first: `artifacty service install --dry-run`.
+- For background service installs, dry-run first: `artifacty service install --dry-run`. Use `--platform macos|linux|windows` to review another OS definition.
