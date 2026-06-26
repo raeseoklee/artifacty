@@ -46,7 +46,7 @@ artifacty stop
 ```
 
 `artifacty start` and `artifacty serve --detach` use the same lifecycle path as `artifacty serve`. Logs are written under `~/.artifacty/logs/`.
-These lifecycle commands use Node's detached process support and work on macOS, Linux, and Windows. `artifacty stop` uses Windows `taskkill` on Windows and process-group signals on macOS/Linux.
+These lifecycle commands use Node's detached process support and work on macOS, Linux, and Windows. `artifacty stop` uses process-group signals on macOS/Linux and Windows `taskkill`, falling back to `/F` when Windows requires forceful termination.
 
 For foreground debugging, keep the process attached:
 

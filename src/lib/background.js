@@ -248,8 +248,18 @@ function buildServerEnv(options) {
 async function terminatePid(pid, options = {}) {
   const command = stopCommandForPlatform(pid, options);
   if (command) {
-    await execFileQuiet(command.command, command.args).catch((error) => {
+    await execFileQuiet(command.command, command.args).catch(async (error) => {
       if (!isPidRunning(pid)) {
+        return;
+      }
+      if (!options.force) {
+        const forced = stopCommandForPlatform(pid, { force: true });
+        await execFileQuiet(forced.command, forced.args).catch((forcedError) => {
+          if (!isPidRunning(pid)) {
+            return;
+          }
+          throw new Error(`Failed to stop Windows process ${pid}: ${forcedError.stderr || forcedError.message}`);
+        });
         return;
       }
       throw new Error(`Failed to stop Windows process ${pid}: ${error.stderr || error.message}`);
