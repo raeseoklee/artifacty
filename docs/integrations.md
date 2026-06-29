@@ -37,6 +37,15 @@ The lifecycle commands are intended to be cross-platform:
 - Windows: `start` hides the child console window, and `stop` uses `taskkill /PID <pid> /T`, falling back to `/F` when Windows requires forceful termination. `--force` uses `/F` immediately.
 - All platforms: `status` combines the managed pid file with the HTTP `/health` endpoint, so a stale pid alone is not reported as healthy.
 
+Run diagnostics when setup behaves unexpectedly:
+
+```bash
+node src/cli.js doctor
+node src/cli.js doctor --skip-mcp
+```
+
+`doctor` checks Node version support, local exposure settings, store integrity, managed server health, service definition rendering, and MCP discovery. A stopped server is reported as a warning, not a failure.
+
 For login/startup persistence, use the operating system's service manager. Artifacty's `service` command can generate macOS LaunchAgent, Linux systemd user-unit, and Windows Task Scheduler definitions.
 
 Create artifacts directly in the browser at `http://127.0.0.1:8787/new`.
@@ -85,6 +94,7 @@ node src/cli.js check
 - `--dry-run` returns the generated config without writing it.
 - `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change Claude Code startup behavior; set `MCP_TIMEOUT` before launching Claude Code if you need a larger value there.
 - `check` starts the local MCP server and verifies required tools, resources, and prompts through MCP discovery methods.
+- `doctor` combines MCP discovery with runtime, storage, server, and service diagnostics.
 
 ## Client Compatibility Matrix
 

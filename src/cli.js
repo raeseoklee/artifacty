@@ -22,6 +22,7 @@ import { serviceCommand } from "./lib/service.js";
 import { backgroundStatus, startBackgroundServer, stopBackgroundServer } from "./lib/background.js";
 import { resolvePublicBaseUrl } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
+import { runDoctor } from "./lib/doctor.js";
 import { startServer } from "./server.js";
 
 const PACKAGE_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -102,6 +103,27 @@ async function main() {
 
   if (command === "status") {
     printJson(await backgroundStatus({ home: options.home }));
+    return;
+  }
+
+  if (command === "doctor") {
+    const result = await runDoctor({
+      packageRoot: PACKAGE_ROOT,
+      serverPath: options.serverPath,
+      url: options.url,
+      home: options.home,
+      host: options.host,
+      port: options.port,
+      apiToken: options.apiToken,
+      shareMode: options.shareMode,
+      allowSecrets: options.allowSecrets,
+      timeout: options.timeout,
+      skipMcp: options.skipMcp
+    });
+    printJson(result);
+    if (!result.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
@@ -324,7 +346,7 @@ function parseArgs(args) {
     }
 
     const key = arg.slice(2);
-    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force") {
+    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force" || key === "skip-mcp") {
       options[toCamelCase(key)] = true;
       continue;
     }
@@ -412,6 +434,7 @@ Usage:
   artifacty start [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--generate-token] [--timeout 30000]
   artifacty status [--home ~/.artifacty]
   artifacty stop [--home ~/.artifacty] [--timeout 30000] [--force]
+  artifacty doctor [--home ~/.artifacty] [--skip-mcp] [--timeout 5000]
   artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react] [--source agent] [--tag tag]
   artifacty import --agent claude|codex|gemini|copilot|cursor|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react] [--tag tag]
   artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--timeout 30000]

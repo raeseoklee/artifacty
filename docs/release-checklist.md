@@ -10,6 +10,12 @@ npm run release:check
 
 This runs syntax checks, the full Node test suite, and a local smoke test that starts the HTTP server with token auth enabled, creates an artifact, verifies secret blocking, reads audit logs, writes a backup, and checks MCP tool/resource/prompt discovery.
 
+Run the local diagnostics pass:
+
+```bash
+artifacty doctor
+```
+
 ## Packaging
 
 - Confirm `package.json` `version` and `files` are intentional.
@@ -47,4 +53,5 @@ This runs syntax checks, the full Node test suite, and a local smoke test that s
 
 - Export a backup before upgrades: `artifacty backup`.
 - Confirm `artifacty audit --limit 20` shows recent create/update/read/archive events.
+- Confirm `artifacty doctor` reports no failures. A stopped server warning is acceptable when intentionally checking an offline store.
 - For background service installs, dry-run first: `artifacty service install --dry-run`. Use `--platform macos|linux|windows` to review another OS definition.

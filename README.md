@@ -82,6 +82,13 @@ artifacty install all
 artifacty check
 ```
 
+Run diagnostics for the local runtime, store, server, service definitions, and MCP discovery:
+
+```bash
+artifacty doctor
+artifacty doctor --skip-mcp
+```
+
 Use `artifacty install codex --timeout 30000` or
 `artifacty install gemini --timeout 30000` to tune supported MCP client timeouts.
 
@@ -190,6 +197,7 @@ Operational commands:
 
 ```bash
 artifacty audit --limit 20
+artifacty doctor
 artifacty index rebuild
 artifacty integrity
 artifacty backup
