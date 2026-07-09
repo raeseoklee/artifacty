@@ -321,6 +321,7 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
           ${user.role === "admin" ? `<a href="/admin/users">Users</a>` : ""}
+          <a href="/account/password">Password</a>
           <form class="nav-form" method="post" action="/logout"><button type="submit">Sign out</button></form>
           ${languageSwitcher(view)}
         </nav>
@@ -357,14 +358,60 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
   });
 }
 
-export function renderAdminUsersPage({ baseUrl, user, users = [], locale = DEFAULT_LOCALE, currentPath = "/admin/users" }) {
+export function renderPasswordPage({ baseUrl, user, required = false, error = "", success = "", locale = DEFAULT_LOCALE, currentPath = "/account/password" }) {
+  const view = viewContext(locale, currentPath);
+  return pageShell({
+    title: "Change Password",
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>Change Password</h1>
+          <p>${escapeHtml(user.email)} · ${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          ${required ? "" : `<a href="/account">Account</a>`}
+          <form class="nav-form" method="post" action="/logout"><button type="submit">Sign out</button></form>
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-editor auth-panel">
+        ${required ? `<p class="auth-warning">Password change is required before continuing.</p>` : ""}
+        ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
+        ${success ? `<p class="auth-success">${escapeHtml(success)}</p>` : ""}
+        <form class="editor-form auth-form" method="post" action="/account/password">
+          <section class="editor-fields">
+            <label class="field">
+              <span>Current password</span>
+              <input type="password" name="currentPassword" autocomplete="current-password" required>
+            </label>
+            <label class="field">
+              <span>New password</span>
+              <input type="password" name="newPassword" autocomplete="new-password" minlength="8" required>
+            </label>
+            <label class="field">
+              <span>Confirm password</span>
+              <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required>
+            </label>
+          </section>
+          <footer class="editor-actions">
+            <button type="submit">Change password</button>
+          </footer>
+        </form>
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
+export function renderAdminUsersPage({ baseUrl, user, users = [], importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/users" }) {
   const view = viewContext(locale, currentPath);
   const rows = users.map((item) => `
     <tr>
       <td>${escapeHtml(item.email)}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.role)}</td>
-      <td>${item.active ? "Active" : "Disabled"}</td>
+      <td>${item.active ? "Active" : "Disabled"}${item.passwordResetRequired ? " · Reset required" : ""}</td>
       <td>${escapeHtml(item.createdAt)}</td>
       <td>
         ${item.id === user.id ? "" : `<form method="post" action="/admin/users/${encodeURIComponent(item.id)}/${item.active ? "disable" : "enable"}">
@@ -373,6 +420,38 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], locale = DEFAU
       </td>
     </tr>
   `).join("");
+  const createdRows = (importResult?.created || []).map((item) => `
+    <tr>
+      <td>${escapeHtml(item.user.email)}</td>
+      <td>${escapeHtml(item.user.role)}</td>
+      <td>${item.user.passwordResetRequired ? "Yes" : "No"}</td>
+      <td>${item.passwordGenerated ? `<code>${escapeHtml(item.temporaryPassword)}</code>` : "Provided in CSV"}</td>
+    </tr>
+  `).join("");
+  const skippedRows = (importResult?.skipped || []).map((item) => `
+    <tr><td>${escapeHtml(item.row)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.reason)}</td></tr>
+  `).join("");
+  const failedRows = (importResult?.failed || []).map((item) => `
+    <tr><td>${escapeHtml(item.row)}</td><td>${escapeHtml(item.email)}</td><td>${escapeHtml(item.error)}</td></tr>
+  `).join("");
+  const importSummary = importResult ? `
+    <section class="meta-card">
+      <h2>Import results</h2>
+      <p class="muted">${importResult.created.length} created, ${importResult.skipped.length} skipped, ${importResult.failed.length} failed.</p>
+      ${createdRows ? `<table class="data-table">
+        <thead><tr><th>Email</th><th>Role</th><th>Reset required</th><th>Temporary password</th></tr></thead>
+        <tbody>${createdRows}</tbody>
+      </table>` : ""}
+      ${skippedRows ? `<h3>Skipped</h3><table class="data-table">
+        <thead><tr><th>Row</th><th>Email</th><th>Reason</th></tr></thead>
+        <tbody>${skippedRows}</tbody>
+      </table>` : ""}
+      ${failedRows ? `<h3>Failed</h3><table class="data-table">
+        <thead><tr><th>Row</th><th>Email</th><th>Error</th></tr></thead>
+        <tbody>${failedRows}</tbody>
+      </table>` : ""}
+    </section>
+  ` : "";
 
   return pageShell({
     title: "Users",
@@ -397,10 +476,24 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], locale = DEFAU
               <label class="field"><span>Name</span><input name="name"></label>
               <label class="field"><span>Role</span><select name="role"><option value="user">user</option><option value="admin">admin</option></select></label>
               <label class="field"><span>Password</span><input type="password" name="password" minlength="8" required></label>
+              <label class="check-field"><input type="checkbox" name="passwordResetRequired"> Require password change</label>
             </section>
             <footer class="editor-actions"><button type="submit">Create user</button></footer>
           </form>
         </section>
+        <section class="meta-card">
+          <h2>Import users from CSV</h2>
+          <p class="muted">Use headers: email, name, role, password, password_reset_required. Missing passwords are generated and must be changed at first sign-in.</p>
+          ${importError ? `<p class="auth-error">${escapeHtml(importError)}</p>` : ""}
+          <form class="editor-form" method="post" action="/admin/users/import">
+            <label class="field content-field">
+              <span>CSV</span>
+              <textarea class="compact-textarea" name="csv" spellcheck="false" placeholder="email,name,role&#10;user@example.com,User,user" required></textarea>
+            </label>
+            <footer class="editor-actions"><button type="submit">Import users</button></footer>
+          </form>
+        </section>
+        ${importSummary}
         <section class="meta-card">
           <h2>Existing users</h2>
           <table class="data-table">
@@ -980,6 +1073,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       grid-template-columns: minmax(220px, 1fr);
     }
     .auth-error,
+    .auth-success,
+    .auth-warning,
     .token-once {
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -990,6 +1085,16 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       color: #991b1b;
       background: #fef2f2;
       border-color: #fecaca;
+    }
+    .auth-success {
+      color: #166534;
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+    .auth-warning {
+      color: #92400e;
+      background: #fffbeb;
+      border-color: #fde68a;
     }
     .muted {
       color: var(--muted);
@@ -1049,6 +1154,19 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       text-transform: uppercase;
       color: var(--faint);
     }
+    .check-field {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      min-height: 38px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .check-field input {
+      width: auto;
+      min-height: 0;
+      padding: 0;
+    }
     input,
     select,
     textarea {
@@ -1076,6 +1194,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       line-height: 1.55;
       white-space: pre;
       overflow: auto;
+    }
+    .compact-textarea {
+      min-height: 160px;
     }
     .textarea-enhanced {
       display: none;

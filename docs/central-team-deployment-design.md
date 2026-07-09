@@ -121,9 +121,12 @@ artifacty serve \
 
 Open `/login` after the server starts. If no users exist, the first successful
 login form creates an administrator. Administrators can create users from
-`/admin/users`, and every user can create or revoke personal API tokens from
-`/account`. Use those personal tokens for `artifacty install ... --api-token`
-so MCP and API audit logs record the user's email as `actor`.
+`/admin/users`, paste-import users from CSV, and every user can create or
+revoke personal API tokens from `/account`. CSV imports support
+`email,name,role,password,password_reset_required`; blank passwords are
+generated once and require a password change on first sign-in. Use personal
+tokens for `artifacty install ... --api-token` so MCP and API audit logs record
+the user's email as `actor`.
 
 Production-like internal deployments should run Artifacty behind a TLS reverse
 proxy, keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled unless the team trusts
@@ -185,7 +188,8 @@ token rotation policy, and SSO/OIDC.
 - `artifacty install <agent> --mcp-url ... --api-token ...` writes bridge env
   config for Claude, Codex, Gemini, GitHub Copilot, and Cursor.
 - `/login`, `/account`, and `/admin/users` provide server-side user management,
-  administrator/user roles, and personal token issue/revoke flows.
+  administrator/user roles, CSV user import, required password reset, password
+  change, and personal token issue/revoke flows.
 - Remote MCP requests use header auth and never put tokens in URLs.
 - Tests cover direct HTTP MCP calls and stdio bridge calls to a token-protected
   central server.

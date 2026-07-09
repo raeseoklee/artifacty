@@ -662,7 +662,9 @@ test("supports login, user token management, and admin users", async () => {
       headers: { cookie }
     });
     assert.equal(usersResponse.status, 200);
-    assert.match(await usersResponse.text(), /Create user/);
+    const usersPage = await usersResponse.text();
+    assert.match(usersPage, /Create user/);
+    assert.match(usersPage, /Import users from CSV/);
 
     const createUserResponse = await fetch(`${app.url}/admin/users`, {
       method: "POST",
@@ -679,6 +681,69 @@ test("supports login, user token management, and admin users", async () => {
       })
     });
     assert.equal(createUserResponse.status, 303);
+
+    const importUsersResponse = await fetch(`${app.url}/admin/users/import`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        csv: "email,name,role\nreset@example.com,Reset User,user"
+      })
+    });
+    assert.equal(importUsersResponse.status, 200);
+    const importUsersPage = await importUsersResponse.text();
+    const temporaryPassword = /tmp_[A-Za-z0-9_-]+/.exec(importUsersPage)?.[0];
+    assert.ok(temporaryPassword);
+    assert.match(importUsersPage, /Reset required/);
+
+    const resetLoginResponse = await fetch(`${app.url}/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "reset@example.com",
+        password: temporaryPassword
+      })
+    });
+    assert.equal(resetLoginResponse.status, 303);
+    assert.equal(resetLoginResponse.headers.get("location"), "/account/password?required=1");
+    const resetCookie = resetLoginResponse.headers.get("set-cookie");
+
+    const blockedAccountResponse = await fetch(`${app.url}/account`, {
+      redirect: "manual",
+      headers: { cookie: resetCookie }
+    });
+    assert.equal(blockedAccountResponse.status, 303);
+    assert.equal(blockedAccountResponse.headers.get("location"), "/account/password?required=1");
+
+    const passwordPage = await fetch(`${app.url}/account/password?required=1`, {
+      headers: { cookie: resetCookie }
+    });
+    assert.equal(passwordPage.status, 200);
+    assert.match(await passwordPage.text(), /Password change is required/);
+
+    const changePasswordResponse = await fetch(`${app.url}/account/password`, {
+      method: "POST",
+      headers: {
+        cookie: resetCookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        currentPassword: temporaryPassword,
+        newPassword: "changed-password-123",
+        confirmPassword: "changed-password-123"
+      })
+    });
+    assert.equal(changePasswordResponse.status, 200);
+    assert.match(await changePasswordResponse.text(), /Password changed/);
+
+    const resetAccountResponse = await fetch(`${app.url}/account`, {
+      headers: { cookie: resetCookie }
+    });
+    assert.equal(resetAccountResponse.status, 200);
+    assert.match(await resetAccountResponse.text(), /reset@example\.com/);
 
     const loginUserResponse = await fetch(`${app.url}/login`, {
       method: "POST",

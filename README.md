@@ -92,6 +92,21 @@ artifacty serve --host 10.0.0.50 --share-mode team --api-token "$ARTIFACTY_BOOTS
 artifacty install all --mcp-url http://10.0.0.50:8787/mcp --api-token "$ARTIFACTY_PERSONAL_TOKEN"
 ```
 
+Administrators can create users individually at `/admin/users` or import them
+from CSV. Use `email,name,role,password,password_reset_required` headers. If
+`password` is empty, Artifacty generates a temporary password, shows it once in
+the import result, and requires the user to change it on first sign-in.
+
+```csv
+email,name,role
+user@example.com,User,user
+admin2@example.com,Admin Two,admin
+```
+
+```bash
+artifacty users import --file users.csv
+```
+
 Run diagnostics for the local runtime, store, server, service definitions, and MCP discovery:
 
 ```bash

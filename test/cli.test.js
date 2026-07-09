@@ -94,6 +94,30 @@ test("serve rejects conflicting foreground and detach modes", async () => {
   );
 });
 
+test("imports users from CSV through the CLI", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-cli-users-"));
+  const csvPath = path.join(home, "users.csv");
+  try {
+    await writeFile(csvPath, "email,name,role\ncli-user@example.com,CLI User,user\n", "utf8");
+    const { stdout } = await execFileAsync(process.execPath, [
+      "src/cli.js",
+      "users",
+      "import",
+      "--home",
+      home,
+      "--file",
+      csvPath
+    ]);
+    const result = JSON.parse(stdout);
+    assert.equal(result.created.length, 1);
+    assert.equal(result.created[0].user.email, "cli-user@example.com");
+    assert.equal(result.created[0].user.passwordResetRequired, true);
+    assert.match(result.created[0].temporaryPassword, /^tmp_[A-Za-z0-9_-]+$/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("serve starts a background server by default and returns generated auth", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-serve-background-"));
   try {

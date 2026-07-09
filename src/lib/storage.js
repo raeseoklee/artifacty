@@ -664,38 +664,84 @@ export async function countUsers(store = createStore()) {
 }
 
 export async function createUser(store = createStore(), input = {}) {
-  const email = normalizeEmail(input.email);
-  const password = String(input.password || "");
-  if (!email) {
-    throw Object.assign(new Error("User email is required"), { statusCode: 400, code: "USER_EMAIL_REQUIRED" });
+  const db = openDatabase(store);
+  try {
+    return insertUser(db, input);
+  } catch (error) {
+    if (/UNIQUE/i.test(error.message)) {
+      throw Object.assign(new Error(`User already exists: ${normalizeEmail(input.email)}`), { statusCode: 409, code: "USER_EXISTS" });
+    }
+    throw error;
+  } finally {
+    db.close();
   }
-  if (password.length < 8) {
-    throw Object.assign(new Error("User password must be at least 8 characters"), { statusCode: 400, code: "USER_PASSWORD_WEAK" });
-  }
-  const role = normalizeUserRole(input.role || "user");
-  const name = normalizeOptionalString(input.name) || email;
-  const now = new Date().toISOString();
-  const user = {
-    id: randomUUID(),
-    email,
-    name,
-    role,
-    active: true,
-    createdAt: now,
-    updatedAt: now
+}
+
+export async function importUsersFromCsv(store = createStore(), csv, options = {}) {
+  const records = parseUserCsv(csv);
+  const result = {
+    created: [],
+    skipped: [],
+    failed: [],
+    totalRows: records.length
   };
   const db = openDatabase(store);
   try {
-    db.prepare(`
-      INSERT INTO users (id, email, name, role, password_hash, active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(user.id, user.email, user.name, user.role, hashPassword(password), now, now);
-    return user;
-  } catch (error) {
-    if (/UNIQUE/i.test(error.message)) {
-      throw Object.assign(new Error(`User already exists: ${email}`), { statusCode: 409, code: "USER_EXISTS" });
+    for (const record of records) {
+      const email = normalizeEmail(record.email);
+      if (!email) {
+        result.failed.push({
+          row: record.row,
+          email: "",
+          error: "User email is required",
+          code: "USER_EMAIL_REQUIRED"
+        });
+        continue;
+      }
+
+      const providedPassword = normalizeOptionalString(record.password || record.temporary_password);
+      const password = providedPassword || generateTemporaryPassword();
+      const resetFromCsv = firstDefined(
+        record.password_reset_required,
+        record.require_password_reset,
+        record.force_password_reset,
+        record.reset_required
+      );
+      const passwordResetRequired = !providedPassword || (resetFromCsv === undefined
+        ? options.passwordResetRequired !== false
+        : parseBooleanOption(resetFromCsv));
+
+      try {
+        const user = insertUser(db, {
+          email,
+          name: record.name || email,
+          role: record.role || "user",
+          password,
+          passwordResetRequired
+        });
+        result.created.push({
+          user,
+          passwordGenerated: !providedPassword,
+          temporaryPassword: !providedPassword ? password : undefined
+        });
+      } catch (error) {
+        if (error.code === "USER_EXISTS" || /UNIQUE/i.test(error.message)) {
+          result.skipped.push({
+            row: record.row,
+            email,
+            reason: "User already exists"
+          });
+          continue;
+        }
+        result.failed.push({
+          row: record.row,
+          email,
+          error: error.message,
+          code: error.code || "USER_IMPORT_FAILED"
+        });
+      }
     }
-    throw error;
+    return result;
   } finally {
     db.close();
   }
@@ -705,7 +751,7 @@ export async function listUsers(store = createStore()) {
   const db = openDatabase(store);
   try {
     return db.prepare(`
-      SELECT id, email, name, role, active, created_at, updated_at
+      SELECT id, email, name, role, active, password_reset_required, created_at, updated_at
       FROM users
       ORDER BY created_at ASC
     `).all().map(userFromRow);
@@ -723,8 +769,38 @@ export async function setUserActive(store = createStore(), id, active) {
       throw Object.assign(new Error(`User not found: ${id}`), { statusCode: 404, code: "USER_NOT_FOUND" });
     }
     return userFromRow(db.prepare(`
-      SELECT id, email, name, role, active, created_at, updated_at FROM users WHERE id = ?
+      SELECT id, email, name, role, active, password_reset_required, created_at, updated_at FROM users WHERE id = ?
     `).get(id));
+  } finally {
+    db.close();
+  }
+}
+
+export async function changeUserPassword(store = createStore(), userId, input = {}) {
+  const password = String(input.password || input.newPassword || "");
+  if (password.length < 8) {
+    throw Object.assign(new Error("User password must be at least 8 characters"), { statusCode: 400, code: "USER_PASSWORD_WEAK" });
+  }
+  const db = openDatabase(store);
+  try {
+    const existing = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(userId);
+    if (!existing) {
+      throw Object.assign(new Error(`User not found: ${userId}`), { statusCode: 404, code: "USER_NOT_FOUND" });
+    }
+    if (input.currentPassword !== undefined && !verifyPassword(input.currentPassword, existing.password_hash)) {
+      throw Object.assign(new Error("Current password is incorrect"), { statusCode: 400, code: "CURRENT_PASSWORD_INVALID" });
+    }
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE users
+      SET password_hash = ?, password_reset_required = ?, updated_at = ?
+      WHERE id = ?
+    `).run(hashPassword(password), input.passwordResetRequired ? 1 : 0, now, userId);
+    return userFromRow(db.prepare(`
+      SELECT id, email, name, role, active, password_reset_required, created_at, updated_at
+      FROM users
+      WHERE id = ?
+    `).get(userId));
   } finally {
     db.close();
   }
@@ -734,7 +810,7 @@ export async function verifyUserPassword(store = createStore(), email, password)
   const db = openDatabase(store);
   try {
     const row = db.prepare(`
-      SELECT id, email, name, role, password_hash, active, created_at, updated_at
+      SELECT id, email, name, role, password_hash, active, password_reset_required, created_at, updated_at
       FROM users
       WHERE email = ?
     `).get(normalizeEmail(email));
@@ -776,7 +852,7 @@ export async function getSessionUser(store = createStore(), token) {
   const db = openDatabase(store);
   try {
     const row = db.prepare(`
-      SELECT s.id AS session_id, s.expires_at, u.id, u.email, u.name, u.role, u.active, u.created_at, u.updated_at
+      SELECT s.id AS session_id, s.expires_at, u.id, u.email, u.name, u.role, u.active, u.password_reset_required, u.created_at, u.updated_at
       FROM sessions s
       JOIN users u ON u.id = s.user_id
       WHERE s.token_hash = ? AND s.revoked_at IS NULL
@@ -866,7 +942,7 @@ export async function authenticateApiToken(store = createStore(), token) {
   try {
     const tokenHash = hashToken(token);
     const row = db.prepare(`
-      SELECT t.id AS token_id, t.name AS token_name, u.id, u.email, u.name, u.role, u.active, u.created_at, u.updated_at
+      SELECT t.id AS token_id, t.name AS token_name, u.id, u.email, u.name, u.role, u.active, u.password_reset_required, u.created_at, u.updated_at
       FROM api_tokens t
       JOIN users u ON u.id = t.user_id
       WHERE t.token_hash = ? AND t.revoked_at IS NULL
@@ -1039,6 +1115,7 @@ function initializeSchema(db) {
       role TEXT NOT NULL DEFAULT 'user',
       password_hash TEXT NOT NULL,
       active INTEGER NOT NULL DEFAULT 1,
+      password_reset_required INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -1075,6 +1152,7 @@ function initializeSchema(db) {
   ensureColumn(db, "artifacts", "artifact_type", "TEXT NOT NULL DEFAULT 'document'");
   ensureColumn(db, "artifacts", "schema_version", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "artifacts", "archived_at", "TEXT");
+  ensureColumn(db, "users", "password_reset_required", "INTEGER NOT NULL DEFAULT 0");
   db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('store_version', ?)").run(String(STORE_VERSION));
   ensureSearchTable(db);
 }
@@ -1380,6 +1458,7 @@ function userFromRow(row) {
     name: row.name,
     role: row.role,
     active: Boolean(row.active),
+    passwordResetRequired: Boolean(row.password_reset_required),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -1587,11 +1666,165 @@ function normalizeUserRole(value) {
   return role;
 }
 
+function insertUser(db, input = {}) {
+  const email = normalizeEmail(input.email);
+  const password = String(input.password || "");
+  if (!email) {
+    throw Object.assign(new Error("User email is required"), { statusCode: 400, code: "USER_EMAIL_REQUIRED" });
+  }
+  if (password.length < 8) {
+    throw Object.assign(new Error("User password must be at least 8 characters"), { statusCode: 400, code: "USER_PASSWORD_WEAK" });
+  }
+  const role = normalizeUserRole(input.role || "user");
+  const name = normalizeOptionalString(input.name) || email;
+  const now = new Date().toISOString();
+  const user = {
+    id: randomUUID(),
+    email,
+    name,
+    role,
+    active: true,
+    passwordResetRequired: Boolean(input.passwordResetRequired),
+    createdAt: now,
+    updatedAt: now
+  };
+  try {
+    db.prepare(`
+      INSERT INTO users (id, email, name, role, password_hash, active, password_reset_required, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+    `).run(
+      user.id,
+      user.email,
+      user.name,
+      user.role,
+      hashPassword(password),
+      user.passwordResetRequired ? 1 : 0,
+      now,
+      now
+    );
+    return user;
+  } catch (error) {
+    if (/UNIQUE/i.test(error.message)) {
+      throw Object.assign(new Error(`User already exists: ${email}`), { statusCode: 409, code: "USER_EXISTS" });
+    }
+    throw error;
+  }
+}
+
+function parseUserCsv(csv) {
+  const rows = parseCsvRows(csv).filter((row) => row.some((cell) => normalizeOptionalString(cell)));
+  if (rows.length === 0) {
+    return [];
+  }
+  const headers = rows[0].map(normalizeCsvHeader);
+  if (!headers.includes("email")) {
+    throw Object.assign(new Error("User CSV requires an email header"), {
+      statusCode: 400,
+      code: "USER_CSV_EMAIL_REQUIRED"
+    });
+  }
+  return rows.slice(1).map((row, index) => {
+    const record = { row: index + 2 };
+    headers.forEach((header, columnIndex) => {
+      if (header) {
+        record[header] = normalizeOptionalString(row[columnIndex]);
+      }
+    });
+    return record;
+  });
+}
+
+function parseCsvRows(csv) {
+  const text = String(csv || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (char === "\"" && text[index + 1] === "\"") {
+        cell += "\"";
+        index += 1;
+      } else if (char === "\"") {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n") {
+      row.push(cell.replace(/\r$/, ""));
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  if (quoted) {
+    throw Object.assign(new Error("User CSV has an unterminated quoted field"), {
+      statusCode: 400,
+      code: "USER_CSV_INVALID"
+    });
+  }
+  row.push(cell.replace(/\r$/, ""));
+  rows.push(row);
+  return rows;
+}
+
+function normalizeCsvHeader(value) {
+  const header = normalizeOptionalString(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (header === "mail" || header === "email_address") {
+    return "email";
+  }
+  if (header === "display_name" || header === "full_name") {
+    return "name";
+  }
+  if (header === "temporary_password" || header === "temp_password") {
+    return "temporary_password";
+  }
+  if (header === "force_reset" || header === "must_change_password") {
+    return "password_reset_required";
+  }
+  return header;
+}
+
+function firstDefined(...values) {
+  return values.find((value) => value !== undefined && value !== "");
+}
+
+function parseBooleanOption(value) {
+  const normalized = normalizeOptionalString(value).toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "n", "off"].includes(normalized)) {
+    return false;
+  }
+  throw Object.assign(new Error(`Invalid boolean value: ${value}`), {
+    statusCode: 400,
+    code: "INVALID_BOOLEAN"
+  });
+}
+
 function normalizeOptionalString(value) {
   if (value === undefined || value === null) {
     return "";
   }
   return String(value).trim();
+}
+
+function generateTemporaryPassword() {
+  return `tmp_${randomBytes(18).toString("base64url")}`;
 }
 
 function generateOpaqueToken(prefix) {

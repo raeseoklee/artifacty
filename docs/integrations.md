@@ -103,6 +103,23 @@ node src/cli.js install all \
   --api-token "$ARTIFACTY_PERSONAL_TOKEN"
 ```
 
+Administrators can create users one at a time from `/admin/users` or import a
+CSV from the same page. The CLI can import the same file when run on the server:
+
+```csv
+email,name,role,password,password_reset_required
+user@example.com,User,user,,
+admin2@example.com,Admin Two,admin,temporary-password,true
+```
+
+```bash
+artifacty users import --file users.csv
+```
+
+Rows without a password receive a generated temporary password. Generated
+passwords are shown only in the import result, and imported users must change
+their password before they can continue to `/account` and issue MCP/API tokens.
+
 - Claude: writes project `.mcp.json`. Claude Code's startup timeout is controlled by the parent `MCP_TIMEOUT` environment variable and defaults to 30 seconds, so Artifacty does not add a per-server `.mcp.json` `timeout` field.
 - Codex: writes or replaces the `[mcp_servers.artifacty]` block in `~/.codex/config.toml` unless `--config` is provided. The generated block uses a 30 second startup timeout so slower Windows or cold-start environments can load the MCP server reliably.
 - Gemini: writes project `.gemini/settings.json` with a 30 second timeout.

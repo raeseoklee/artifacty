@@ -8,6 +8,7 @@ import {
   createArtifact,
   createStore,
   getArtifact,
+  importUsersFromCsv,
   listAuditEvents,
   listArtifactsPage,
   rebuildSearchIndex,
@@ -300,6 +301,18 @@ async function main() {
     return;
   }
 
+  if (command === "users") {
+    const action = options._[0];
+    if (action === "import") {
+      const csv = await readContent(options);
+      printJson(await importUsersFromCsv(store, csv, {
+        passwordResetRequired: !options.noPasswordReset
+      }));
+      return;
+    }
+    throw new Error("users requires an action: import");
+  }
+
   if (command === "service") {
     const action = options._[0] || "plist";
     printJson(await serviceCommand(action, {
@@ -351,7 +364,7 @@ function parseArgs(args) {
     }
 
     const key = arg.slice(2);
-    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force" || key === "skip-mcp" || key === "mcp-http") {
+    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force" || key === "skip-mcp" || key === "mcp-http" || key === "no-password-reset") {
       options[toCamelCase(key)] = true;
       continue;
     }
@@ -453,6 +466,7 @@ Usage:
   artifacty export --file <path>
   artifacty backup [--file <path>]
   artifacty import-store --file <path>
+  artifacty users import --file <path.csv> [--no-password-reset]
   artifacty service plist|unit|task|install|uninstall [--platform macos|linux|windows] [--dry-run] [--path <path>] [--mcp-http]
   artifacty list [--query text] [--tag tag] [--source agent] [--limit 50] [--offset 0] [--include-archived]
   artifacty show <id> [--version n] [--raw]

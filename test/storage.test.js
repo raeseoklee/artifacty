@@ -10,6 +10,7 @@ import {
   archiveArtifact,
   checkStoreIntegrity,
   authenticateApiToken,
+  changeUserPassword,
   countUsers,
   createApiToken,
   contentTypeForFormat,
@@ -19,6 +20,7 @@ import {
   createUser,
   getSessionUser,
   getArtifact,
+  importUsersFromCsv,
   listAuditEvents,
   listArtifacts,
   listArtifactsPage,
@@ -28,7 +30,8 @@ import {
   revokeApiToken,
   revokeSession,
   restoreArtifact,
-  updateArtifact
+  updateArtifact,
+  verifyUserPassword
 } from "../src/lib/storage.js";
 
 test("creates, lists, reads, and versions artifacts", async () => {
@@ -298,6 +301,60 @@ test("manages users, sessions, and hashed API tokens", async () => {
     assert.equal(auth.user.role, "admin");
     assert.equal(await revokeApiToken(store, createdToken.record.id, admin.id), true);
     assert.equal(await authenticateApiToken(store, createdToken.token), null);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("imports users from CSV with generated temporary passwords", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-users-csv-"));
+  try {
+    const store = createStore({ home });
+    await createUser(store, {
+      email: "existing@example.com",
+      name: "Existing",
+      role: "user",
+      password: "password-000"
+    });
+
+    const result = await importUsersFromCsv(store, [
+      "email,name,role,password,password_reset_required",
+      "new@example.com,New User,user,,",
+      "admin2@example.com,Admin Two,admin,password-222,true",
+      "existing@example.com,Existing,user,,",
+      "bad@example.com,Bad,owner,,"
+    ].join("\n"));
+
+    assert.equal(result.created.length, 2);
+    assert.equal(result.skipped.length, 1);
+    assert.equal(result.failed.length, 1);
+    assert.equal(result.created[0].user.email, "new@example.com");
+    assert.equal(result.created[0].user.passwordResetRequired, true);
+    assert.equal(result.created[0].passwordGenerated, true);
+    assert.match(result.created[0].temporaryPassword, /^tmp_[A-Za-z0-9_-]+$/);
+    assert.equal(result.created[1].user.role, "admin");
+    assert.equal(result.created[1].temporaryPassword, undefined);
+    assert.match(result.failed[0].error, /Unsupported user role/);
+
+    const tempLogin = await verifyUserPassword(store, "new@example.com", result.created[0].temporaryPassword);
+    assert.equal(tempLogin.passwordResetRequired, true);
+
+    const changed = await changeUserPassword(store, tempLogin.id, {
+      currentPassword: result.created[0].temporaryPassword,
+      newPassword: "new-password-123"
+    });
+    assert.equal(changed.passwordResetRequired, false);
+    assert.equal(await verifyUserPassword(store, "new@example.com", result.created[0].temporaryPassword), null);
+    const nextLogin = await verifyUserPassword(store, "new@example.com", "new-password-123");
+    assert.equal(nextLogin.passwordResetRequired, false);
+
+    const generatedNoResetOverride = await importUsersFromCsv(store, "email,name,role\nforced@example.com,Forced,user", {
+      passwordResetRequired: false
+    });
+    assert.equal(generatedNoResetOverride.created[0].user.passwordResetRequired, true);
+
+    const providedNoReset = await importUsersFromCsv(store, "email,name,role,password,password_reset_required\nready@example.com,Ready,user,password-333,false");
+    assert.equal(providedNoReset.created[0].user.passwordResetRequired, false);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

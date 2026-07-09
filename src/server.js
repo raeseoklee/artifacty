@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   archiveArtifact,
   authenticateApiToken,
+  changeUserPassword,
   countUsers,
   createApiToken,
   createArtifact,
@@ -15,6 +16,7 @@ import {
   createUser,
   getArtifact,
   getSessionUser,
+  importUsersFromCsv,
   listApiTokens,
   listArtifactsPage,
   listAuditEvents,
@@ -40,6 +42,7 @@ import {
   renderArtifactPage,
   renderAccountPage,
   renderAdminUsersPage,
+  renderPasswordPage,
   renderReactFramePage,
   renderDashboard,
   renderDiffPage,
@@ -184,6 +187,9 @@ export async function handleRequest({ request, response, store, host, port, secu
 
   const userCount = await countUsers(store);
   const currentUser = userCount > 0 ? await sessionUserFromRequest(store, request) : null;
+  if (currentUser?.passwordResetRequired && !["/account/password", "/logout"].includes(pathname)) {
+    return sendRedirect(response, "/account/password?required=1");
+  }
 
   if (method === "GET" && pathname === "/login") {
     return sendHtml(response, renderLoginPage({
@@ -216,7 +222,7 @@ export async function handleRequest({ request, response, store, host, port, secu
       }), 401);
     }
     const session = await createSession(store, user.id);
-    return sendRedirect(response, "/account", {
+    return sendRedirect(response, user.passwordResetRequired ? "/account/password?required=1" : "/account", {
       "set-cookie": sessionCookie(session.token)
     });
   }
@@ -226,6 +232,61 @@ export async function handleRequest({ request, response, store, host, port, secu
     return sendRedirect(response, "/login", {
       "set-cookie": clearSessionCookie()
     });
+  }
+
+  if (method === "GET" && pathname === "/account/password") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    return sendHtml(response, renderPasswordPage({
+      baseUrl,
+      user: currentUser,
+      required: currentUser.passwordResetRequired || url.searchParams.get("required") === "1",
+      locale,
+      currentPath
+    }), 200, headOnly);
+  }
+
+  if (method === "POST" && pathname === "/account/password") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    const body = await readFormBody(request);
+    if (body.newPassword !== body.confirmPassword) {
+      return sendHtml(response, renderPasswordPage({
+        baseUrl,
+        user: currentUser,
+        required: currentUser.passwordResetRequired,
+        error: "New password and confirmation do not match.",
+        locale,
+        currentPath
+      }), 400);
+    }
+    try {
+      const updatedUser = await changeUserPassword(store, currentUser.id, {
+        currentPassword: body.currentPassword,
+        newPassword: body.newPassword
+      });
+      return sendHtml(response, renderPasswordPage({
+        baseUrl,
+        user: updatedUser,
+        success: "Password changed.",
+        locale,
+        currentPath
+      }));
+    } catch (error) {
+      if ((error.statusCode || 500) >= 500) {
+        throw error;
+      }
+      return sendHtml(response, renderPasswordPage({
+        baseUrl,
+        user: currentUser,
+        required: currentUser.passwordResetRequired,
+        error: error.message,
+        locale,
+        currentPath
+      }), error.statusCode || 400);
+    }
   }
 
   if (method === "GET" && pathname === "/account") {
@@ -294,9 +355,43 @@ export async function handleRequest({ request, response, store, host, port, secu
       email: body.email,
       name: body.name || body.email,
       role: body.role || "user",
-      password: body.password
+      password: body.password,
+      passwordResetRequired: body.passwordResetRequired === "on"
     });
     return sendRedirect(response, "/admin/users");
+  }
+
+  if (method === "POST" && pathname === "/admin/users/import") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    const body = await readFormBody(request);
+    try {
+      const importResult = await importUsersFromCsv(store, body.csv || "", {
+        passwordResetRequired: true
+      });
+      return sendHtml(response, renderAdminUsersPage({
+        baseUrl,
+        user: currentUser,
+        users: await listUsers(store),
+        importResult,
+        locale,
+        currentPath: "/admin/users"
+      }));
+    } catch (error) {
+      if ((error.statusCode || 500) >= 500) {
+        throw error;
+      }
+      return sendHtml(response, renderAdminUsersPage({
+        baseUrl,
+        user: currentUser,
+        users: await listUsers(store),
+        importError: error.message,
+        locale,
+        currentPath: "/admin/users"
+      }), error.statusCode || 400);
+    }
   }
 
   const userActiveMatch = /^\/admin\/users\/([^/]+)\/(enable|disable)$/.exec(pathname);
