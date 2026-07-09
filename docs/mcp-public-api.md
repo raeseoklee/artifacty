@@ -1,7 +1,10 @@
 # MCP Public API
 
-Artifacty's MCP stdio server is the primary agent-to-agent integration surface.
-The server currently targets MCP protocol `2025-06-18`.
+Artifacty's MCP server is the primary agent-to-agent integration surface. It
+supports local stdio MCP by default, a token-protected HTTP `/mcp` endpoint when
+enabled on the browser server, and stdio bridge mode for clients that need local
+stdio config but should write to a central Artifacty server. The server
+currently targets MCP protocol `2025-06-18`.
 
 ## Capabilities
 
@@ -23,7 +26,7 @@ Stable tool names:
 - `artifacty_update`: append an immutable version.
 - `artifacty_archive` / `artifacty_restore`: toggle archive state.
 - `artifacty_audit`: list audit events.
-- `artifacty_info`: return local store and browser URL information.
+- `artifacty_info`: return store, browser URL, transport, and protocol information.
 
 Tool schemas use Artifacty schema v1 formats and artifact types. New optional
 properties may be added during 0.x releases; existing names should not be
@@ -60,7 +63,13 @@ Prompts accept optional context arguments such as `artifactId`, `goal`, `scope`,
 
 ## Compatibility Notes
 
-- The MCP server is local stdio only. Remote MCP auth/OAuth is out of scope.
+- Local stdio remains the default. Enable the central HTTP endpoint with
+  `artifacty serve --mcp-http` and install bridge mode with
+  `artifacty install <agent> --mcp-url http://host:8787/mcp --api-token <token>`.
+- On central servers, use a personal token from `/account` so audit logs record
+  the token owner's email as the artifact actor.
+- Remote MCP currently uses bearer/header token auth. OAuth and per-user scoped
+  tokens are future hardening work.
 - Binary media resources return stored base64 text through MCP; browser `/raw`
   decodes first-class `image` and `video` artifacts into bytes.
 - Clients may display resources and prompts differently. Tools remain the most

@@ -75,13 +75,15 @@ test("builds Linux systemd user service definitions", async () => {
       home,
       host: "127.0.0.1",
       port: 8787,
-      apiToken: "service-token"
+      apiToken: "service-token",
+      mcpHttp: true
     });
 
     assert.match(unit, /\[Unit\]/);
     assert.match(unit, /ExecStart=/);
     assert.match(unit, /ARTIFACTY_HOME=/);
     assert.match(unit, /ARTIFACTY_API_TOKEN=service-token/);
+    assert.match(unit, /--mcp-http/);
     assert.match(unit, /Restart=on-failure/);
 
     const result = await serviceCommand("install", {
@@ -109,13 +111,15 @@ test("builds Windows scheduled task installer scripts", async () => {
       home,
       host: "127.0.0.1",
       port: 8787,
-      apiToken: "service-token"
+      apiToken: "service-token",
+      mcpHttp: true
     });
 
     assert.match(script, /Register-ScheduledTask/);
     assert.match(script, /ArtifactyServer/);
     assert.match(script, /Start-ScheduledTask/);
     assert.match(script, /--api-token service-token/);
+    assert.match(script, /--mcp-http/);
 
     const result = await serviceCommand("task", {
       platform: "windows",

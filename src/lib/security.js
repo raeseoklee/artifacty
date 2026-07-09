@@ -57,6 +57,10 @@ export function requireToken({ request, url, body = {}, config = securityConfig(
   }
 }
 
+export function requestToken({ request, url, body = {} }) {
+  return extractToken({ request, url, body });
+}
+
 export function scanForSecrets(content) {
   const text = String(content ?? "");
   const findings = [];

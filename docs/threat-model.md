@@ -8,6 +8,7 @@ operator, one local store, and trusted local MCP clients by default.
 - Artifact content, including generated code, reports, screenshots, and media.
 - Artifact metadata, tags, audit records, and version history.
 - API tokens and generated startup tokens.
+- User accounts, password hashes, browser sessions, and personal API tokens.
 - Local MCP client configuration files.
 - The Artifacty SQLite database and immutable version files.
 
@@ -16,7 +17,11 @@ operator, one local store, and trusted local MCP clients by default.
 - **HTTP browser server**: local by default, optionally reachable on LAN/team
   networks when explicitly configured.
 - **MCP stdio server**: local process launched by an MCP client. It inherits the
-  local user account's filesystem permissions.
+  local user account's filesystem permissions. In bridge mode, it forwards
+  JSON-RPC to a configured central `/mcp` endpoint instead of touching local
+  storage.
+- **HTTP MCP endpoint**: optional `POST /mcp` endpoint exposed only when
+  `--mcp-http` or `ARTIFACTY_MCP_HTTP=true` is configured.
 - **Artifact renderers**: untrusted content is rendered inside browser sandbox
   boundaries where practical.
 - **Storage**: Artifacty stores content under `ARTIFACTY_HOME`; anyone with
@@ -50,6 +55,8 @@ Controls:
 - Scripts should use `x-artifacty-token` or `Authorization: Bearer <token>`.
 - Browser form token URLs exist only for local convenience.
 - Token comparisons use timing-safe digest comparison.
+- Personal API tokens are stored only as hashes.
+- Browser sessions use `HttpOnly` and `SameSite=Lax` cookies.
 
 Guidance: rotate tokens after sharing sessions, prefer header-based tokens for
 scripts, and use generated startup tokens only for temporary interactive shares.
@@ -98,22 +105,29 @@ of sensitive data.
 
 ### MCP Tool Abuse
 
-Risk: an MCP client can create, update, import, archive, restore, and read local
-artifacts through stdio.
+Risk: an MCP client can create, update, import, archive, restore, and read
+artifacts through local stdio or the central HTTP MCP endpoint.
 
 Controls:
 
-- MCP is local stdio only.
+- Local stdio remains the default.
+- The HTTP MCP endpoint is disabled unless explicitly enabled.
+- Remote MCP requests require the configured API token.
+- Stdio bridge mode sends tokens in headers, not URLs.
+- Personal tokens map requests to a server-side user record for audit actor
+  attribution.
 - MCP writes go through the same secret scan and audit paths as CLI/HTTP writes.
 - MCP resources are read-only.
 
-Guidance: install Artifacty MCP only in clients and workspaces you trust.
+Guidance: install Artifacty MCP only in clients and workspaces you trust. For
+central deployments, prefer TLS through a reverse proxy and rotate shared tokens
+after team changes.
 
 ## Out of Scope
 
 - Public internet hosting without a separate TLS/auth proxy.
 - Multi-user browser write access.
-- OAuth or remote MCP authorization.
+- OAuth, scoped tokens, or per-user remote MCP authorization.
 - Per-artifact ACLs.
 - Encrypted-at-rest storage.
 - Malware analysis of arbitrary artifact content.

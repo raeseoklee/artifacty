@@ -591,6 +591,209 @@ test("requires API token when configured and blocks secrets", async () => {
   }
 });
 
+test("supports login, user token management, and admin users", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-users-"));
+  const app = await startServer({ port: 0, home });
+
+  try {
+    const loginPage = await (await fetch(`${app.url}/login`)).text();
+    assert.match(loginPage, /Create admin account/);
+
+    const setupResponse = await fetch(`${app.url}/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "admin@example.com",
+        name: "Admin",
+        password: "password-123"
+      })
+    });
+    assert.equal(setupResponse.status, 303);
+    const cookie = setupResponse.headers.get("set-cookie");
+    assert.match(cookie, /artifacty_session=/);
+
+    const accountResponse = await fetch(`${app.url}/account`, {
+      headers: { cookie }
+    });
+    assert.equal(accountResponse.status, 200);
+    assert.match(await accountResponse.text(), /admin@example\.com/);
+
+    const tokenResponse = await fetch(`${app.url}/account/tokens`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({ name: "Codex central token" })
+    });
+    assert.equal(tokenResponse.status, 200);
+    const tokenPage = await tokenResponse.text();
+    const token = /arty_[A-Za-z0-9_-]+/.exec(tokenPage)?.[0];
+    assert.ok(token);
+
+    const rejected = await fetch(`${app.url}/api/artifacts`);
+    assert.equal(rejected.status, 401);
+
+    const createdResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        title: "User Auth Demo",
+        content: "owned",
+        format: "text",
+        sourceAgent: "codex"
+      })
+    });
+    assert.equal(createdResponse.status, 201);
+    const created = await createdResponse.json();
+    assert.equal(created.title, "User Auth Demo");
+
+    const auditResponse = await fetch(`${app.url}/api/audit`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const audit = await auditResponse.json();
+    assert.ok(audit.events.some((event) => event.action === "create" && event.actor === "admin@example.com"));
+
+    const usersResponse = await fetch(`${app.url}/admin/users`, {
+      headers: { cookie }
+    });
+    assert.equal(usersResponse.status, 200);
+    assert.match(await usersResponse.text(), /Create user/);
+
+    const createUserResponse = await fetch(`${app.url}/admin/users`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        email: "user@example.com",
+        name: "User",
+        role: "user",
+        password: "password-456"
+      })
+    });
+    assert.equal(createUserResponse.status, 303);
+
+    const loginUserResponse = await fetch(`${app.url}/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "user@example.com",
+        password: "password-456"
+      })
+    });
+    assert.equal(loginUserResponse.status, 303);
+    assert.match(loginUserResponse.headers.get("set-cookie"), /artifacty_session=/);
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("serves token-protected MCP over HTTP when enabled", async () => {
+  const disabledHome = await mkdtemp(path.join(tmpdir(), "artifacty-server-mcp-disabled-"));
+  const disabledApp = await startServer({ port: 0, home: disabledHome });
+  try {
+    const disabledResponse = await fetch(`${disabledApp.url}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+    });
+    assert.equal(disabledResponse.status, 404);
+  } finally {
+    await disabledApp.close();
+    await rm(disabledHome, { recursive: true, force: true });
+  }
+
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-mcp-"));
+  const app = await startServer({ port: 0, home, apiToken: "mcp-token", mcpHttp: true });
+
+  async function mcpRequest(method, params = {}, id = 1) {
+    const response = await fetch(`${app.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer mcp-token"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id, method, params })
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.id, id);
+    assert.equal(body.error, undefined);
+    return body.result;
+  }
+
+  try {
+    const rejected = await fetch(`${app.url}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+    });
+    assert.equal(rejected.status, 401);
+
+    const initialized = await fetch(`${app.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer mcp-token"
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })
+    });
+    assert.equal(initialized.status, 202);
+
+    const init = await mcpRequest("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "http-test", version: "0.0.0" }
+    });
+    assert.equal(init.protocolVersion, "2025-06-18");
+
+    const listed = await mcpRequest("tools/list", {}, 2);
+    assert.ok(listed.tools.some((tool) => tool.name === "artifacty_create"));
+
+    const created = await mcpRequest("tools/call", {
+      name: "artifacty_create",
+      arguments: {
+        title: "HTTP MCP Demo",
+        content: "central",
+        format: "text",
+        sourceAgent: "http-mcp-test"
+      }
+    }, 3);
+    assert.equal(created.isError, false);
+    assert.match(created.structuredContent.url, new RegExp(`^${escapeRegExp(app.url)}/artifacts/`));
+
+    const fetched = await mcpRequest("tools/call", {
+      name: "artifacty_get",
+      arguments: { id: created.structuredContent.id }
+    }, 4);
+    assert.equal(fetched.structuredContent.content, "central");
+    assert.equal(fetched.structuredContent.transport, undefined);
+
+    const info = await mcpRequest("tools/call", {
+      name: "artifacty_info",
+      arguments: {}
+    }, 5);
+    assert.equal(info.structuredContent.transport, "streamable-http");
+    assert.equal(info.structuredContent.url, app.url);
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 test("rejects non-local host without explicit share mode and token", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-lan-"));
   try {

@@ -1,6 +1,6 @@
 {
   "name": "artifacty",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
   "keywords": [
@@ -36,6 +36,7 @@
     "src",
     "docs/artifact-schema-v1.md",
     "docs/assets/artifacty.png",
+    "docs/central-team-deployment-design.md",
     "docs/integrations.md",
     "docs/mcp-public-api.md",
     "docs/network-sharing.md",

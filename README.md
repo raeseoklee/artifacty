@@ -82,6 +82,16 @@ artifacty install all
 artifacty check
 ```
 
+For a central internal server, enable the HTTP MCP endpoint on the server and
+let users issue personal MCP/API tokens from the account page:
+
+```bash
+ARTIFACTY_BOOTSTRAP_TOKEN="$(artifacty token --raw)"
+artifacty serve --host 10.0.0.50 --share-mode team --api-token "$ARTIFACTY_BOOTSTRAP_TOKEN" --mcp-http --foreground
+# Open http://10.0.0.50:8787/login, create the first admin, then create a personal token at /account.
+artifacty install all --mcp-url http://10.0.0.50:8787/mcp --api-token "$ARTIFACTY_PERSONAL_TOKEN"
+```
+
 Run diagnostics for the local runtime, store, server, service definitions, and MCP discovery:
 
 ```bash
@@ -185,6 +195,7 @@ Run the MCP server:
 
 ```bash
 artifacty-mcp
+ARTIFACTY_MCP_MODE=bridge ARTIFACTY_MCP_URL=http://10.0.0.50:8787/mcp ARTIFACTY_API_TOKEN=... artifacty-mcp
 ```
 
 MCP clients can create artifacts with `artifacty_create`. `artifacty_publish` remains as a backwards-compatible alias.
@@ -296,12 +307,14 @@ Schema and storage:
 - Copilot/Cursor examples cover PR reviews, screenshots, demo recordings, and visual evidence bundles.
 - See [docs/artifact-schema-v1.md](docs/artifact-schema-v1.md).
 - See [docs/mcp-public-api.md](docs/mcp-public-api.md) for MCP tools, resources, prompts, and compatibility notes.
+- See [docs/central-team-deployment-design.md](docs/central-team-deployment-design.md) for central team deployment.
 - See [docs/sarif-csv-artifact-plan.md](docs/sarif-csv-artifact-plan.md) for the SARIF/CSV output artifact roadmap.
 
 ## Security Model
 
 - The HTTP server binds to `127.0.0.1` by default.
 - If `ARTIFACTY_API_TOKEN` is set, HTTP API routes require `Authorization: Bearer <token>` or `x-artifacty-token`; scripts should prefer headers over `?token=...` URLs.
+- When users exist, personal API tokens issued from `/account` also authenticate HTTP API and MCP requests, and audit logs record the token owner's email as `actor`.
 - API token checks use timing-safe digest comparison.
 - Binding outside localhost requires both `ARTIFACTY_SHARE_MODE=lan` or `team` and `ARTIFACTY_API_TOKEN`.
 - Non-local sharing is intended for trusted LAN or VPN sessions. Prefer a specific interface IP over `0.0.0.0`, keep React rendering disabled, and see [docs/network-sharing.md](docs/network-sharing.md).

@@ -2,7 +2,7 @@ import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./e
 import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, switchLocaleHref } from "./i18n.js";
 import { ARTIFACT_FORMATS, ARTIFACT_TYPES } from "./storage.js";
 
-export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/", user = null }) {
   const view = viewContext(locale, currentPath);
   const total = pagination?.total ?? artifacts.length;
   const start = artifacts.length ? (pagination?.offset ?? 0) + 1 : 0;
@@ -48,6 +48,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
           <a href="${view.href("/new")}">${view.text("nav.new")}</a>
           <a href="${view.href("/import")}">${view.text("nav.import")}</a>
           <a href="/api/artifacts">${view.text("nav.api")}</a>
+          ${authNav(user)}
           ${languageSwitcher(view)}
         </nav>
       </header>
@@ -245,6 +246,170 @@ export function renderImportArtifactPage({ baseUrl, authToken = "", locale = DEF
     `,
     head: editorHead(),
     afterBody: editorScript(view.locale),
+    locale: view.locale
+  });
+}
+
+export function renderLoginPage({ baseUrl, setup = false, error = "", locale = DEFAULT_LOCALE, currentPath = "/login" }) {
+  const view = viewContext(locale, currentPath);
+  const title = setup ? "Create admin account" : "Sign in";
+  return pageShell({
+    title,
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>${escapeHtml(title)}</h1>
+          <p>${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-editor auth-panel">
+        ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
+        ${setup ? `<p class="muted">No users exist yet. The first account becomes an administrator.</p>` : ""}
+        <form class="editor-form auth-form" method="post" action="/login">
+          <section class="editor-fields">
+            <label class="field">
+              <span>Email</span>
+              <input type="email" name="email" autocomplete="username" required>
+            </label>
+            ${setup ? `<label class="field">
+              <span>Name</span>
+              <input name="name" autocomplete="name">
+            </label>` : ""}
+            <label class="field">
+              <span>Password</span>
+              <input type="password" name="password" autocomplete="${setup ? "new-password" : "current-password"}" minlength="8" required>
+            </label>
+          </section>
+          <footer class="editor-actions">
+            <button type="submit">${setup ? "Create admin" : "Sign in"}</button>
+          </footer>
+        </form>
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
+export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "", locale = DEFAULT_LOCALE, currentPath = "/account" }) {
+  const view = viewContext(locale, currentPath);
+  const rows = tokens.map((token) => `
+    <tr>
+      <td>${escapeHtml(token.name)}</td>
+      <td>${escapeHtml(token.createdAt)}</td>
+      <td>${token.lastUsedAt ? escapeHtml(token.lastUsedAt) : "Never"}</td>
+      <td>${token.revokedAt ? escapeHtml(token.revokedAt) : "Active"}</td>
+      <td>
+        ${token.revokedAt ? "" : `<form method="post" action="/account/tokens/${encodeURIComponent(token.id)}/revoke">
+          <button type="submit">Revoke</button>
+        </form>`}
+      </td>
+    </tr>
+  `).join("");
+
+  return pageShell({
+    title: "Account",
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>Account</h1>
+          <p>${escapeHtml(user.email)} · ${escapeHtml(user.role)} · ${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          ${user.role === "admin" ? `<a href="/admin/users">Users</a>` : ""}
+          <form class="nav-form" method="post" action="/logout"><button type="submit">Sign out</button></form>
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-view">
+        ${createdToken ? `<section class="token-once">
+          <h2>New API token</h2>
+          <p>Copy this token now. Artifacty stores only its hash and cannot show it again.</p>
+          <pre class="artifact-code"><code>${escapeHtml(createdToken)}</code></pre>
+        </section>` : ""}
+        <section class="meta-card">
+          <h2>Profile</h2>
+          <p><strong>${escapeHtml(user.name)}</strong></p>
+          <p>${escapeHtml(user.email)}</p>
+          <p>Role: ${escapeHtml(user.role)}</p>
+        </section>
+        <section class="meta-card">
+          <h2>Create API token</h2>
+          <form class="inline-action" method="post" action="/account/tokens">
+            <input name="name" placeholder="Token name" autocomplete="off" required>
+            <button type="submit">Create token</button>
+          </form>
+        </section>
+        <section class="meta-card">
+          <h2>API tokens</h2>
+          <table class="data-table">
+            <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="5">No API tokens.</td></tr>`}</tbody>
+          </table>
+        </section>
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
+export function renderAdminUsersPage({ baseUrl, user, users = [], locale = DEFAULT_LOCALE, currentPath = "/admin/users" }) {
+  const view = viewContext(locale, currentPath);
+  const rows = users.map((item) => `
+    <tr>
+      <td>${escapeHtml(item.email)}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(item.role)}</td>
+      <td>${item.active ? "Active" : "Disabled"}</td>
+      <td>${escapeHtml(item.createdAt)}</td>
+      <td>
+        ${item.id === user.id ? "" : `<form method="post" action="/admin/users/${encodeURIComponent(item.id)}/${item.active ? "disable" : "enable"}">
+          <button type="submit">${item.active ? "Disable" : "Enable"}</button>
+        </form>`}
+      </td>
+    </tr>
+  `).join("");
+
+  return pageShell({
+    title: "Users",
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>Users</h1>
+          <p>${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          <a href="/account">Account</a>
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-view">
+        <section class="meta-card">
+          <h2>Create user</h2>
+          <form class="editor-form auth-form" method="post" action="/admin/users">
+            <section class="editor-fields">
+              <label class="field"><span>Email</span><input type="email" name="email" required></label>
+              <label class="field"><span>Name</span><input name="name"></label>
+              <label class="field"><span>Role</span><select name="role"><option value="user">user</option><option value="admin">admin</option></select></label>
+              <label class="field"><span>Password</span><input type="password" name="password" minlength="8" required></label>
+            </section>
+            <footer class="editor-actions"><button type="submit">Create user</button></footer>
+          </form>
+        </section>
+        <section class="meta-card">
+          <h2>Existing users</h2>
+          <table class="data-table">
+            <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </section>
+      </main>
+    `,
     locale: view.locale
   });
 }
@@ -726,6 +891,25 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .inline-action {
       margin-bottom: 12px;
     }
+    .nav-form {
+      display: inline-flex;
+      margin: 0;
+    }
+    .nav-form button {
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      font-weight: inherit;
+    }
+    .nav-form button:hover {
+      background: transparent;
+      border: 0;
+      color: var(--text);
+      text-decoration: underline;
+    }
     .diff-form {
       grid-template-columns: 160px 160px auto;
       width: fit-content;
@@ -787,6 +971,64 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .editor-form {
       display: grid;
       gap: 16px;
+    }
+    .auth-panel {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .auth-form .editor-fields {
+      grid-template-columns: minmax(220px, 1fr);
+    }
+    .auth-error,
+    .token-once {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: var(--panel);
+    }
+    .auth-error {
+      color: #991b1b;
+      background: #fef2f2;
+      border-color: #fecaca;
+    }
+    .muted {
+      color: var(--muted);
+    }
+    .meta-card {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      background: var(--panel);
+    }
+    .meta-card h2,
+    .token-once h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .data-table th,
+    .data-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+    }
+    .data-table th {
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: 11.5px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .data-table form {
+      margin: 0;
     }
     .editor-fields {
       display: grid;
@@ -1571,6 +1813,13 @@ function languageSwitcher(view) {
     ? `<span class="active">${view.text("language.korean")}</span>`
     : `<a href="${switchLocaleHref(view.currentPath, "ko")}">${view.text("language.korean")}</a>`;
   return `<span class="language-switcher">${english}${korean}</span>`;
+}
+
+function authNav(user) {
+  if (!user) {
+    return `<a href="/login">Sign in</a>`;
+  }
+  return `${user.role === "admin" ? `<a href="/admin/users">Users</a>` : ""}<a href="/account">Account</a>`;
 }
 
 export function escapeHtml(value) {

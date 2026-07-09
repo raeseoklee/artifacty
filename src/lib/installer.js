@@ -48,6 +48,17 @@ export function createMcpServerConfig(options = {}) {
     env.ARTIFACTY_URL = options.url || process.env.ARTIFACTY_URL;
   }
 
+  if (options.mcpUrl || process.env.ARTIFACTY_MCP_URL) {
+    env.ARTIFACTY_MCP_MODE = normalizeMcpMode(options.transport || "bridge");
+    env.ARTIFACTY_MCP_URL = normalizeMcpEndpoint(options.mcpUrl || process.env.ARTIFACTY_MCP_URL);
+  } else if (options.transport || process.env.ARTIFACTY_MCP_MODE) {
+    env.ARTIFACTY_MCP_MODE = normalizeMcpMode(options.transport || process.env.ARTIFACTY_MCP_MODE);
+  }
+
+  if (options.apiToken || process.env.ARTIFACTY_API_TOKEN) {
+    env.ARTIFACTY_API_TOKEN = options.apiToken || process.env.ARTIFACTY_API_TOKEN;
+  }
+
   if (options.home || process.env.ARTIFACTY_HOME) {
     env.ARTIFACTY_HOME = path.resolve(options.home || process.env.ARTIFACTY_HOME);
   }
@@ -239,6 +250,26 @@ function normalizeAgent(agent) {
 function normalizeTimeoutMs(value) {
   const timeout = Number(value ?? DEFAULT_MCP_TIMEOUT_MS);
   return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_MCP_TIMEOUT_MS;
+}
+
+function normalizeMcpMode(value) {
+  const mode = String(value || "bridge").trim().toLowerCase();
+  if (mode === "remote") {
+    return "bridge";
+  }
+  if (!["local", "bridge"].includes(mode)) {
+    throw new Error("MCP transport must be local or bridge");
+  }
+  return mode;
+}
+
+function normalizeMcpEndpoint(value) {
+  const parsed = new URL(value);
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = pathname || "/mcp";
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
 }
 
 function quoteTomlString(value) {

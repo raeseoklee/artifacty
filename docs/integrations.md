@@ -68,6 +68,8 @@ Useful environment variables:
 
 - `ARTIFACTY_HOME`: store directory, shared by all agents.
 - `ARTIFACTY_URL`: optional browser URL override. Leave it unset to let MCP read the last running server URL from `server.json`.
+- `ARTIFACTY_MCP_MODE`: `local` by default, or `bridge` to forward stdio MCP to a central HTTP MCP endpoint.
+- `ARTIFACTY_MCP_URL`: central MCP endpoint used by bridge mode, for example `http://10.0.0.50:8787/mcp`.
 - `ARTIFACTY_API_TOKEN`: required token for HTTP API routes when configured. Generate one with `node src/cli.js token --raw`.
 - `ARTIFACTY_SHARE_MODE`: set to `lan` or `team` before binding outside localhost.
 - `ARTIFACTY_ALLOW_SECRETS`: set to `true` only when intentionally storing detected secrets.
@@ -86,12 +88,30 @@ node src/cli.js install all
 node src/cli.js check
 ```
 
+Central team server setup:
+
+```bash
+ARTIFACTY_BOOTSTRAP_TOKEN="$(node src/cli.js token --raw)"
+node src/cli.js serve --foreground \
+  --host 10.0.0.50 \
+  --share-mode team \
+  --api-token "$ARTIFACTY_BOOTSTRAP_TOKEN" \
+  --mcp-http
+# Open http://10.0.0.50:8787/login, create the first admin, then create a personal token at /account.
+node src/cli.js install all \
+  --mcp-url http://10.0.0.50:8787/mcp \
+  --api-token "$ARTIFACTY_PERSONAL_TOKEN"
+```
+
 - Claude: writes project `.mcp.json`. Claude Code's startup timeout is controlled by the parent `MCP_TIMEOUT` environment variable and defaults to 30 seconds, so Artifacty does not add a per-server `.mcp.json` `timeout` field.
 - Codex: writes or replaces the `[mcp_servers.artifacty]` block in `~/.codex/config.toml` unless `--config` is provided. The generated block uses a 30 second startup timeout so slower Windows or cold-start environments can load the MCP server reliably.
 - Gemini: writes project `.gemini/settings.json` with a 30 second timeout.
 - GitHub Copilot in VS Code: writes workspace `.vscode/mcp.json` using the VS Code `servers` shape. Pass `--config` to target a user-profile `mcp.json` instead.
 - Cursor: writes project `.cursor/mcp.json` using the Cursor `mcpServers` shape. Pass `--config ~/.cursor/mcp.json` for global Cursor setup.
 - `--dry-run` returns the generated config without writing it.
+- `--mcp-url <url>` installs stdio bridge mode for central Artifacty. If the URL has no path, `/mcp` is appended.
+- `--api-token <token>` is written into the generated MCP environment for bridge mode. For central servers, prefer a personal token issued from `/account`.
+- `--url <url>` remains a browser-link override and does not enable central MCP by itself.
 - `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change Claude Code startup behavior; set `MCP_TIMEOUT` before launching Claude Code if you need a larger value there.
 - `check` starts the local MCP server and verifies required tools, resources, and prompts through MCP discovery methods.
 - `doctor` combines MCP discovery with runtime, storage, server, and service diagnostics.
@@ -278,6 +298,7 @@ tests.
 - `GET /import`: browser artifact import form.
 - `POST /import`: convert and save pasted agent output.
 - `GET /health`: health check.
+- `POST /mcp`: token-protected MCP Streamable HTTP JSON-RPC endpoint when `--mcp-http` or `ARTIFACTY_MCP_HTTP=true` is enabled.
 - `GET /api/artifacts`: list artifacts.
 - `POST /api/artifacts`: create artifact.
 - `POST /api/import`: convert and save an agent-produced artifact.
@@ -295,7 +316,7 @@ tests.
 - `GET /artifacts/:id/diff`: compare two versions.
 - `GET /artifacts/:id/raw?version=n`: raw content.
 
-When `ARTIFACTY_API_TOKEN` is configured, `/api/*` routes require either `Authorization: Bearer <token>` or `x-artifacty-token: <token>`. Browser forms can also carry `?token=<token>` in the URL, which is copied to hidden form fields for local team workflows.
+When `ARTIFACTY_API_TOKEN` is configured, `/api/*` routes require either `Authorization: Bearer <token>` or `x-artifacty-token: <token>`. When users exist, personal tokens issued from `/account` also authenticate API and MCP requests and are mapped to the token owner's email in audit logs. Browser forms can also carry `?token=<token>` in the URL, which is copied to hidden form fields for local team workflows.
 
 Renderer notes:
 

@@ -9,14 +9,24 @@ import {
   ARTIFACT_TYPES,
   archiveArtifact,
   checkStoreIntegrity,
+  authenticateApiToken,
+  countUsers,
+  createApiToken,
   contentTypeForFormat,
   createArtifact,
   createStore,
+  createSession,
+  createUser,
+  getSessionUser,
   getArtifact,
   listAuditEvents,
   listArtifacts,
   listArtifactsPage,
+  listApiTokens,
+  listUsers,
   rebuildSearchIndex,
+  revokeApiToken,
+  revokeSession,
   restoreArtifact,
   updateArtifact
 } from "../src/lib/storage.js";
@@ -252,6 +262,42 @@ test("blocks detected secrets unless explicitly allowed", async () => {
     });
     assert.equal(artifact.version.metadata.secretScan.status, "allowed");
     assert.equal(artifact.version.metadata.secretScan.findingCount, 1);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("manages users, sessions, and hashed API tokens", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-users-"));
+  try {
+    const store = createStore({ home });
+    assert.equal(await countUsers(store), 0);
+
+    const admin = await createUser(store, {
+      email: "Admin@Example.com",
+      name: "Admin",
+      role: "admin",
+      password: "password-123"
+    });
+    assert.equal(admin.email, "admin@example.com");
+    assert.equal(admin.role, "admin");
+    assert.equal(await countUsers(store), 1);
+    assert.equal((await listUsers(store))[0].email, "admin@example.com");
+
+    const session = await createSession(store, admin.id);
+    const sessionUser = await getSessionUser(store, session.token);
+    assert.equal(sessionUser.email, "admin@example.com");
+    assert.equal(await revokeSession(store, session.token), true);
+    assert.equal(await getSessionUser(store, session.token), null);
+
+    const createdToken = await createApiToken(store, admin.id, { name: "Codex" });
+    assert.match(createdToken.token, /^arty_/);
+    assert.equal((await listApiTokens(store, admin.id))[0].name, "Codex");
+    const auth = await authenticateApiToken(store, createdToken.token);
+    assert.equal(auth.actor, "admin@example.com");
+    assert.equal(auth.user.role, "admin");
+    assert.equal(await revokeApiToken(store, createdToken.record.id, admin.id), true);
+    assert.equal(await authenticateApiToken(store, createdToken.token), null);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

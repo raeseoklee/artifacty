@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { createStore } from "../src/lib/storage.js";
 import { writeServerState } from "../src/lib/server-state.js";
+import { startServer } from "../src/server.js";
 
 test("mcp server initializes and exposes artifact tools", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-mcp-"));
@@ -187,6 +188,77 @@ test("mcp server initializes and exposes artifact tools", async () => {
   }
 });
 
+test("stdio MCP bridge forwards calls to a central HTTP MCP endpoint", async () => {
+  const centralHome = await mkdtemp(path.join(tmpdir(), "artifacty-mcp-central-"));
+  const bridgeHome = await mkdtemp(path.join(tmpdir(), "artifacty-mcp-bridge-"));
+  const app = await startServer({
+    port: 0,
+    home: centralHome,
+    apiToken: "bridge-token",
+    mcpHttp: true
+  });
+  const child = spawn(process.execPath, ["src/mcp-server.js"], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      ARTIFACTY_HOME: bridgeHome,
+      ARTIFACTY_MCP_MODE: "bridge",
+      ARTIFACTY_MCP_URL: `${app.url}/mcp`,
+      ARTIFACTY_API_TOKEN: "bridge-token"
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+
+  const client = createLineClient(child);
+  try {
+    const init = await client.request("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "bridge-test", version: "0.0.0" }
+    });
+    assert.equal(init.protocolVersion, "2025-06-18");
+
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+
+    const created = await client.request("tools/call", {
+      name: "artifacty_create",
+      arguments: {
+        title: "Bridge Demo",
+        content: "shared",
+        format: "text",
+        sourceAgent: "bridge-test"
+      }
+    });
+    assert.equal(created.isError, false);
+    assert.match(created.structuredContent.url, new RegExp(`^${escapeRegExp(app.url)}/artifacts/`));
+
+    const id = created.structuredContent.id;
+    const fetched = await client.request("tools/call", {
+      name: "artifacty_get",
+      arguments: { id }
+    });
+    assert.equal(fetched.structuredContent.content, "shared");
+
+    const centralRead = await fetch(`${app.url}/api/artifacts/${encodeURIComponent(id)}`, {
+      headers: { "x-artifacty-token": "bridge-token" }
+    });
+    assert.equal(centralRead.status, 200);
+    assert.equal((await centralRead.json()).content, "shared");
+
+    const info = await client.request("tools/call", {
+      name: "artifacty_info",
+      arguments: {}
+    });
+    assert.equal(info.structuredContent.transport, "streamable-http");
+    assert.equal(info.structuredContent.url, app.url);
+  } finally {
+    child.kill("SIGTERM");
+    await app.close();
+    await rm(centralHome, { recursive: true, force: true });
+    await rm(bridgeHome, { recursive: true, force: true });
+  }
+});
+
 function createLineClient(child) {
   let nextId = 1;
   const pending = new Map();
@@ -236,4 +308,8 @@ function createLineClient(child) {
       return promise;
     }
   };
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

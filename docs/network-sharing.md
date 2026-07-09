@@ -16,6 +16,16 @@ If another device on a trusted LAN or private VPN needs read access, prefer bind
 artifacty serve --host 192.168.1.20 --share-mode lan --generate-token
 ```
 
+For a central internal MCP server, enable `/mcp` explicitly and install clients
+with `--mcp-url` and a personal token from `/account`:
+
+```bash
+ARTIFACTY_BOOTSTRAP_TOKEN="$(artifacty token --raw)"
+artifacty serve --host 10.0.0.50 --share-mode team --api-token "$ARTIFACTY_BOOTSTRAP_TOKEN" --mcp-http --foreground
+# Open /login to create the first admin, then /account to issue a personal token.
+artifacty install all --mcp-url http://10.0.0.50:8787/mcp --api-token "$ARTIFACTY_PERSONAL_TOKEN"
+```
+
 Use `0.0.0.0` only when you intentionally want Artifacty to listen on every network interface:
 
 ```bash
@@ -43,3 +53,6 @@ Do not relax the origin check just to make remote browser writes easier. A futur
 Artifact content is untrusted. HTML, SVG, Mermaid, and React artifacts are rendered with sandboxing and CSP controls, but shared viewing still means content reaches another user's browser. Keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled for LAN sessions unless every viewer trusts the artifact source.
 
 See [threat-model.md](threat-model.md) for the full trust-boundary summary.
+
+For a durable internal deployment where many MCP clients share one central
+Artifacty instance, see [central-team-deployment-design.md](central-team-deployment-design.md).

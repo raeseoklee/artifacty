@@ -235,6 +235,9 @@ export function buildServerArgs(options, store) {
   if (options.allowSecrets) {
     args.push("--allow-secrets");
   }
+  if (options.mcpHttp) {
+    args.push("--mcp-http");
+  }
   return args;
 }
 

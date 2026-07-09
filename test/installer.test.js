@@ -174,3 +174,43 @@ test("does not pin ARTIFACTY_URL unless explicitly configured", async () => {
     await rm(projectDir, { recursive: true, force: true });
   }
 });
+
+test("installs central MCP bridge configuration", async () => {
+  const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-install-bridge-"));
+  try {
+    const config = createMcpServerConfig({
+      projectDir,
+      mcpUrl: "http://10.0.0.50:8787",
+      apiToken: "team-token"
+    });
+    assert.equal(config.env.ARTIFACTY_MCP_MODE, "bridge");
+    assert.equal(config.env.ARTIFACTY_MCP_URL, "http://10.0.0.50:8787/mcp");
+    assert.equal(config.env.ARTIFACTY_API_TOKEN, "team-token");
+
+    await installAgent("codex", {
+      projectDir,
+      configPath: path.join(projectDir, "config.toml"),
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      mcpUrl: "http://10.0.0.50:8787/mcp",
+      apiToken: "team-token"
+    });
+    const codexConfig = await readFile(path.join(projectDir, "config.toml"), "utf8");
+    assert.match(codexConfig, /ARTIFACTY_MCP_MODE/);
+    assert.match(codexConfig, /ARTIFACTY_MCP_URL/);
+    assert.match(codexConfig, /ARTIFACTY_API_TOKEN/);
+
+    const claude = await installAgent("claude", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      mcpUrl: "http://10.0.0.50:8787/mcp",
+      apiToken: "team-token"
+    });
+    assert.equal(claude.changed, true);
+    const claudeConfig = JSON.parse(await readFile(path.join(projectDir, ".mcp.json"), "utf8"));
+    assert.equal(claudeConfig.mcpServers.artifacty.env.ARTIFACTY_MCP_MODE, "bridge");
+    assert.equal(claudeConfig.mcpServers.artifacty.env.ARTIFACTY_MCP_URL, "http://10.0.0.50:8787/mcp");
+    assert.equal(claudeConfig.mcpServers.artifacty.env.ARTIFACTY_API_TOKEN, "team-token");
+  } finally {
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});

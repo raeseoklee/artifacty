@@ -12,7 +12,8 @@ test("builds portable detached server arguments", () => {
     shareMode: "lan",
     bytes: 16,
     generateToken: true,
-    allowSecrets: true
+    allowSecrets: true,
+    mcpHttp: true
   }, store);
 
   assert.deepEqual(args, [
@@ -28,7 +29,8 @@ test("builds portable detached server arguments", () => {
     "--bytes",
     "16",
     "--generate-token",
-    "--allow-secrets"
+    "--allow-secrets",
+    "--mcp-http"
   ]);
 });
 

@@ -20,7 +20,7 @@ import { resolvePublicBaseUrl } from "./lib/server-state.js";
 
 const PROTOCOL_VERSION = "2025-06-18";
 const PACKAGE_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const store = createStore();
+const DEFAULT_MCP_HTTP_TIMEOUT_MS = 30000;
 
 const nativeArtifactInputSchema = {
   type: "object",
@@ -82,7 +82,7 @@ const tools = [
   {
     name: "artifacty_list",
     title: "List Artifacts",
-    description: "List artifacts from the local Artifacty store.",
+    description: "List artifacts from the Artifacty store.",
     inputSchema: {
       type: "object",
       properties: {
@@ -324,45 +324,122 @@ const prompts = [
   }
 ];
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  crlfDelay: Infinity
-});
+export function createMcpJsonRpcHandler(options = {}) {
+  const context = createMcpContext(options);
+  const requestHandler = createMcpRequestHandler(context);
+  return (message) => handleJsonRpcMessage(message, requestHandler);
+}
 
-rl.on("line", (line) => {
-  if (!line.trim()) {
-    return;
-  }
-  handleLine(line).catch((error) => {
-    process.stderr.write(`${error.stack || error.message}\n`);
-  });
-});
+export function createMcpRequestHandler(options = {}) {
+  const context = options.store ? createMcpContext(options) : options;
+  return (message) => handleMcpRequest(context, message);
+}
 
-async function handleLine(line) {
-  let message;
-  try {
-    message = JSON.parse(line);
-  } catch {
-    writeResponse(null, undefined, {
-      code: -32700,
-      message: "Parse error"
-    });
-    return;
+export function createMcpContext(options = {}) {
+  const store = options.store || createStore();
+  return {
+    store,
+    transport: options.transport || "stdio",
+    auditContext: options.auditContext || (() => ({
+      surface: options.auditSurface || "mcp",
+      actor: options.actor || "mcp-client"
+    })),
+    resolvePublicBaseUrl: options.resolvePublicBaseUrl || (() => resolvePublicBaseUrl(store, {
+      url: options.publicBaseUrl
+    })),
+    serverCommand: options.serverCommand || "node src/mcp-server.js",
+    browserCommand: options.browserCommand || "npm start"
+  };
+}
+
+export async function handleJsonRpcMessage(message, requestHandler) {
+  if (!message || typeof message !== "object") {
+    return jsonRpcError(null, -32600, "Invalid Request");
   }
 
   if (!message.id && message.id !== 0) {
     await handleNotification(message);
-    return;
+    return null;
   }
 
   try {
-    const result = await handleRequest(message);
-    writeResponse(message.id, result);
+    const result = await requestHandler(message);
+    return {
+      jsonrpc: "2.0",
+      id: message.id,
+      result
+    };
   } catch (error) {
-    writeResponse(message.id, undefined, {
-      code: error.jsonRpcCode || -32603,
-      message: error.message
+    return jsonRpcError(message.id, error.jsonRpcCode || -32603, error.message);
+  }
+}
+
+export function createRemoteMcpJsonRpcHandler(options = {}) {
+  const endpoint = normalizeMcpUrl(options.url || process.env.ARTIFACTY_MCP_URL);
+  if (!endpoint) {
+    throw new Error("ARTIFACTY_MCP_URL is required when ARTIFACTY_MCP_MODE=bridge");
+  }
+  const token = options.apiToken || process.env.ARTIFACTY_API_TOKEN || "";
+  const timeoutMs = normalizeTimeoutMs(options.timeoutMs || process.env.ARTIFACTY_MCP_TIMEOUT_MS);
+
+  return async (message) => {
+    try {
+      return await postMcpJsonRpc({
+        url: endpoint,
+        token,
+        message,
+        timeoutMs
+      });
+    } catch (error) {
+      if (!message?.id && message?.id !== 0) {
+        process.stderr.write(`Remote MCP notification failed: ${error.message}\n`);
+        return null;
+      }
+      return jsonRpcError(message?.id ?? null, -32603, error.message);
+    }
+  };
+}
+
+async function runStdioServer(options = {}) {
+  const jsonRpcHandler = createStdioJsonRpcHandler(options);
+  const rl = readline.createInterface({
+    input: process.stdin,
+    crlfDelay: Infinity
+  });
+
+  rl.on("line", (line) => {
+    if (!line.trim()) {
+      return;
+    }
+    handleLine(line, jsonRpcHandler).catch((error) => {
+      process.stderr.write(`${error.stack || error.message}\n`);
     });
+  });
+}
+
+function createStdioJsonRpcHandler(options = {}) {
+  const mode = String(options.mode || process.env.ARTIFACTY_MCP_MODE || "local").toLowerCase();
+  if (mode === "bridge" || mode === "remote") {
+    return createRemoteMcpJsonRpcHandler(options);
+  }
+  return createMcpJsonRpcHandler({
+    ...options,
+    transport: "stdio"
+  });
+}
+
+async function handleLine(line, jsonRpcHandler) {
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch {
+    writeJsonRpcResponse(jsonRpcError(null, -32700, "Parse error"));
+    return;
+  }
+
+  const response = await jsonRpcHandler(message);
+  if (response) {
+    writeJsonRpcResponse(response);
   }
 }
 
@@ -373,7 +450,7 @@ async function handleNotification(message) {
   process.stderr.write(`Ignoring MCP notification: ${message.method}\n`);
 }
 
-async function handleRequest(message) {
+export async function handleMcpRequest(context, message) {
   if (message.method === "initialize") {
     return {
       protocolVersion: PROTOCOL_VERSION,
@@ -394,7 +471,7 @@ async function handleRequest(message) {
         title: "Artifacty",
         version: "0.4.0"
       },
-      instructions: "Use Artifacty to create, import, list, read, update, and resource-read local artifacts that other agents can reuse."
+      instructions: "Use Artifacty to create, import, list, read, update, and resource-read artifacts that other agents can reuse."
     };
   }
 
@@ -408,11 +485,11 @@ async function handleRequest(message) {
 
   if (message.method === "tools/call") {
     const params = message.params || {};
-    return callTool(params.name, params.arguments || {});
+    return callTool(context, params.name, params.arguments || {});
   }
 
   if (message.method === "resources/list") {
-    return listResources();
+    return listResources(context);
   }
 
   if (message.method === "resources/templates/list") {
@@ -420,7 +497,7 @@ async function handleRequest(message) {
   }
 
   if (message.method === "resources/read") {
-    return readResource(requireParam(message.params, "uri"));
+    return readResource(context, requireParam(message.params, "uri"));
   }
 
   if (message.method === "prompts/list") {
@@ -437,14 +514,14 @@ async function handleRequest(message) {
   });
 }
 
-async function callTool(name, args) {
+async function callTool(context, name, args) {
   if (name === "artifacty_create" || name === "artifacty_publish") {
-    return toolResult(await withUrls(await createNativeArtifact(args)));
+    return toolResult(await withUrls(context, await createNativeArtifact(context, args)));
   }
 
   if (name === "artifacty_list") {
-    const publicBaseUrl = await resolvePublicBaseUrl(store);
-    const page = await listArtifactsPage(store, args);
+    const publicBaseUrl = await context.resolvePublicBaseUrl();
+    const page = await listArtifactsPage(context.store, args);
     return toolResult({
       artifacts: page.artifacts.map((artifact) => ({
         ...artifact,
@@ -464,24 +541,24 @@ async function callTool(name, args) {
 
   if (name === "artifacty_import") {
     const converted = convertAgentArtifact(args);
-    const artifact = await createArtifact(store, {
+    const artifact = await createArtifact(context.store, {
       ...converted,
       allowSecrets: args.allowSecrets,
       auditAction: "import",
-      audit: mcpAuditContext()
+      audit: mcpAuditContext(context)
     });
     return toolResult({
-      ...await withUrls(artifact),
+      ...await withUrls(context, artifact),
       converted
     });
   }
 
   if (name === "artifacty_get") {
-    const artifact = await getArtifact(store, requireArg(args, "id"), {
+    const artifact = await getArtifact(context.store, requireArg(args, "id"), {
       version: args.version,
-      audit: mcpAuditContext()
+      audit: mcpAuditContext(context)
     });
-    const decorated = await withUrls(artifact);
+    const decorated = await withUrls(context, artifact);
     if (args.includeContent === false) {
       delete decorated.content;
     }
@@ -489,7 +566,7 @@ async function callTool(name, args) {
   }
 
   if (name === "artifacty_update") {
-    const artifact = await updateArtifact(store, requireArg(args, "id"), {
+    const artifact = await updateArtifact(context.store, requireArg(args, "id"), {
       title: args.title,
       content: args.content,
       format: args.format,
@@ -499,21 +576,21 @@ async function callTool(name, args) {
       tags: args.tags || [],
       metadata: args.metadata || {},
       allowSecrets: args.allowSecrets,
-      audit: mcpAuditContext()
+      audit: mcpAuditContext(context)
     });
-    return toolResult(await withUrls(artifact));
+    return toolResult(await withUrls(context, artifact));
   }
 
   if (name === "artifacty_archive" || name === "artifacty_restore") {
     const artifact = name === "artifacty_archive"
-      ? await archiveArtifact(store, requireArg(args, "id"), { audit: mcpAuditContext() })
-      : await restoreArtifact(store, requireArg(args, "id"), { audit: mcpAuditContext() });
-    return toolResult(await withUrls(artifact));
+      ? await archiveArtifact(context.store, requireArg(args, "id"), { audit: mcpAuditContext(context) })
+      : await restoreArtifact(context.store, requireArg(args, "id"), { audit: mcpAuditContext(context) });
+    return toolResult(await withUrls(context, artifact));
   }
 
   if (name === "artifacty_audit") {
     return toolResult({
-      events: await listAuditEvents(store, {
+      events: await listAuditEvents(context.store, {
         artifactId: args.artifactId,
         limit: args.limit
       })
@@ -521,14 +598,15 @@ async function callTool(name, args) {
   }
 
   if (name === "artifacty_info") {
-    const publicBaseUrl = await resolvePublicBaseUrl(store);
+    const publicBaseUrl = await context.resolvePublicBaseUrl();
     return toolResult({
       name: "artifacty",
-      store: store.home,
+      store: context.store.home,
       url: publicBaseUrl,
+      transport: context.transport,
       mcpProtocolVersion: PROTOCOL_VERSION,
-      serverCommand: "node src/mcp-server.js",
-      browserCommand: "npm start"
+      serverCommand: context.serverCommand,
+      browserCommand: context.browserCommand
     });
   }
 
@@ -537,8 +615,8 @@ async function callTool(name, args) {
   });
 }
 
-async function listResources() {
-  const page = await listArtifactsPage(store, { limit: 10 });
+async function listResources(context) {
+  const page = await listArtifactsPage(context.store, { limit: 10 });
   const artifactResources = page.artifacts.flatMap((artifact) => [
     {
       uri: artifactResourceUri(artifact.id),
@@ -577,10 +655,10 @@ async function listResources() {
   };
 }
 
-async function readResource(uri) {
+async function readResource(context, uri) {
   if (uri === "artifacty://recent") {
-    const publicBaseUrl = await resolvePublicBaseUrl(store);
-    const page = await listArtifactsPage(store, { limit: 20 });
+    const publicBaseUrl = await context.resolvePublicBaseUrl();
+    const page = await listArtifactsPage(context.store, { limit: 20 });
     return resourceText(uri, "application/json", {
       artifacts: page.artifacts.map((artifact) => ({
         ...artifact,
@@ -612,9 +690,9 @@ async function readResource(uri) {
 
   const parsed = parseArtifactResourceUri(uri);
   if (parsed) {
-    const artifact = await getArtifact(store, parsed.id, {
+    const artifact = await getArtifact(context.store, parsed.id, {
       version: parsed.version,
-      audit: mcpAuditContext()
+      audit: mcpAuditContext(context)
     });
     if (parsed.raw) {
       return {
@@ -627,7 +705,7 @@ async function readResource(uri) {
         ]
       };
     }
-    return resourceText(uri, "application/json", await withUrls(artifact));
+    return resourceText(uri, "application/json", await withUrls(context, artifact));
   }
 
   throw Object.assign(new Error(`Unknown resource: ${uri}`), {
@@ -708,8 +786,8 @@ Recommended artifactType: document. Recommended tags: release-notes.`;
   return common;
 }
 
-async function createNativeArtifact(args) {
-  return createArtifact(store, {
+async function createNativeArtifact(context, args) {
+  return createArtifact(context.store, {
     title: args.title,
     content: args.content,
     format: args.format,
@@ -719,19 +797,16 @@ async function createNativeArtifact(args) {
     tags: args.tags || [],
     metadata: args.metadata || {},
     allowSecrets: args.allowSecrets,
-    audit: mcpAuditContext()
+    audit: mcpAuditContext(context)
   });
 }
 
-function mcpAuditContext() {
-  return {
-    surface: "mcp",
-    actor: "mcp-client"
-  };
+function mcpAuditContext(context) {
+  return context.auditContext();
 }
 
-async function withUrls(artifact) {
-  const publicBaseUrl = await resolvePublicBaseUrl(store);
+async function withUrls(context, artifact) {
+  const publicBaseUrl = await context.resolvePublicBaseUrl();
   return {
     ...artifact,
     url: `${publicBaseUrl}/artifacts/${encodeURIComponent(artifact.id)}`,
@@ -813,15 +888,84 @@ function requireParam(params = {}, name) {
   return params[name];
 }
 
-function writeResponse(id, result, error) {
-  const response = {
+function jsonRpcError(id, code, message) {
+  return {
     jsonrpc: "2.0",
-    id
+    id,
+    error: {
+      code,
+      message
+    }
   };
-  if (error) {
-    response.error = error;
-  } else {
-    response.result = result;
-  }
+}
+
+function writeJsonRpcResponse(response) {
   process.stdout.write(`${JSON.stringify(response)}\n`);
+}
+
+async function postMcpJsonRpc({ url, token, message, timeoutMs }) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...(token ? { authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(message),
+      signal: controller.signal
+    });
+    const text = await response.text();
+    if (response.status === 202 && !text.trim()) {
+      return null;
+    }
+    if (!response.ok) {
+      throw new Error(`Remote MCP ${response.status}: ${text.trim() || response.statusText}`);
+    }
+    if (!text.trim()) {
+      return null;
+    }
+    return JSON.parse(text);
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(`Remote MCP request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizeMcpUrl(value) {
+  if (!value) {
+    return "";
+  }
+  const parsed = new URL(value);
+  const pathname = parsed.pathname.replace(/\/+$/, "");
+  if (!pathname) {
+    parsed.pathname = "/mcp";
+  } else {
+    parsed.pathname = pathname;
+  }
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function normalizeTimeoutMs(value) {
+  const timeout = Number(value ?? DEFAULT_MCP_HTTP_TIMEOUT_MS);
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_MCP_HTTP_TIMEOUT_MS;
+}
+
+function isMain(metaUrl) {
+  return process.argv[1] && metaUrl === new URL(`file://${process.argv[1]}`).href;
+}
+
+if (isMain(import.meta.url)) {
+  runStdioServer().catch((error) => {
+    process.stderr.write(`${error.stack || error.message}\n`);
+    process.exitCode = 1;
+  });
 }

@@ -68,7 +68,8 @@ async function main() {
       home: options.home,
       apiToken: generatedToken?.token || options.apiToken,
       shareMode: options.shareMode,
-      allowSecrets: options.allowSecrets
+      allowSecrets: options.allowSecrets,
+      mcpHttp: options.mcpHttp
     });
     process.stderr.write(`Artifacty listening on ${server.url}\n`);
     process.stderr.write(`Store: ${server.store.home}\n`);
@@ -183,6 +184,9 @@ async function main() {
       configPath: options.config,
       serverPath: options.serverPath,
       url: options.url,
+      mcpUrl: options.mcpUrl,
+      apiToken: options.apiToken,
+      transport: options.transport,
       home: options.home,
       dryRun: options.dryRun,
       trust: options.trust,
@@ -309,6 +313,7 @@ async function main() {
       apiToken: options.apiToken,
       shareMode: options.shareMode,
       allowSecrets: options.allowSecrets,
+      mcpHttp: options.mcpHttp,
       host: options.host,
       port: options.port,
       home: options.home,
@@ -346,7 +351,7 @@ function parseArgs(args) {
     }
 
     const key = arg.slice(2);
-    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force" || key === "skip-mcp") {
+    if (key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force" || key === "skip-mcp" || key === "mcp-http") {
       options[toCamelCase(key)] = true;
       continue;
     }
@@ -429,15 +434,15 @@ function printHelp() {
 
 Usage:
   artifacty token [--bytes 32] [--raw]
-  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--generate-token] [--bytes 32] [--foreground]
+  artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--generate-token] [--bytes 32] [--mcp-http] [--foreground]
   artifacty serve --foreground [--generate-token]
-  artifacty start [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--generate-token] [--timeout 30000]
+  artifacty start [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--generate-token] [--mcp-http] [--timeout 30000]
   artifacty status [--home ~/.artifacty]
   artifacty stop [--home ~/.artifacty] [--timeout 30000] [--force]
   artifacty doctor [--home ~/.artifacty] [--skip-mcp] [--timeout 5000]
   artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react] [--source agent] [--tag tag]
   artifacty import --agent claude|codex|gemini|copilot|cursor|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react] [--tag tag]
-  artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--timeout 30000]
+  artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--mcp-url http://127.0.0.1:8787/mcp] [--api-token token] [--transport local|bridge] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
   artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react]
   artifacty archive <id>
@@ -448,13 +453,15 @@ Usage:
   artifacty export --file <path>
   artifacty backup [--file <path>]
   artifacty import-store --file <path>
-  artifacty service plist|unit|task|install|uninstall [--platform macos|linux|windows] [--dry-run] [--path <path>]
+  artifacty service plist|unit|task|install|uninstall [--platform macos|linux|windows] [--dry-run] [--path <path>] [--mcp-http]
   artifacty list [--query text] [--tag tag] [--source agent] [--limit 50] [--offset 0] [--include-archived]
   artifacty show <id> [--version n] [--raw]
 
 Environment:
   ARTIFACTY_HOME           Storage directory. Defaults to ~/.artifacty
   ARTIFACTY_URL            Public URL override. Otherwise CLI/MCP read the last running server URL
+  ARTIFACTY_MCP_URL        Central MCP HTTP endpoint used by bridge mode
+  ARTIFACTY_MCP_MODE       local or bridge. bridge forwards stdio MCP to ARTIFACTY_MCP_URL
   ARTIFACTY_API_TOKEN      Required token for HTTP API and LAN mode
   ARTIFACTY_SHARE_MODE     Use lan or team before binding outside localhost
   ARTIFACTY_ALLOW_SECRETS  Set true only to intentionally store detected secrets
@@ -485,6 +492,7 @@ function serverOptions(options) {
     allowSecrets: options.allowSecrets,
     generateToken: options.generateToken,
     bytes: options.bytes,
+    mcpHttp: options.mcpHttp,
     timeout: options.timeout
   };
 }

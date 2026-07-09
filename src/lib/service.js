@@ -230,6 +230,7 @@ function serviceConfig(options = {}) {
     apiToken: options.apiToken || "",
     shareMode: options.shareMode || "",
     allowSecrets: Boolean(options.allowSecrets),
+    mcpHttp: Boolean(options.mcpHttp),
     taskName: options.taskName || DEFAULT_TASK_NAME
   };
 }
@@ -250,6 +251,9 @@ function serverArgs(config, options = {}) {
   }
   if (config.allowSecrets) {
     args.push("--allow-secrets");
+  }
+  if (config.mcpHttp) {
+    args.push("--mcp-http");
   }
   if (options.includeApiTokenArg && config.apiToken) {
     args.push("--api-token", config.apiToken);

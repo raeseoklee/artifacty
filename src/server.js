@@ -6,29 +6,45 @@ import { URL } from "node:url";
 import { fileURLToPath } from "node:url";
 import {
   archiveArtifact,
+  authenticateApiToken,
+  countUsers,
+  createApiToken,
   createArtifact,
+  createSession,
   createStore,
+  createUser,
   getArtifact,
+  getSessionUser,
+  listApiTokens,
   listArtifactsPage,
   listAuditEvents,
+  listUsers,
   MAX_ARTIFACT_BYTES,
+  revokeApiToken,
+  revokeSession,
   restoreArtifact,
-  updateArtifact
+  setUserActive,
+  updateArtifact,
+  verifyUserPassword
 } from "./lib/storage.js";
 import { convertAgentArtifact } from "./lib/converters.js";
 import { createLineDiff } from "./lib/diff.js";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, viewerClientFilePath } from "./lib/editor-assets.js";
 import { localeFromBodyOrUrl, localeFromUrl, localizedHref } from "./lib/i18n.js";
-import { exposureWarning, requireToken, securityConfig, validateServerExposure } from "./lib/security.js";
+import { exposureWarning, requestToken, securityConfig, tokensEqual, validateServerExposure } from "./lib/security.js";
 import { writeServerState } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
+import { createMcpJsonRpcHandler } from "./mcp-server.js";
 import {
   renderArtifactFormPage,
   renderArtifactPage,
+  renderAccountPage,
+  renderAdminUsersPage,
   renderReactFramePage,
   renderDashboard,
   renderDiffPage,
   renderImportArtifactPage,
+  renderLoginPage,
   renderNewArtifactPage
 } from "./lib/render.js";
 
@@ -46,6 +62,7 @@ export async function startServer(options = {}) {
     (!explicitPort && options.portFallback !== false);
   const store = createStore({ home: options.home });
   const security = securityConfig(options);
+  const mcpHttp = Boolean(options.mcpHttp || process.env.ARTIFACTY_MCP_HTTP === "true");
   validateServerExposure({ host, config: security });
 
   const { server, actualPort } = await listenWithFallback({
@@ -54,7 +71,7 @@ export async function startServer(options = {}) {
     allowPortFallback,
     createServer(port) {
       const candidateServer = http.createServer((request, response) => {
-        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security }).catch((error) => {
+        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security, mcpHttp }).catch((error) => {
           sendError(response, error);
         });
       });
@@ -138,7 +155,7 @@ function closeServer(server) {
   });
 }
 
-export async function handleRequest({ request, response, store, host, port, security = securityConfig() }) {
+export async function handleRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false }) {
   const url = new URL(request.url, `http://${request.headers.host || `${host}:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
   const baseUrl = `http://${host}:${port}`;
@@ -165,8 +182,156 @@ export async function handleRequest({ request, response, store, host, port, secu
     return sendJavaScriptFile(response, vendorPath, headOnly, request);
   }
 
+  const userCount = await countUsers(store);
+  const currentUser = userCount > 0 ? await sessionUserFromRequest(store, request) : null;
+
+  if (method === "GET" && pathname === "/login") {
+    return sendHtml(response, renderLoginPage({
+      baseUrl,
+      setup: userCount === 0,
+      locale,
+      currentPath
+    }), 200, headOnly);
+  }
+
+  if (method === "POST" && pathname === "/login") {
+    const body = await readFormBody(request);
+    const email = body.email;
+    const password = body.password;
+    const user = userCount === 0
+      ? await createUser(store, {
+        email,
+        name: body.name || email,
+        role: "admin",
+        password
+      })
+      : await verifyUserPassword(store, email, password);
+    if (!user) {
+      return sendHtml(response, renderLoginPage({
+        baseUrl,
+        setup: false,
+        error: "Invalid email or password.",
+        locale,
+        currentPath
+      }), 401);
+    }
+    const session = await createSession(store, user.id);
+    return sendRedirect(response, "/account", {
+      "set-cookie": sessionCookie(session.token)
+    });
+  }
+
+  if (method === "POST" && pathname === "/logout") {
+    await revokeSession(store, sessionTokenFromRequest(request));
+    return sendRedirect(response, "/login", {
+      "set-cookie": clearSessionCookie()
+    });
+  }
+
+  if (method === "GET" && pathname === "/account") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    const tokens = await listApiTokens(store, currentUser.id);
+    return sendHtml(response, renderAccountPage({
+      baseUrl,
+      user: currentUser,
+      tokens,
+      locale,
+      currentPath
+    }), 200, headOnly);
+  }
+
+  if (method === "POST" && pathname === "/account/tokens") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    const body = await readFormBody(request);
+    const created = await createApiToken(store, currentUser.id, {
+      name: body.name
+    });
+    const tokens = await listApiTokens(store, currentUser.id);
+    return sendHtml(response, renderAccountPage({
+      baseUrl,
+      user: currentUser,
+      tokens,
+      createdToken: created.token,
+      locale,
+      currentPath: "/account"
+    }));
+  }
+
+  const tokenRevokeMatch = /^\/account\/tokens\/([^/]+)\/revoke$/.exec(pathname);
+  if (tokenRevokeMatch && method === "POST") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    await revokeApiToken(store, tokenRevokeMatch[1], currentUser.id);
+    return sendRedirect(response, "/account");
+  }
+
+  if (method === "GET" && pathname === "/admin/users") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    return sendHtml(response, renderAdminUsersPage({
+      baseUrl,
+      user: currentUser,
+      users: await listUsers(store),
+      locale,
+      currentPath
+    }), 200, headOnly);
+  }
+
+  if (method === "POST" && pathname === "/admin/users") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    const body = await readFormBody(request);
+    await createUser(store, {
+      email: body.email,
+      name: body.name || body.email,
+      role: body.role || "user",
+      password: body.password
+    });
+    return sendRedirect(response, "/admin/users");
+  }
+
+  const userActiveMatch = /^\/admin\/users\/([^/]+)\/(enable|disable)$/.exec(pathname);
+  if (userActiveMatch && method === "POST") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    if (userActiveMatch[1] === currentUser.id && userActiveMatch[2] === "disable") {
+      throw Object.assign(new Error("Admins cannot disable their own account"), {
+        statusCode: 400,
+        code: "SELF_DISABLE_BLOCKED"
+      });
+    }
+    await setUserActive(store, userActiveMatch[1], userActiveMatch[2] === "enable");
+    return sendRedirect(response, "/admin/users");
+  }
+
+  if (pathname === "/mcp") {
+    if (!mcpHttp) {
+      return sendJson(response, { error: "Not found" }, 404, headOnly);
+    }
+    request.artifactyAuth = await requireRequestAuth({ store, request, url, config: security });
+    return handleMcpHttpRequest({
+      request,
+      response,
+      store,
+      baseUrl,
+      headOnly,
+      method
+    });
+  }
+
   if (pathname.startsWith("/api/")) {
-    requireToken({ request, url, config: security });
+    request.artifactyAuth = await requireRequestAuth({ store, request, url, config: security });
   }
 
   if (method === "GET" && pathname === "/health") {
@@ -190,7 +355,7 @@ export async function handleRequest({ request, response, store, host, port, secu
       limit: filters.limit,
       offset: filters.offset
     });
-    return sendHtml(response, renderDashboard({ artifacts: page.artifacts, baseUrl, filters, pagination: page, locale, currentPath }), 200, headOnly);
+    return sendHtml(response, renderDashboard({ artifacts: page.artifacts, baseUrl, filters, pagination: page, locale, currentPath, user: currentUser }), 200, headOnly);
   }
 
   if (method === "GET" && pathname === "/new") {
@@ -201,7 +366,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     assertLocalOrigin(request);
     const body = await readFormBody(request);
     const bodyLocale = localeFromBodyOrUrl(body, url);
-    requireToken({ request, url, body, config: security });
+    request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
     const artifact = await createArtifact(store, {
       title: body.title,
       content: body.content,
@@ -225,7 +390,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     assertLocalOrigin(request);
     const body = await readFormBody(request);
     const bodyLocale = localeFromBodyOrUrl(body, url);
-    requireToken({ request, url, body, config: security });
+    request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
     const converted = convertAgentArtifact({
       agent: body.agent,
       title: body.title,
@@ -314,7 +479,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     assertLocalOrigin(request);
     const body = await readFormBody(request);
     const bodyLocale = localeFromBodyOrUrl(body, url);
-    requireToken({ request, url, body, config: security });
+    request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
     const artifact = await updateArtifact(store, editMatch[1], {
       title: body.title,
       content: body.content,
@@ -357,7 +522,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     assertLocalOrigin(request);
     const body = await readFormBody(request);
     const bodyLocale = localeFromBodyOrUrl(body, url);
-    requireToken({ request, url, body, config: security });
+    request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
     const artifact = archiveMatch[2] === "archive"
       ? await archiveArtifact(store, archiveMatch[1], { audit: auditContext(request, "web") })
       : await restoreArtifact(store, archiveMatch[1], { audit: auditContext(request, "web") });
@@ -450,6 +615,56 @@ export function decorateArtifactUrls(artifact, baseUrl) {
     url: `${baseUrl}/artifacts/${encodeURIComponent(artifact.id)}`,
     rawUrl: `${baseUrl}/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${artifact.version.version}`
   };
+}
+
+async function handleMcpHttpRequest({ request, response, store, baseUrl, headOnly, method }) {
+  if (method === "OPTIONS") {
+    response.writeHead(204, {
+      allow: "POST, OPTIONS",
+      "cache-control": "no-store"
+    });
+    response.end();
+    return;
+  }
+
+  if (method !== "POST") {
+    response.writeHead(405, {
+      allow: "POST, OPTIONS",
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff"
+    });
+    response.end(headOnly ? undefined : `${JSON.stringify({ error: "MCP endpoint accepts POST JSON-RPC requests" }, null, 2)}\n`);
+    return;
+  }
+
+  const body = await readJsonBody(request);
+  const messages = Array.isArray(body) ? body : [body];
+  const handler = createMcpJsonRpcHandler({
+    store,
+    transport: "streamable-http",
+    publicBaseUrl: baseUrl,
+    serverCommand: `${baseUrl}/mcp`,
+    browserCommand: baseUrl,
+    auditContext: () => auditContext(request, "mcp-http")
+  });
+  const responses = [];
+  for (const message of messages) {
+    const jsonRpcResponse = await handler(message);
+    if (jsonRpcResponse) {
+      responses.push(jsonRpcResponse);
+    }
+  }
+
+  if (responses.length === 0) {
+    response.writeHead(202, {
+      "cache-control": "no-store"
+    });
+    response.end();
+    return;
+  }
+
+  sendJson(response, Array.isArray(body) ? responses : responses[0], 200, headOnly);
 }
 
 function paginationJson(page) {
@@ -622,10 +837,11 @@ function javascriptCorsHeaders(request) {
   };
 }
 
-export function sendRedirect(response, location) {
+export function sendRedirect(response, location, headers = {}) {
   response.writeHead(303, {
     location,
-    "cache-control": "no-store"
+    "cache-control": "no-store",
+    ...headers
   });
   response.end();
 }
@@ -653,10 +869,96 @@ function splitTags(value) {
 }
 
 function auditContext(request, surface) {
+  const auth = request.artifactyAuth;
   return {
     surface,
-    actor: request.headers["x-artifacty-actor"] || request.headers["user-agent"] || "unknown"
+    actor: auth?.actor || request.headers["x-artifacty-actor"] || request.headers["user-agent"] || "unknown",
+    userId: auth?.user?.id || null,
+    tokenId: auth?.tokenId || null
   };
+}
+
+async function requireRequestAuth({ store, request, url, body = {}, config }) {
+  const token = requestToken({ request, url, body });
+  if (config.apiToken && tokensEqual(token, config.apiToken)) {
+    return {
+      type: "global-token",
+      actor: request.headers["x-artifacty-actor"] || "artifacty-token",
+      role: "admin"
+    };
+  }
+
+  const tokenAuth = await authenticateApiToken(store, token);
+  if (tokenAuth) {
+    return tokenAuth;
+  }
+
+  const authRequired = Boolean(config.apiToken) || await countUsers(store) > 0;
+  if (!authRequired) {
+    return {
+      type: "anonymous",
+      actor: request.headers["x-artifacty-actor"] || request.headers["user-agent"] || "anonymous"
+    };
+  }
+
+  throw Object.assign(new Error("Artifacty authentication required"), {
+    code: "AUTH_REQUIRED",
+    statusCode: 401
+  });
+}
+
+async function requireBrowserWriteAuth({ store, request, url, body, config, currentUser }) {
+  if (currentUser) {
+    return {
+      type: "session",
+      actor: currentUser.email,
+      user: currentUser,
+      role: currentUser.role
+    };
+  }
+  return requireRequestAuth({ store, request, url, body, config });
+}
+
+function requireAdmin(user) {
+  if (user?.role !== "admin") {
+    throw Object.assign(new Error("Artifacty admin privileges required"), {
+      code: "ADMIN_REQUIRED",
+      statusCode: 403
+    });
+  }
+}
+
+async function sessionUserFromRequest(store, request) {
+  return getSessionUser(store, sessionTokenFromRequest(request));
+}
+
+function sessionTokenFromRequest(request) {
+  const cookies = parseCookies(request.headers.cookie || "");
+  return cookies.artifacty_session || "";
+}
+
+function parseCookies(header) {
+  const cookies = {};
+  for (const part of String(header || "").split(";")) {
+    const index = part.indexOf("=");
+    if (index === -1) {
+      continue;
+    }
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) {
+      cookies[key] = decodeURIComponent(value);
+    }
+  }
+  return cookies;
+}
+
+function sessionCookie(token) {
+  return `artifacty_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`;
+}
+
+function clearSessionCookie() {
+  return "artifacty_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
 }
 
 function isMain(metaUrl) {
@@ -712,6 +1014,8 @@ function parseServerArgs(args) {
       options.generateToken = true;
     } else if (arg === "--allow-secrets") {
       options.allowSecrets = true;
+    } else if (arg === "--mcp-http") {
+      options.mcpHttp = true;
     }
   }
   return options;

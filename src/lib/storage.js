@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -9,6 +9,7 @@ import { assertNoSecrets, securityConfig } from "./security.js";
 export const STORE_VERSION = 3;
 export const ARTIFACT_SCHEMA_VERSION = 1;
 export const MAX_ARTIFACT_BYTES = 16 * 1024 * 1024;
+export const USER_ROLES = ["admin", "user"];
 export const ARTIFACT_FORMATS = [
   "html",
   "markdown",
@@ -653,6 +654,239 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
   }
 }
 
+export async function countUsers(store = createStore()) {
+  const db = openDatabase(store);
+  try {
+    return db.prepare("SELECT COUNT(*) AS count FROM users").get().count;
+  } finally {
+    db.close();
+  }
+}
+
+export async function createUser(store = createStore(), input = {}) {
+  const email = normalizeEmail(input.email);
+  const password = String(input.password || "");
+  if (!email) {
+    throw Object.assign(new Error("User email is required"), { statusCode: 400, code: "USER_EMAIL_REQUIRED" });
+  }
+  if (password.length < 8) {
+    throw Object.assign(new Error("User password must be at least 8 characters"), { statusCode: 400, code: "USER_PASSWORD_WEAK" });
+  }
+  const role = normalizeUserRole(input.role || "user");
+  const name = normalizeOptionalString(input.name) || email;
+  const now = new Date().toISOString();
+  const user = {
+    id: randomUUID(),
+    email,
+    name,
+    role,
+    active: true,
+    createdAt: now,
+    updatedAt: now
+  };
+  const db = openDatabase(store);
+  try {
+    db.prepare(`
+      INSERT INTO users (id, email, name, role, password_hash, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(user.id, user.email, user.name, user.role, hashPassword(password), now, now);
+    return user;
+  } catch (error) {
+    if (/UNIQUE/i.test(error.message)) {
+      throw Object.assign(new Error(`User already exists: ${email}`), { statusCode: 409, code: "USER_EXISTS" });
+    }
+    throw error;
+  } finally {
+    db.close();
+  }
+}
+
+export async function listUsers(store = createStore()) {
+  const db = openDatabase(store);
+  try {
+    return db.prepare(`
+      SELECT id, email, name, role, active, created_at, updated_at
+      FROM users
+      ORDER BY created_at ASC
+    `).all().map(userFromRow);
+  } finally {
+    db.close();
+  }
+}
+
+export async function setUserActive(store = createStore(), id, active) {
+  const db = openDatabase(store);
+  try {
+    const now = new Date().toISOString();
+    const result = db.prepare("UPDATE users SET active = ?, updated_at = ? WHERE id = ?").run(active ? 1 : 0, now, id);
+    if (result.changes === 0) {
+      throw Object.assign(new Error(`User not found: ${id}`), { statusCode: 404, code: "USER_NOT_FOUND" });
+    }
+    return userFromRow(db.prepare(`
+      SELECT id, email, name, role, active, created_at, updated_at FROM users WHERE id = ?
+    `).get(id));
+  } finally {
+    db.close();
+  }
+}
+
+export async function verifyUserPassword(store = createStore(), email, password) {
+  const db = openDatabase(store);
+  try {
+    const row = db.prepare(`
+      SELECT id, email, name, role, password_hash, active, created_at, updated_at
+      FROM users
+      WHERE email = ?
+    `).get(normalizeEmail(email));
+    if (!row || !row.active || !verifyPassword(password, row.password_hash)) {
+      return null;
+    }
+    return userFromRow(row);
+  } finally {
+    db.close();
+  }
+}
+
+export async function createSession(store = createStore(), userId, options = {}) {
+  const token = generateOpaqueToken("arts");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + Number(options.ttlMs || 7 * 24 * 60 * 60 * 1000)).toISOString();
+  const session = {
+    id: randomUUID(),
+    userId,
+    createdAt: now.toISOString(),
+    expiresAt
+  };
+  const db = openDatabase(store);
+  try {
+    db.prepare(`
+      INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(session.id, userId, hashToken(token), session.createdAt, expiresAt);
+    return { token, session };
+  } finally {
+    db.close();
+  }
+}
+
+export async function getSessionUser(store = createStore(), token) {
+  if (!token) {
+    return null;
+  }
+  const db = openDatabase(store);
+  try {
+    const row = db.prepare(`
+      SELECT s.id AS session_id, s.expires_at, u.id, u.email, u.name, u.role, u.active, u.created_at, u.updated_at
+      FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = ? AND s.revoked_at IS NULL
+    `).get(hashToken(token));
+    if (!row || !row.active || Date.parse(row.expires_at) <= Date.now()) {
+      return null;
+    }
+    return {
+      ...userFromRow(row),
+      sessionId: row.session_id
+    };
+  } finally {
+    db.close();
+  }
+}
+
+export async function revokeSession(store = createStore(), token) {
+  if (!token) {
+    return false;
+  }
+  const db = openDatabase(store);
+  try {
+    const result = db.prepare("UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL")
+      .run(new Date().toISOString(), hashToken(token));
+    return result.changes > 0;
+  } finally {
+    db.close();
+  }
+}
+
+export async function createApiToken(store = createStore(), userId, input = {}) {
+  const token = generateOpaqueToken("arty");
+  const now = new Date().toISOString();
+  const record = {
+    id: randomUUID(),
+    userId,
+    name: normalizeOptionalString(input.name) || "Artifacty token",
+    createdAt: now,
+    lastUsedAt: null,
+    revokedAt: null
+  };
+  const db = openDatabase(store);
+  try {
+    db.prepare(`
+      INSERT INTO api_tokens (id, user_id, name, token_hash, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(record.id, userId, record.name, hashToken(token), now);
+    return { token, record };
+  } finally {
+    db.close();
+  }
+}
+
+export async function listApiTokens(store = createStore(), userId) {
+  const db = openDatabase(store);
+  try {
+    return db.prepare(`
+      SELECT id, user_id, name, created_at, last_used_at, revoked_at
+      FROM api_tokens
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `).all(userId).map(apiTokenFromRow);
+  } finally {
+    db.close();
+  }
+}
+
+export async function revokeApiToken(store = createStore(), tokenId, userId) {
+  const db = openDatabase(store);
+  try {
+    const result = db.prepare(`
+      UPDATE api_tokens
+      SET revoked_at = ?
+      WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+    `).run(new Date().toISOString(), tokenId, userId);
+    return result.changes > 0;
+  } finally {
+    db.close();
+  }
+}
+
+export async function authenticateApiToken(store = createStore(), token) {
+  if (!token) {
+    return null;
+  }
+  const db = openDatabase(store);
+  try {
+    const tokenHash = hashToken(token);
+    const row = db.prepare(`
+      SELECT t.id AS token_id, t.name AS token_name, u.id, u.email, u.name, u.role, u.active, u.created_at, u.updated_at
+      FROM api_tokens t
+      JOIN users u ON u.id = t.user_id
+      WHERE t.token_hash = ? AND t.revoked_at IS NULL
+    `).get(tokenHash);
+    if (!row || !row.active) {
+      return null;
+    }
+    db.prepare("UPDATE api_tokens SET last_used_at = ? WHERE id = ?").run(new Date().toISOString(), row.token_id);
+    return {
+      type: "api-token",
+      actor: row.email,
+      tokenId: row.token_id,
+      tokenName: row.token_name,
+      user: userFromRow(row)
+    };
+  } finally {
+    db.close();
+  }
+}
+
 export async function readArtifactVersion(store, artifact, versionNumber) {
   const version = artifact.versions.find((item) => item.version === versionNumber);
   if (!version) {
@@ -798,10 +1032,45 @@ function initializeSchema(db) {
       metadata_json TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      password_hash TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      revoked_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_artifacts_updated_at ON artifacts(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_artifacts_source_agent ON artifacts(source_agent);
     CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_log_artifact_id ON audit_log(artifact_id);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash);
   `);
   ensureColumn(db, "artifacts", "artifact_type", "TEXT NOT NULL DEFAULT 'document'");
   ensureColumn(db, "artifacts", "schema_version", "INTEGER NOT NULL DEFAULT 1");
@@ -1104,6 +1373,29 @@ function auditFromRow(row) {
   };
 }
 
+function userFromRow(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    active: Boolean(row.active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function apiTokenFromRow(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at,
+    revokedAt: row.revoked_at
+  };
+}
+
 function versionFromRow(row) {
   return {
     version: row.version,
@@ -1280,11 +1572,50 @@ function normalizeMetadata(metadata) {
   return metadata;
 }
 
+function normalizeEmail(value) {
+  return normalizeOptionalString(value).toLowerCase();
+}
+
+function normalizeUserRole(value) {
+  const role = normalizeOptionalString(value) || "user";
+  if (!USER_ROLES.includes(role)) {
+    throw Object.assign(new Error(`Unsupported user role: ${value}`), {
+      statusCode: 400,
+      code: "INVALID_USER_ROLE"
+    });
+  }
+  return role;
+}
+
 function normalizeOptionalString(value) {
   if (value === undefined || value === null) {
     return "";
   }
   return String(value).trim();
+}
+
+function generateOpaqueToken(prefix) {
+  return `${prefix}_${randomBytes(32).toString("base64url")}`;
+}
+
+function hashToken(token) {
+  return createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function hashPassword(password) {
+  const salt = randomBytes(16).toString("base64url");
+  const hash = scryptSync(String(password), salt, 64).toString("base64url");
+  return `scrypt:${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [scheme, salt, expected] = String(stored || "").split(":");
+  if (scheme !== "scrypt" || !salt || !expected) {
+    return false;
+  }
+  const actualBuffer = scryptSync(String(password), salt, 64);
+  const expectedBuffer = Buffer.from(expected, "base64url");
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 function inferFormat(contentType) {
