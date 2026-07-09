@@ -9,6 +9,12 @@ import test from "node:test";
 
 const execFileAsync = promisify(execFile);
 
+test("prints CLI version without loading SQLite", async () => {
+  const { stdout, stderr } = await execFileAsync(process.execPath, ["src/cli.js", "--version"]);
+  assert.match(stdout.trim(), /^\d+\.\d+\.\d+$/);
+  assert.equal(stderr, "");
+});
+
 test("generates API tokens from the CLI", async () => {
   const { stdout } = await execFileAsync(process.execPath, ["src/cli.js", "token"]);
   const result = JSON.parse(stdout);

@@ -2,39 +2,21 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  archiveArtifact,
-  checkStoreIntegrity,
-  createArtifact,
-  createStore,
-  getArtifact,
-  importUsersFromCsv,
-  listAuditEvents,
-  listArtifactsPage,
-  rebuildSearchIndex,
-  restoreArtifact,
-  updateArtifact
-} from "./lib/storage.js";
-import { exportStore, importStore, defaultBackupPath } from "./lib/backup.js";
-import { convertAgentArtifact } from "./lib/converters.js";
-import { checkMcpTools } from "./lib/check.js";
-import { installAgent } from "./lib/installer.js";
-import { serviceCommand } from "./lib/service.js";
-import { backgroundStatus, startBackgroundServer, stopBackgroundServer } from "./lib/background.js";
-import { resolvePublicBaseUrl } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
-import { runDoctor } from "./lib/doctor.js";
-import { startServer } from "./server.js";
 
 const PACKAGE_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   const options = parseArgs(args);
-  const store = createStore({ home: options.home });
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();
+    return;
+  }
+
+  if (command === "version" || command === "--version" || command === "-v") {
+    process.stdout.write(`${await packageVersion()}\n`);
     return;
   }
 
@@ -47,6 +29,29 @@ async function main() {
     printJson(token);
     return;
   }
+
+  const {
+    archiveArtifact,
+    checkStoreIntegrity,
+    createArtifact,
+    createStore,
+    getArtifact,
+    importUsersFromCsv,
+    listAuditEvents,
+    listArtifactsPage,
+    rebuildSearchIndex,
+    restoreArtifact,
+    updateArtifact
+  } = await import("./lib/storage.js");
+  const { exportStore, importStore, defaultBackupPath } = await import("./lib/backup.js");
+  const { convertAgentArtifact } = await import("./lib/converters.js");
+  const { checkMcpTools } = await import("./lib/check.js");
+  const { installAgent } = await import("./lib/installer.js");
+  const { serviceCommand } = await import("./lib/service.js");
+  const { backgroundStatus, startBackgroundServer, stopBackgroundServer } = await import("./lib/background.js");
+  const { runDoctor } = await import("./lib/doctor.js");
+  const { startServer } = await import("./server.js");
+  const store = createStore({ home: options.home });
 
   if (command === "serve") {
     if (options.detach && options.foreground) {
@@ -412,6 +417,7 @@ function shouldReadFileAsBase64(options, filePath) {
 }
 
 async function withUrls(store, artifact) {
+  const { resolvePublicBaseUrl } = await import("./lib/server-state.js");
   const publicBaseUrl = await resolvePublicBaseUrl(store);
   return {
     ...artifact,
@@ -442,10 +448,16 @@ function printJson(data) {
   process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
 }
 
+async function packageVersion() {
+  const packageJson = JSON.parse(await readFile(path.join(PACKAGE_ROOT, "package.json"), "utf8"));
+  return packageJson.version;
+}
+
 function printHelp() {
   process.stdout.write(`Artifacty
 
 Usage:
+  artifacty --version
   artifacty token [--bytes 32] [--raw]
   artifacty serve [--host 127.0.0.1] [--port 8787] [--home ~/.artifacty] [--api-token token] [--generate-token] [--bytes 32] [--mcp-http] [--foreground]
   artifacty serve --foreground [--generate-token]
