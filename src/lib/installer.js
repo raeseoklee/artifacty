@@ -14,6 +14,9 @@ export async function installAgent(agent, options = {}) {
   }
 
   if (normalized === "all") {
+    if (options.configPath) {
+      throw new Error("install all does not support --config because each MCP client uses a different config file. Run install per agent when overriding config paths.");
+    }
     const results = [];
     for (const target of INSTALL_TARGETS) {
       results.push(await installAgent(target, options));
@@ -73,11 +76,12 @@ export function createMcpServerConfig(options = {}) {
 export async function installClaude(options = {}) {
   const projectDir = path.resolve(options.projectDir || process.cwd());
   const targetPath = path.resolve(options.configPath || path.join(projectDir, ".mcp.json"));
-  const existing = await readJsonFile(targetPath, {});
+  const existing = await readJsonConfigFile(targetPath);
+  const mcpServers = jsonObjectSection(existing, "mcpServers", targetPath);
   const next = {
     ...existing,
     mcpServers: {
-      ...(existing.mcpServers || {}),
+      ...mcpServers,
       artifacty: createMcpServerConfig(options)
     }
   };
@@ -93,11 +97,12 @@ export async function installClaude(options = {}) {
 export async function installGemini(options = {}) {
   const projectDir = path.resolve(options.projectDir || process.cwd());
   const targetPath = path.resolve(options.configPath || path.join(projectDir, ".gemini", "settings.json"));
-  const existing = await readJsonFile(targetPath, {});
+  const existing = await readJsonConfigFile(targetPath);
+  const mcpServers = jsonObjectSection(existing, "mcpServers", targetPath);
   const next = {
     ...existing,
     mcpServers: {
-      ...(existing.mcpServers || {}),
+      ...mcpServers,
       artifacty: {
         ...createMcpServerConfig(options),
         timeout: normalizeTimeoutMs(options.timeout),
@@ -117,11 +122,12 @@ export async function installGemini(options = {}) {
 export async function installCopilot(options = {}) {
   const projectDir = path.resolve(options.projectDir || process.cwd());
   const targetPath = path.resolve(options.configPath || path.join(projectDir, ".vscode", "mcp.json"));
-  const existing = await readJsonFile(targetPath, {});
+  const existing = await readJsonConfigFile(targetPath);
+  const servers = jsonObjectSection(existing, "servers", targetPath);
   const next = {
     ...existing,
     servers: {
-      ...(existing.servers || {}),
+      ...servers,
       artifacty: {
         type: "stdio",
         ...createMcpServerConfig(options)
@@ -140,11 +146,12 @@ export async function installCopilot(options = {}) {
 export async function installCursor(options = {}) {
   const projectDir = path.resolve(options.projectDir || process.cwd());
   const targetPath = path.resolve(options.configPath || path.join(projectDir, ".cursor", "mcp.json"));
-  const existing = await readJsonFile(targetPath, {});
+  const existing = await readJsonConfigFile(targetPath);
+  const mcpServers = jsonObjectSection(existing, "mcpServers", targetPath);
   const next = {
     ...existing,
     mcpServers: {
-      ...(existing.mcpServers || {}),
+      ...mcpServers,
       artifacty: createMcpServerConfig(options)
     }
   };
@@ -190,11 +197,35 @@ export function codexTomlBlock(config, options = {}) {
 }
 
 export function replaceTomlBlock(existing, dottedName, block) {
-  const trimmed = existing.trimEnd();
-  const pattern = new RegExp(`\\n?\\[${escapeRegExp(dottedName)}\\][\\s\\S]*?(?=\\n\\[[^\\]]+\\]|$)`);
-  if (pattern.test(trimmed)) {
-    return `${trimmed.replace(pattern, `\n${block.trimEnd()}`)}\n`;
+  const trimmedBlock = block.trimEnd();
+  const lines = existing.replace(/\r\n/g, "\n").split("\n");
+  const target = normalizeTomlDottedName(dottedName);
+  const start = lines.findIndex((line) => normalizeTomlDottedName(parseTomlTableHeader(line)) === target);
+
+  if (start !== -1) {
+    let end = lines.length;
+    for (let index = start + 1; index < lines.length; index += 1) {
+      const tableName = normalizeTomlDottedName(parseTomlTableHeader(lines[index]));
+      if (!tableName) {
+        continue;
+      }
+      if (tableName === target || tableName.startsWith(`${target}.`)) {
+        continue;
+      }
+      end = index;
+      break;
+    }
+
+    const prefix = lines.slice(0, start).join("\n").trimEnd();
+    const suffix = lines.slice(end).join("\n").trimStart();
+    return [
+      prefix,
+      trimmedBlock,
+      suffix
+    ].filter(Boolean).join("\n").trimEnd() + "\n";
   }
+
+  const trimmed = existing.trimEnd();
   return `${trimmed}${trimmed ? "\n\n" : ""}${block}`;
 }
 
@@ -216,20 +247,25 @@ async function writeInstallFile({ agent, path: targetPath, dryRun, content }) {
   };
 }
 
-async function readJsonFile(filePath, fallback) {
+async function readJsonConfigFile(filePath) {
   if (!existsSync(filePath)) {
-    return fallback;
+    return {};
   }
 
   const raw = await readTextFile(filePath, "");
   if (!raw.trim()) {
-    return fallback;
+    return {};
   }
+  let parsed;
   try {
-    return JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch (error) {
     throw new Error(`Failed to parse ${filePath}: ${error.message}`);
   }
+  if (!isPlainObject(parsed)) {
+    throw new Error(`Invalid MCP config at ${filePath}: expected a JSON object`);
+  }
+  return parsed;
 }
 
 async function readTextFile(filePath, fallback) {
@@ -245,6 +281,20 @@ function normalizeAgent(agent) {
     return "copilot";
   }
   return normalized;
+}
+
+function jsonObjectSection(config, key, filePath) {
+  if (config[key] === undefined) {
+    return {};
+  }
+  if (!isPlainObject(config[key])) {
+    throw new Error(`Invalid MCP config at ${filePath}: ${key} must be a JSON object`);
+  }
+  return config[key];
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizeTimeoutMs(value) {
@@ -276,6 +326,47 @@ function quoteTomlString(value) {
   return JSON.stringify(String(value));
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function parseTomlTableHeader(line) {
+  const match = /^\s*\[([^\][\r\n]+)]\s*(?:#.*)?$/.exec(line);
+  return match ? match[1] : "";
+}
+
+function normalizeTomlDottedName(value) {
+  return splitTomlDottedName(value).join(".");
+}
+
+function splitTomlDottedName(value) {
+  const parts = [];
+  let current = "";
+  let quoted = false;
+  let quote = "";
+  let escaped = false;
+  for (const char of String(value || "").trim()) {
+    if (quoted) {
+      if (escaped) {
+        current += char;
+        escaped = false;
+      } else if (char === "\\" && quote === "\"") {
+        escaped = true;
+      } else if (char === quote) {
+        quoted = false;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      quoted = true;
+      quote = char;
+    } else if (char === ".") {
+      parts.push(current.trim());
+      current = "";
+    } else if (!/\s/.test(char)) {
+      current += char;
+    }
+  }
+  if (current || parts.length > 0) {
+    parts.push(current.trim());
+  }
+  return parts.filter(Boolean);
 }

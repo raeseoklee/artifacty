@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -52,12 +52,123 @@ test("installs JSON-based project MCP config files", async () => {
   }
 });
 
+test("JSON installers preserve other servers and replace only artifacty", async () => {
+  const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-json-preserve-"));
+  try {
+    await writeFile(path.join(projectDir, ".mcp.json"), JSON.stringify({
+      mcpServers: {
+        other: { command: "other-cli" },
+        artifacty: { command: "old", env: { OLD: "1" } }
+      }
+    }));
+    await installAgent("claude", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      mcpUrl: "http://10.0.0.50:8787/mcp",
+      apiToken: "team-token"
+    });
+    const claudeJson = JSON.parse(await readFile(path.join(projectDir, ".mcp.json"), "utf8"));
+    assert.equal(claudeJson.mcpServers.other.command, "other-cli");
+    assert.equal(claudeJson.mcpServers.artifacty.command, "node");
+    assert.equal(claudeJson.mcpServers.artifacty.env.OLD, undefined);
+    assert.equal(claudeJson.mcpServers.artifacty.env.ARTIFACTY_API_TOKEN, "team-token");
+
+    await mkdir(path.join(projectDir, ".gemini"), { recursive: true });
+    await writeFile(path.join(projectDir, ".gemini", "settings.json"), JSON.stringify({
+      mcpServers: {
+        other: { command: "other-cli" },
+        artifacty: { command: "old", env: { OLD: "1" } }
+      }
+    }));
+    await installAgent("gemini", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      mcpUrl: "http://10.0.0.50:8787/mcp",
+      apiToken: "team-token"
+    });
+    const geminiJson = JSON.parse(await readFile(path.join(projectDir, ".gemini", "settings.json"), "utf8"));
+    assert.equal(geminiJson.mcpServers.other.command, "other-cli");
+    assert.equal(geminiJson.mcpServers.artifacty.command, "node");
+    assert.equal(geminiJson.mcpServers.artifacty.env.OLD, undefined);
+    assert.equal(geminiJson.mcpServers.artifacty.timeout, 30000);
+
+    await mkdir(path.join(projectDir, ".vscode"), { recursive: true });
+    await writeFile(path.join(projectDir, ".vscode", "mcp.json"), JSON.stringify({
+      servers: {
+        other: { command: "other-cli" },
+        artifacty: { command: "old", env: { OLD: "1" } }
+      }
+    }));
+    await installAgent("copilot", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js")
+    });
+    const copilotJson = JSON.parse(await readFile(path.join(projectDir, ".vscode", "mcp.json"), "utf8"));
+    assert.equal(copilotJson.servers.other.command, "other-cli");
+    assert.equal(copilotJson.servers.artifacty.type, "stdio");
+    assert.equal(copilotJson.servers.artifacty.env.OLD, undefined);
+
+    await mkdir(path.join(projectDir, ".cursor"), { recursive: true });
+    await writeFile(path.join(projectDir, ".cursor", "mcp.json"), JSON.stringify({
+      mcpServers: {
+        other: { command: "other-cli" },
+        artifacty: { command: "old", env: { OLD: "1" } }
+      }
+    }));
+    await installAgent("cursor", {
+      projectDir,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      mcpUrl: "http://10.0.0.50:8787/mcp",
+      apiToken: "team-token"
+    });
+    const cursorJson = JSON.parse(await readFile(path.join(projectDir, ".cursor", "mcp.json"), "utf8"));
+    assert.equal(cursorJson.mcpServers.other.command, "other-cli");
+    assert.equal(cursorJson.mcpServers.artifacty.command, "node");
+    assert.equal(cursorJson.mcpServers.artifacty.env.OLD, undefined);
+  } finally {
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});
+
+test("JSON installers reject invalid config shapes instead of corrupting files", async () => {
+  const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-json-invalid-"));
+  try {
+    await writeFile(path.join(projectDir, ".mcp.json"), JSON.stringify({ mcpServers: [] }));
+    await assert.rejects(
+      installAgent("claude", { projectDir }),
+      /mcpServers must be a JSON object/
+    );
+
+    await mkdir(path.join(projectDir, ".gemini"), { recursive: true });
+    await writeFile(path.join(projectDir, ".gemini", "settings.json"), JSON.stringify({ mcpServers: "bad" }));
+    await assert.rejects(
+      installAgent("gemini", { projectDir }),
+      /mcpServers must be a JSON object/
+    );
+
+    await mkdir(path.join(projectDir, ".vscode"), { recursive: true });
+    await writeFile(path.join(projectDir, ".vscode", "mcp.json"), JSON.stringify({ servers: [] }));
+    await assert.rejects(
+      installAgent("copilot", { projectDir }),
+      /servers must be a JSON object/
+    );
+
+    await mkdir(path.join(projectDir, ".cursor"), { recursive: true });
+    await writeFile(path.join(projectDir, ".cursor", "mcp.json"), JSON.stringify([]));
+    await assert.rejects(
+      installAgent("cursor", { projectDir }),
+      /expected a JSON object/
+    );
+  } finally {
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});
+
 test("installs all supported MCP client targets", async () => {
   const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-install-all-"));
   try {
     const result = await installAgent("all", {
       projectDir,
-      configPath: path.join(projectDir, "codex.toml"),
       serverPath: path.join(projectDir, "src", "mcp-server.js"),
       dryRun: true
     });
@@ -72,6 +183,16 @@ test("installs all supported MCP client targets", async () => {
   } finally {
     await rm(projectDir, { recursive: true, force: true });
   }
+});
+
+test("rejects shared config overrides for install all", async () => {
+  await assert.rejects(
+    installAgent("all", {
+      configPath: path.join(tmpdir(), "artifacty-shared-config"),
+      dryRun: true
+    }),
+    /install all does not support --config/
+  );
 });
 
 test("applies install timeout where agent configs support it", async () => {
@@ -133,11 +254,89 @@ test("installs Codex MCP config block without duplicating it", async () => {
   }
 });
 
+test("repairs legacy Codex nested env tables without duplicate env keys", async () => {
+  const projectDir = await mkdtemp(path.join(tmpdir(), "artifacty-codex-nested-env-"));
+  try {
+    const configPath = path.join(projectDir, "config.toml");
+    await writeFile(configPath, [
+      "[mcp_servers.artifacty]",
+      "command = \"node\"",
+      "args = [\"old-server.js\"]",
+      "",
+      "[mcp_servers.artifacty.env]",
+      "ARTIFACTY_API_TOKEN = \"old-token\"",
+      "ARTIFACTY_MCP_URL = \"http://old.example/mcp\"",
+      "",
+      "[mcp_servers.artifacty.env.extra]",
+      "SHOULD_REMOVE = \"yes\"",
+      "",
+      "[mcp_servers.artifacty_extra]",
+      "command = \"keep\"",
+      "",
+      "[features]",
+      "js_repl = false",
+      ""
+    ].join("\n"));
+
+    await installAgent("codex", {
+      projectDir,
+      configPath,
+      serverPath: path.join(projectDir, "src", "mcp-server.js"),
+      mcpUrl: "http://10.0.0.50:8787/mcp",
+      apiToken: "team-token"
+    });
+    const content = await readFile(configPath, "utf8");
+    assert.equal(content.match(/\[mcp_servers\.artifacty\]/g).length, 1);
+    assert.equal(content.match(/^env\s*=/gm).length, 1);
+    assert.doesNotMatch(content, /\[mcp_servers\.artifacty\.env\]/);
+    assert.doesNotMatch(content, /old-token/);
+    assert.match(content, /\[mcp_servers\.artifacty_extra\]/);
+    assert.match(content, /\[features\]/);
+  } finally {
+    await rm(projectDir, { recursive: true, force: true });
+  }
+});
+
 test("replaces existing TOML server block", () => {
   const next = replaceTomlBlock("[mcp_servers.artifacty]\ncommand = \"old\"\n\n[features]\njs_repl = false\n", "mcp_servers.artifacty", "[mcp_servers.artifacty]\ncommand = \"new\"\n");
   assert.match(next, /command = "new"/);
   assert.doesNotMatch(next, /command = "old"/);
   assert.match(next, /\[features\]/);
+});
+
+test("replaces TOML server block and removes child tables only", () => {
+  const next = replaceTomlBlock([
+    "[mcp_servers.artifacty]",
+    "command = \"old\"",
+    "[mcp_servers.artifacty.env]",
+    "ARTIFACTY_API_TOKEN = \"old\"",
+    "[mcp_servers.artifacty.env.more]",
+    "nested = \"old\"",
+    "[mcp_servers.artifacty_other]",
+    "command = \"keep\"",
+    ""
+  ].join("\n"), "mcp_servers.artifacty", "[mcp_servers.artifacty]\ncommand = \"new\"\n");
+  assert.match(next, /command = "new"/);
+  assert.doesNotMatch(next, /ARTIFACTY_API_TOKEN = "old"/);
+  assert.doesNotMatch(next, /\[mcp_servers\.artifacty\.env\]/);
+  assert.match(next, /\[mcp_servers\.artifacty_other\]/);
+});
+
+test("replaces quoted TOML artifacty tables", () => {
+  const next = replaceTomlBlock([
+    "[mcp_servers.\"artifacty\"]",
+    "command = \"old\"",
+    "[mcp_servers.\"artifacty\".env]",
+    "ARTIFACTY_API_TOKEN = \"old\"",
+    "[mcp_servers.artifacty_other]",
+    "command = \"keep\"",
+    ""
+  ].join("\n"), "mcp_servers.artifacty", "[mcp_servers.artifacty]\ncommand = \"new\"\n");
+  assert.match(next, /\[mcp_servers\.artifacty\]/);
+  assert.match(next, /command = "new"/);
+  assert.doesNotMatch(next, /\[mcp_servers\."artifacty"\.env\]/);
+  assert.doesNotMatch(next, /ARTIFACTY_API_TOKEN = "old"/);
+  assert.match(next, /\[mcp_servers\.artifacty_other\]/);
 });
 
 test("uses packageDir for MCP server path when installing from another project", async () => {

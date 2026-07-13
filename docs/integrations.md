@@ -130,8 +130,28 @@ their password before they can continue to `/account` and issue MCP/API tokens.
 - `--api-token <token>` is written into the generated MCP environment for bridge mode. For central servers, prefer a personal token issued from `/account`.
 - `--url <url>` remains a browser-link override and does not enable central MCP by itself.
 - `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change Claude Code startup behavior; set `MCP_TIMEOUT` before launching Claude Code if you need a larger value there.
+- Do not use `artifacty install all --config <path>`. Each MCP client uses a
+  different config file shape, so shared config overrides are rejected. Use
+  `artifacty install <agent> --config <path>` only when targeting one agent.
+- JSON-based installers preserve unrelated servers and replace only the
+  `artifacty` entry. If `mcpServers` or `servers` already exists but is not a
+  JSON object, Artifacty stops with an error instead of rewriting the file.
 - `check` starts the local MCP server and verifies required tools, resources, and prompts through MCP discovery methods.
 - `doctor` combines MCP discovery with runtime, storage, server, and service diagnostics.
+
+Codex troubleshooting:
+
+- If Codex reports a duplicate `mcp_servers.artifacty.env` or `artifacty.env`
+  key, update Artifacty and rerun the Codex installer. Older installs could
+  leave a legacy `[mcp_servers.artifacty.env]` child table behind while adding a
+  new inline `env = { ... }` value.
+
+```bash
+npm install -g artifacty@latest
+artifacty install codex \
+  --mcp-url http://10.0.0.50:8787/mcp \
+  --api-token "$ARTIFACTY_PERSONAL_TOKEN"
+```
 
 ## Client Compatibility Matrix
 
