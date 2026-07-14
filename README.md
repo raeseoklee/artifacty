@@ -314,7 +314,7 @@ The browser UI defaults to English. Add `?lang=ko` to any browser route to use K
 
 Schema and storage:
 
-- Metadata lives in SQLite with `schemaVersion: 1`, `artifactType`, and `archivedAt`.
+- Metadata lives in SQLite with `schemaVersion: 1`, `artifactType`, `publisherId`, and `archivedAt`.
 - Archive hides artifacts from default lists without deleting versions.
 - Bundle artifacts store multiple files or base64 assets as portable JSON.
 - Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, and `video`.
@@ -329,13 +329,13 @@ Schema and storage:
 
 - The HTTP server binds to `127.0.0.1` by default.
 - If `ARTIFACTY_API_TOKEN` is set, HTTP API routes require `Authorization: Bearer <token>` or `x-artifacty-token`; scripts should prefer headers over `?token=...` URLs.
-- When users exist, personal API tokens issued from `/account` also authenticate HTTP API and MCP requests, and audit logs record the token owner's email as `actor`.
+- When users exist, personal API tokens issued from `/account` also authenticate HTTP API and MCP requests. Created artifacts record the token owner's email as `publisherId`, and audit logs record the same identity as `actor`.
 - API token checks use timing-safe digest comparison.
 - Binding outside localhost requires both `ARTIFACTY_SHARE_MODE=lan` or `team` and `ARTIFACTY_API_TOKEN`.
 - Non-local sharing is intended for trusted LAN or VPN sessions. Prefer a specific interface IP over `0.0.0.0`, keep React rendering disabled, and see [docs/network-sharing.md](docs/network-sharing.md).
 - Non-local binding prints a startup warning because Artifacty does not terminate TLS.
 - Artifact content is scanned for common API keys and private keys before storage. Use `--allow-secrets` or `ARTIFACTY_ALLOW_SECRETS=true` only for intentional exceptions.
-- Creates, updates, reads, imports, archives, and restores write audit events to SQLite.
+- Creates, updates, reads, imports, archives, and restores write audit events to SQLite. Legacy artifacts without a stored publisher are best-effort backfilled from their first `create` or `import` audit actor.
 - CodeMirror editor/viewer and renderer assets are served from local npm dependencies through a package allowlist, not from a public CDN. JavaScript asset routes answer `Origin: null` requests with `Access-Control-Allow-Origin: null` so sandboxed renderer iframes can import local ESM without `allow-same-origin`.
 - Mutating HTTP routes reject non-local browser origins.
 - HTML artifacts render in a sandboxed iframe.

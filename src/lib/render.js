@@ -13,6 +13,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
     .map((artifact) => {
       const tags = artifact.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
       const status = artifact.archivedAt ? statusBadge("archived") : "";
+      const publisher = publisherDisplay(artifact, view);
       const snippet = artifact.searchSnippet
         ? `<span class="row-snippet">${escapeHtml(artifact.searchSnippet)}</span>`
         : "";
@@ -24,6 +25,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
             ${snippet}
           </span>
           <span>${escapeHtml(artifact.sourceAgent)}</span>
+          <span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>
           ${typeBadge(artifact.artifactType || "document")}
           ${formatBadge(artifact.format || "text")}
           <span>v${artifact.latestVersion}</span>
@@ -527,6 +529,7 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
   const rawUrl = `/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`;
   const archiveAction = artifact.archivedAt ? "restore" : "archive";
   const archiveLabel = artifact.archivedAt ? view.text("artifact.restore") : view.text("artifact.archive");
+  const publisher = publisherDisplay(artifact, view);
 
   return pageShell({
     title: artifact.title,
@@ -550,6 +553,7 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
           ${typeBadge(artifact.artifactType || "document")}
           <span>${view.text("artifact.schema", { version: artifact.schemaVersion || 1 })}</span>
           ${artifact.archivedAt ? statusBadge(view.text("artifact.archived", { date: artifact.archivedAt })) : ""}
+          <span title="${escapeAttribute(publisherTitle(artifact, view))}">${view.text("artifact.publisher", { publisher })}</span>
           <span>${view.text("artifact.bytes", { size: version.sizeBytes })}</span>
           <span>${escapeHtml(version.createdAt)}</span>
           <span>${escapeHtml(version.sha256.slice(0, 12))}</span>
@@ -1295,8 +1299,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     .artifact-row {
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) 120px 120px 90px 64px minmax(120px, 220px);
-      gap: 16px;
+      grid-template-columns: minmax(220px, 1fr) 110px minmax(140px, 200px) 110px 84px 56px minmax(100px, 180px);
+      gap: 12px;
       align-items: center;
       min-height: 64px;
       padding: 14px 18px;
@@ -1342,6 +1346,13 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       font-family: var(--mono);
       font-size: 12.5px;
       color: var(--muted);
+    }
+    .artifact-row .publisher-cell {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
     }
     .empty {
       color: var(--muted);
@@ -1826,6 +1837,19 @@ function formatBadge(value) {
   const format = String(value || "text");
   const slug = format.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   return `<span class="badge f-${escapeAttribute(slug)}">${escapeHtml(format)}</span>`;
+}
+
+function publisherDisplay(artifact, view) {
+  return artifact.publisherId || artifact.publisherName || view.text("artifact.publisherUnknown");
+}
+
+function publisherTitle(artifact, view) {
+  const id = artifact.publisherId || "";
+  const name = artifact.publisherName || "";
+  if (id && name && id !== name) {
+    return `${name} <${id}>`;
+  }
+  return id || name || view.text("artifact.publisherUnknown");
 }
 
 function statusBadge(label) {

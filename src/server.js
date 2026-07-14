@@ -967,8 +967,9 @@ function auditContext(request, surface) {
   const auth = request.artifactyAuth;
   return {
     surface,
-    actor: auth?.actor || request.headers["x-artifacty-actor"] || request.headers["user-agent"] || "unknown",
+    actor: auth?.actor || request.headers["x-artifacty-actor"] || "unknown",
     userId: auth?.user?.id || null,
+    publisherName: auth?.user?.name || null,
     tokenId: auth?.tokenId || null
   };
 }
@@ -992,7 +993,7 @@ async function requireRequestAuth({ store, request, url, body = {}, config }) {
   if (!authRequired) {
     return {
       type: "anonymous",
-      actor: request.headers["x-artifacty-actor"] || request.headers["user-agent"] || "anonymous"
+      actor: request.headers["x-artifacty-actor"] || "anonymous"
     };
   }
 

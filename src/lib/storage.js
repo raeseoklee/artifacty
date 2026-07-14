@@ -6,7 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { assertNoSecrets, securityConfig } from "./security.js";
 
-export const STORE_VERSION = 3;
+export const STORE_VERSION = 4;
 export const ARTIFACT_SCHEMA_VERSION = 1;
 export const MAX_ARTIFACT_BYTES = 16 * 1024 * 1024;
 export const USER_ROLES = ["admin", "user"];
@@ -141,6 +141,7 @@ export async function createArtifact(store = createStore(), input = {}) {
       const now = new Date().toISOString();
       const id = makeArtifactId(normalized.title);
       const version = writeVersionFile(store, id, 1, normalized, now);
+      const publisher = publisherFromAudit(input.audit);
 
       artifact = {
         id,
@@ -148,6 +149,9 @@ export async function createArtifact(store = createStore(), input = {}) {
         artifactType: normalized.artifactType,
         schemaVersion: normalized.schemaVersion,
         sourceAgent: normalized.sourceAgent,
+        publisherId: publisher.publisherId,
+        publisherName: publisher.publisherName,
+        publisherUserId: publisher.publisherUserId,
         tags: normalized.tags,
         createdAt: now,
         updatedAt: now,
@@ -461,15 +465,17 @@ function listArtifactsPageWithSql(db, filters) {
       LOWER(id) LIKE ? ESCAPE '\\' OR
       LOWER(title) LIKE ? ESCAPE '\\' OR
       LOWER(source_agent) LIKE ? ESCAPE '\\' OR
+      LOWER(COALESCE(publisher_id, '')) LIKE ? ESCAPE '\\' OR
+      LOWER(COALESCE(publisher_name, '')) LIKE ? ESCAPE '\\' OR
       LOWER(tags_json) LIKE ? ESCAPE '\\'
     )`);
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like, like);
   }
 
   const whereSql = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const total = db.prepare(`SELECT COUNT(*) AS total FROM artifacts ${whereSql}`).get(...params).total;
   const rows = db.prepare(`
-    SELECT id, title, artifact_type, schema_version, source_agent, tags_json, created_at, updated_at, latest_version, archived_at
+    SELECT id, title, artifact_type, schema_version, source_agent, publisher_id, publisher_name, publisher_user_id, tags_json, created_at, updated_at, latest_version, archived_at
     FROM artifacts
     ${whereSql}
     ORDER BY updated_at DESC, created_at DESC
@@ -503,13 +509,16 @@ function listArtifactsPageWithFts(db, filters) {
       a.artifact_type,
       a.schema_version,
       a.source_agent,
+      a.publisher_id,
+      a.publisher_name,
+      a.publisher_user_id,
       a.tags_json,
       a.created_at,
       a.updated_at,
       a.latest_version,
       a.archived_at,
       bm25(artifact_search) AS search_rank,
-      snippet(artifact_search, 7, '', '', '...', 24) AS search_snippet
+      snippet(artifact_search, -1, '', '', '...', 24) AS search_snippet
     FROM artifact_search
     JOIN artifacts a ON a.id = artifact_search.artifact_id
     ${whereSql}
@@ -572,6 +581,9 @@ function artifactFromRow(db, row) {
     artifactType: row.artifact_type,
     schemaVersion: row.schema_version,
     sourceAgent: row.source_agent,
+    publisherId: row.publisher_id || null,
+    publisherName: row.publisher_name || null,
+    publisherUserId: row.publisher_user_id || null,
     tags: parseJson(row.tags_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -587,6 +599,15 @@ function escapeLike(value) {
 
 function normalizeWhitespace(value) {
   return normalizeOptionalString(value).replace(/\s+/g, " ");
+}
+
+function publisherFromAudit(audit = {}) {
+  const publisherId = normalizeOptionalString(audit.publisherId || audit.actor) || null;
+  return {
+    publisherId,
+    publisherName: normalizeOptionalString(audit.publisherName || audit.userName) || null,
+    publisherUserId: normalizeOptionalString(audit.publisherUserId || audit.userId) || null
+  };
 }
 
 function toFtsQuery(value) {
@@ -986,6 +1007,9 @@ export function toArtifactSummary(artifact) {
     artifactType: artifact.artifactType,
     schemaVersion: artifact.schemaVersion,
     sourceAgent: artifact.sourceAgent,
+    publisherId: artifact.publisherId || null,
+    publisherName: artifact.publisherName || null,
+    publisherUserId: artifact.publisherUserId || null,
     tags: artifact.tags,
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
@@ -1075,6 +1099,9 @@ function initializeSchema(db) {
       artifact_type TEXT NOT NULL DEFAULT 'document',
       schema_version INTEGER NOT NULL DEFAULT 1,
       source_agent TEXT NOT NULL,
+      publisher_id TEXT,
+      publisher_name TEXT,
+      publisher_user_id TEXT,
       tags_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -1152,9 +1179,116 @@ function initializeSchema(db) {
   ensureColumn(db, "artifacts", "artifact_type", "TEXT NOT NULL DEFAULT 'document'");
   ensureColumn(db, "artifacts", "schema_version", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "artifacts", "archived_at", "TEXT");
+  ensureColumn(db, "artifacts", "publisher_id", "TEXT");
+  ensureColumn(db, "artifacts", "publisher_name", "TEXT");
+  ensureColumn(db, "artifacts", "publisher_user_id", "TEXT");
   ensureColumn(db, "users", "password_reset_required", "INTEGER NOT NULL DEFAULT 0");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_publisher_id ON artifacts(publisher_id)");
+  backfillArtifactPublishers(db);
   db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('store_version', ?)").run(String(STORE_VERSION));
   ensureSearchTable(db);
+}
+
+function backfillArtifactPublishers(db) {
+  const rows = db.prepare(`
+    SELECT
+      id,
+      publisher_id,
+      (
+        SELECT actor
+        FROM audit_log
+        WHERE audit_log.artifact_id = artifacts.id
+          AND action IN ('create', 'import')
+          AND actor IS NOT NULL
+          AND TRIM(actor) != ''
+        ORDER BY created_at ASC
+        LIMIT 1
+      ) AS actor
+    FROM artifacts
+    WHERE publisher_id IS NULL
+      OR TRIM(publisher_id) = ''
+      OR publisher_id LIKE 'curl/%'
+      OR publisher_id LIKE 'Wget/%'
+      OR publisher_id LIKE 'HTTPie/%'
+      OR publisher_id LIKE 'PostmanRuntime/%'
+      OR publisher_id LIKE 'undici%'
+      OR publisher_id LIKE 'node-fetch%'
+      OR publisher_id LIKE 'Mozilla/%'
+  `).all();
+
+  if (rows.length === 0) {
+    enrichPublisherUsers(db);
+    return;
+  }
+
+  const update = db.prepare(`
+    UPDATE artifacts
+    SET publisher_id = ?, publisher_name = ?, publisher_user_id = ?
+    WHERE id = ?
+  `);
+
+  transaction(db, () => {
+    for (const row of rows) {
+      const existingPublisherId = normalizeOptionalString(row.publisher_id);
+      if (existingPublisherId && !isLikelyUserAgentActor(existingPublisherId)) {
+        continue;
+      }
+      const actor = normalizeOptionalString(row.actor);
+      const publisher = publisherForActor(db, actor);
+      if (!publisher.publisherId && !existingPublisherId) {
+        continue;
+      }
+      update.run(publisher.publisherId, publisher.publisherName, publisher.publisherUserId, row.id);
+    }
+    enrichPublisherUsers(db);
+  });
+}
+
+function enrichPublisherUsers(db) {
+  db.prepare(`
+    UPDATE artifacts
+    SET
+      publisher_user_id = COALESCE(
+        publisher_user_id,
+        (SELECT id FROM users WHERE LOWER(users.email) = LOWER(artifacts.publisher_id) LIMIT 1)
+      ),
+      publisher_name = COALESCE(
+        NULLIF(publisher_name, ''),
+        (SELECT name FROM users WHERE LOWER(users.email) = LOWER(artifacts.publisher_id) LIMIT 1)
+      )
+    WHERE publisher_id IS NOT NULL AND TRIM(publisher_id) != ''
+  `).run();
+}
+
+function publisherForActor(db, actor) {
+  const publisherId = normalizeOptionalString(actor);
+  if (!publisherId || isLikelyUserAgentActor(publisherId)) {
+    return {
+      publisherId: null,
+      publisherName: null,
+      publisherUserId: null
+    };
+  }
+
+  const user = db.prepare("SELECT id, email, name FROM users WHERE LOWER(email) = LOWER(?)").get(publisherId);
+  return {
+    publisherId: user?.email || publisherId,
+    publisherName: user?.name || null,
+    publisherUserId: user?.id || null
+  };
+}
+
+function isLikelyUserAgentActor(value) {
+  if (/^(curl|Wget|HTTPie|PostmanRuntime)\//i.test(value)) {
+    return true;
+  }
+  if (/^(undici|node-fetch)(\/|$)/i.test(value)) {
+    return true;
+  }
+  if (value.length < 24) {
+    return false;
+  }
+  return /\b(Mozilla|AppleWebKit|Chrome|Safari|Firefox|Edg)\b/i.test(value);
 }
 
 function migrateJsonIndex(db, store) {
@@ -1192,11 +1326,17 @@ function migrateJsonIndex(db, store) {
 
 function ensureSearchTable(db) {
   try {
+    const existing = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'artifact_search'").get();
+    if (existing && !searchTableHasPublisherColumns(db)) {
+      db.exec("DROP TABLE artifact_search");
+    }
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS artifact_search USING fts5(
         artifact_id UNINDEXED,
         title,
         source_agent,
+        publisher_id,
+        publisher_name,
         artifact_type,
         tags,
         format,
@@ -1212,9 +1352,14 @@ function ensureSearchTable(db) {
   }
 }
 
+function searchTableHasPublisherColumns(db) {
+  const columns = db.prepare("PRAGMA table_info(artifact_search)").all().map((row) => row.name);
+  return columns.includes("publisher_id") && columns.includes("publisher_name");
+}
+
 function searchIndexAvailable(db) {
   const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'artifact_search'").get();
-  return Boolean(row) || ensureSearchTable(db);
+  return (Boolean(row) && searchTableHasPublisherColumns(db)) || ensureSearchTable(db);
 }
 
 function syncSearchIndexIfEmpty(db, store) {
@@ -1280,17 +1425,23 @@ function upsertSearchIndex(db, artifact, version, content) {
   db.prepare("DELETE FROM artifact_search WHERE artifact_id = ?").run(artifact.id);
   db.prepare(`
     INSERT INTO artifact_search (
-      artifact_id, title, source_agent, artifact_type, tags, format, metadata, content
+      artifact_id, title, source_agent, publisher_id, publisher_name, artifact_type, tags, format, metadata, content
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     artifact.id,
     artifact.title,
     artifact.sourceAgent,
+    artifact.publisherId || "",
+    artifact.publisherName || "",
     artifact.artifactType,
     artifact.tags.join(" "),
     version.format,
-    metadataSearchText(version.metadata),
+    metadataSearchText({
+      ...(version.metadata || {}),
+      publisherId: artifact.publisherId || undefined,
+      publisherName: artifact.publisherName || undefined
+    }),
     content
   );
 }
@@ -1321,7 +1472,7 @@ function listStoreFiles(root) {
 
 function loadArtifacts(db) {
   const rows = db.prepare(`
-    SELECT id, title, artifact_type, schema_version, source_agent, tags_json, created_at, updated_at, latest_version, archived_at
+    SELECT id, title, artifact_type, schema_version, source_agent, publisher_id, publisher_name, publisher_user_id, tags_json, created_at, updated_at, latest_version, archived_at
     FROM artifacts
     ORDER BY updated_at DESC, created_at DESC
   `).all();
@@ -1332,6 +1483,9 @@ function loadArtifacts(db) {
     artifactType: row.artifact_type,
     schemaVersion: row.schema_version,
     sourceAgent: row.source_agent,
+    publisherId: row.publisher_id || null,
+    publisherName: row.publisher_name || null,
+    publisherUserId: row.publisher_user_id || null,
     tags: parseJson(row.tags_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1352,7 +1506,7 @@ function loadVersions(db, artifactId) {
 
 function findArtifactById(db, id) {
   const row = db.prepare(`
-    SELECT id, title, artifact_type, schema_version, source_agent, tags_json, created_at, updated_at, latest_version, archived_at
+    SELECT id, title, artifact_type, schema_version, source_agent, publisher_id, publisher_name, publisher_user_id, tags_json, created_at, updated_at, latest_version, archived_at
     FROM artifacts
     WHERE id = ?
   `).get(id);
@@ -1370,6 +1524,9 @@ function findArtifactById(db, id) {
     artifactType: row.artifact_type,
     schemaVersion: row.schema_version,
     sourceAgent: row.source_agent,
+    publisherId: row.publisher_id || null,
+    publisherName: row.publisher_name || null,
+    publisherUserId: row.publisher_user_id || null,
     tags: parseJson(row.tags_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1382,15 +1539,18 @@ function findArtifactById(db, id) {
 function insertArtifactRecord(db, artifact) {
   db.prepare(`
     INSERT INTO artifacts (
-      id, title, artifact_type, schema_version, source_agent, tags_json, created_at, updated_at, latest_version, archived_at
+      id, title, artifact_type, schema_version, source_agent, publisher_id, publisher_name, publisher_user_id, tags_json, created_at, updated_at, latest_version, archived_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     artifact.id,
     artifact.title,
     normalizeArtifactType(artifact.artifactType || artifact.artifact_type || "document"),
     normalizeSchemaVersion(artifact.schemaVersion || artifact.schema_version),
     artifact.sourceAgent || artifact.source_agent || "unknown",
+    normalizeOptionalString(artifact.publisherId || artifact.publisher_id) || null,
+    normalizeOptionalString(artifact.publisherName || artifact.publisher_name) || null,
+    normalizeOptionalString(artifact.publisherUserId || artifact.publisher_user_id) || null,
     JSON.stringify(artifact.tags || []),
     artifact.createdAt || artifact.created_at,
     artifact.updatedAt || artifact.updated_at,

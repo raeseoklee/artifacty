@@ -353,7 +353,7 @@ tests.
 - `GET /artifacts/:id/diff`: compare two versions.
 - `GET /artifacts/:id/raw?version=n`: raw content.
 
-When `ARTIFACTY_API_TOKEN` is configured, `/api/*` routes require either `Authorization: Bearer <token>` or `x-artifacty-token: <token>`. When users exist, personal tokens issued from `/account` also authenticate API and MCP requests and are mapped to the token owner's email in audit logs. Browser forms can also carry `?token=<token>` in the URL, which is copied to hidden form fields for local team workflows.
+When `ARTIFACTY_API_TOKEN` is configured, `/api/*` routes require either `Authorization: Bearer <token>` or `x-artifacty-token: <token>`. When users exist, personal tokens issued from `/account` also authenticate API and MCP requests, set created artifacts' `publisherId` to the token owner's email, and map audit `actor` to the same identity. Browser forms can also carry `?token=<token>` in the URL, which is copied to hidden form fields for local team workflows.
 
 Renderer notes:
 

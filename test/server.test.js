@@ -651,6 +651,17 @@ test("supports login, user token management, and admin users", async () => {
     assert.equal(createdResponse.status, 201);
     const created = await createdResponse.json();
     assert.equal(created.title, "User Auth Demo");
+    assert.equal(created.publisherId, "admin@example.com");
+    assert.equal(created.publisherName, "Admin");
+    assert.ok(created.publisherUserId);
+
+    const listResponse = await fetch(`${app.url}/api/artifacts?q=admin@example.com`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(listResponse.status, 200);
+    const list = await listResponse.json();
+    assert.equal(list.artifacts.length, 1);
+    assert.equal(list.artifacts[0].publisherId, "admin@example.com");
 
     const auditResponse = await fetch(`${app.url}/api/audit`, {
       headers: { authorization: `Bearer ${token}` }

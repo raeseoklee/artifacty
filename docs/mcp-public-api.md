@@ -66,8 +66,9 @@ Prompts accept optional context arguments such as `artifactId`, `goal`, `scope`,
 - Local stdio remains the default. Enable the central HTTP endpoint with
   `artifacty serve --mcp-http` and install bridge mode with
   `artifacty install <agent> --mcp-url http://host:8787/mcp --api-token <token>`.
-- On central servers, use a personal token from `/account` so audit logs record
-  the token owner's email as the artifact actor.
+- On central servers, use a personal token from `/account` so created artifacts
+  include the token owner's email as `publisherId` and audit logs record the
+  same identity as `actor`.
 - Remote MCP currently uses bearer/header token auth. OAuth and per-user scoped
   tokens are future hardening work.
 - Binary media resources return stored base64 text through MCP; browser `/raw`

@@ -126,7 +126,8 @@ revoke personal API tokens from `/account`. CSV imports support
 `email,name,role,password,password_reset_required`; blank passwords are
 generated once and require a password change on first sign-in. Use personal
 tokens for `artifacty install ... --api-token` so MCP and API audit logs record
-the user's email as `actor`.
+the user's email as `actor` and created artifacts record the same email as
+`publisherId`.
 
 Production-like internal deployments should run Artifacty behind a TLS reverse
 proxy, keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled unless the team trusts
@@ -162,9 +163,9 @@ x-artifacty-actor: user@example.com
 x-artifacty-host: IRAE-MACBOOK
 ```
 
-The server records the authenticated user's email as the audit `actor` when a
-personal token is used. The `x-artifacty-actor` header remains a compatibility
-fallback for the bootstrap/global token path.
+The server records the authenticated user's email as the artifact `publisherId`
+and audit `actor` when a personal token is used. The `x-artifacty-actor` header
+remains a compatibility fallback for the bootstrap/global token path.
 
 ## Security Model
 

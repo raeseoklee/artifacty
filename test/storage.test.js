@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   ARTIFACT_FORMATS,
@@ -238,6 +239,88 @@ test("stores extended artifact formats and taxonomy", async () => {
     });
     assert.equal(inferredImage.version.format, "image");
     assert.equal(inferredImage.artifactType, "asset");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("records artifact publishers and backfills legacy rows from audit actors", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-publishers-"));
+  try {
+    const store = createStore({ home });
+    const user = await createUser(store, {
+      email: "publisher@example.com",
+      name: "Publisher User",
+      role: "user",
+      password: "password-123"
+    });
+    const artifact = await createArtifact(store, {
+      title: "Publisher Note",
+      content: "owned content",
+      format: "markdown",
+      sourceAgent: "codex",
+      audit: {
+        actor: "publisher@example.com",
+        userId: user.id,
+        publisherName: user.name,
+        surface: "test"
+      }
+    });
+
+    assert.equal(artifact.publisherId, "publisher@example.com");
+    assert.equal(artifact.publisherName, "Publisher User");
+    assert.equal(artifact.publisherUserId, user.id);
+
+    const page = await listArtifactsPage(store, { query: "publisher@example.com" });
+    assert.equal(page.total, 1);
+    assert.equal(page.artifacts[0].publisherId, "publisher@example.com");
+
+    const browserArtifact = await createArtifact(store, {
+      title: "Legacy Browser Note",
+      content: "browser content",
+      format: "text",
+      sourceAgent: "artifacty",
+      audit: {
+        actor: "Mozilla/5.0 AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
+        surface: "web"
+      }
+    });
+    const curlArtifact = await createArtifact(store, {
+      title: "Legacy Curl Note",
+      content: "curl content",
+      format: "text",
+      sourceAgent: "artifacty",
+      audit: {
+        actor: "curl/8.7.1",
+        surface: "http-api"
+      }
+    });
+
+    const db = new DatabaseSync(store.dbPath);
+    try {
+      db.prepare(`
+        UPDATE artifacts
+        SET publisher_id = NULL, publisher_name = NULL, publisher_user_id = NULL
+        WHERE id IN (?, ?)
+      `).run(artifact.id, browserArtifact.id);
+    } finally {
+      db.close();
+    }
+
+    const backfilled = await getArtifact(store, artifact.id);
+    assert.equal(backfilled.publisherId, "publisher@example.com");
+    assert.equal(backfilled.publisherName, "Publisher User");
+    assert.equal(backfilled.publisherUserId, user.id);
+
+    const skipped = await getArtifact(store, browserArtifact.id);
+    assert.equal(skipped.publisherId, null);
+    assert.equal(skipped.publisherName, null);
+    assert.equal(skipped.publisherUserId, null);
+
+    const cleared = await getArtifact(store, curlArtifact.id);
+    assert.equal(cleared.publisherId, null);
+    assert.equal(cleared.publisherName, null);
+    assert.equal(cleared.publisherUserId, null);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

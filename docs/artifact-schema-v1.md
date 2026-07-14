@@ -11,6 +11,9 @@ Artifacty schema v1 defines the stable envelope shared by HTTP, CLI, MCP, conver
   "artifactType": "document",
   "title": "Readable title",
   "sourceAgent": "codex",
+  "publisherId": "user@example.com",
+  "publisherName": "User Name",
+  "publisherUserId": "user-record-id",
   "tags": ["handoff"],
   "createdAt": "2026-06-24T00:00:00.000Z",
   "updatedAt": "2026-06-24T00:00:00.000Z",
@@ -40,6 +43,13 @@ Allowed `artifactType` values:
 - `unknown`
 
 Unknown legacy or external types should be mapped to `unknown`, not rejected during conversion. Native create/update rejects unsupported explicit types.
+
+`sourceAgent` identifies the tool or model surface that produced the artifact,
+such as `codex` or `claude`. `publisherId` identifies who published it to the
+Artifacty store. For authenticated central servers this is the personal token
+owner's email; `publisherName` and `publisherUserId` are included when the
+server can map the request to a local user record. Legacy artifacts are
+best-effort backfilled from the first `create` or `import` audit actor.
 
 ## Version Record
 

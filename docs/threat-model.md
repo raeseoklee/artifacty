@@ -114,8 +114,8 @@ Controls:
 - The HTTP MCP endpoint is disabled unless explicitly enabled.
 - Remote MCP requests require the configured API token.
 - Stdio bridge mode sends tokens in headers, not URLs.
-- Personal tokens map requests to a server-side user record for audit actor
-  attribution.
+- Personal tokens map requests to a server-side user record for artifact
+  `publisherId` and audit `actor` attribution.
 - MCP writes go through the same secret scan and audit paths as CLI/HTTP writes.
 - MCP resources are read-only.
 
