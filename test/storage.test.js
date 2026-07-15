@@ -661,6 +661,14 @@ test("normalizes stored source agent aliases and infers unknown from metadata", 
 
     const page = await listArtifactsPage(store, { sourceAgent: "claude-code" });
     assert.equal(page.total, 2);
+
+    const db = new DatabaseSync(store.dbPath);
+    try {
+      const marker = db.prepare("SELECT value FROM meta WHERE key = 'source_agent_normalized_version'").get();
+      assert.equal(marker.value, "1");
+    } finally {
+      db.close();
+    }
   } finally {
     await rm(home, { recursive: true, force: true });
   }

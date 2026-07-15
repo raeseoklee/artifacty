@@ -10,6 +10,7 @@ import { assertNoSecrets, securityConfig } from "./security.js";
 export const STORE_VERSION = 4;
 export const ARTIFACT_SCHEMA_VERSION = 1;
 export const MAX_ARTIFACT_BYTES = 16 * 1024 * 1024;
+const SOURCE_AGENT_NORMALIZATION_VERSION = "1";
 export const USER_ROLES = ["admin", "user"];
 export const ARTIFACT_FORMATS = [
   "html",
@@ -123,6 +124,11 @@ export async function writeIndex(store, index) {
           insertVersionRecord(db, artifact.id, version);
         }
       }
+      normalizeStoredSourceAgents(db, store, {
+        force: true,
+        inTransaction: true,
+        rebuildSearch: false
+      });
       rebuildSearchIndexInDb(db, store);
     });
   } finally {
@@ -1502,9 +1508,26 @@ function migrateJsonIndex(db, store) {
   });
 }
 
+function metaValue(db, key) {
+  return db.prepare("SELECT value FROM meta WHERE key = ?").get(key)?.value || "";
+}
+
 const INFERABLE_SOURCE_AGENTS = new Set(["claude", "codex", "copilot", "cursor", "gemini"]);
 
-function normalizeStoredSourceAgents(db, store) {
+function normalizeStoredSourceAgents(db, store, options = {}) {
+  if (!options.force && metaValue(db, "source_agent_normalized_version") === SOURCE_AGENT_NORMALIZATION_VERSION) {
+    return;
+  }
+
+  const run = () => normalizeStoredSourceAgentsInDb(db, store, options);
+  if (options.inTransaction) {
+    run();
+  } else {
+    transaction(db, run);
+  }
+}
+
+function normalizeStoredSourceAgentsInDb(db, store, options = {}) {
   const rows = db.prepare(`
     SELECT id, source_agent, tags_json
     FROM artifacts
@@ -1512,37 +1535,37 @@ function normalizeStoredSourceAgents(db, store) {
   const updateArtifact = db.prepare("UPDATE artifacts SET source_agent = ?, tags_json = ? WHERE id = ?");
   let changed = false;
 
-  transaction(db, () => {
-    for (const row of rows) {
-      const normalized = normalizeSourceAgent(row.source_agent, { defaultValue: "unknown" });
-      const inferred = isUnknownSourceAgent(normalized)
-        ? inferStoredSourceAgent(db, row)
-        : normalized;
-      const nextSourceAgent = inferred || normalized;
-      const nextTags = normalizeStoredSourceTags(row.tags_json, nextSourceAgent);
-      if (nextSourceAgent !== row.source_agent || nextTags !== row.tags_json) {
-        updateArtifact.run(nextSourceAgent, nextTags, row.id);
-        changed = true;
-      }
+  for (const row of rows) {
+    const normalized = normalizeSourceAgent(row.source_agent, { defaultValue: "unknown" });
+    const inferred = isUnknownSourceAgent(normalized)
+      ? inferStoredSourceAgent(db, row)
+      : normalized;
+    const nextSourceAgent = inferred || normalized;
+    const nextTags = normalizeStoredSourceTags(row.tags_json, nextSourceAgent);
+    if (nextSourceAgent !== row.source_agent || nextTags !== row.tags_json) {
+      updateArtifact.run(nextSourceAgent, nextTags, row.id);
+      changed = true;
     }
+  }
 
-    const auditRows = db.prepare(`
-      SELECT id, source_agent
-      FROM audit_log
-      WHERE source_agent IS NOT NULL
-        AND TRIM(source_agent) != ''
-    `).all();
-    const updateAudit = db.prepare("UPDATE audit_log SET source_agent = ? WHERE id = ?");
-    for (const row of auditRows) {
-      const normalized = normalizeSourceAgent(row.source_agent, { defaultValue: "" });
-      if (normalized && normalized !== row.source_agent) {
-        updateAudit.run(normalized, row.id);
-        changed = true;
-      }
+  const auditRows = db.prepare(`
+    SELECT id, source_agent
+    FROM audit_log
+    WHERE source_agent IS NOT NULL
+      AND TRIM(source_agent) != ''
+  `).all();
+  const updateAudit = db.prepare("UPDATE audit_log SET source_agent = ? WHERE id = ?");
+  for (const row of auditRows) {
+    const normalized = normalizeSourceAgent(row.source_agent, { defaultValue: "" });
+    if (normalized && normalized !== row.source_agent) {
+      updateAudit.run(normalized, row.id);
+      changed = true;
     }
-  });
+  }
 
-  if (changed) {
+  db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('source_agent_normalized_version', ?)").run(SOURCE_AGENT_NORMALIZATION_VERSION);
+
+  if (changed && options.rebuildSearch !== false) {
     rebuildSearchIndexInDb(db, store);
   }
 }

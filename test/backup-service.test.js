@@ -97,6 +97,7 @@ test("builds Linux systemd user service definitions", async () => {
     assert.equal(result.path, unitPath);
     assert.match(result.content, /WantedBy=default\.target/);
     assert.ok(result.nextSteps.some((step) => step.includes("systemctl --user enable --now")));
+    assert.ok(result.nextSteps.some((step) => step.includes("loginctl enable-linger")));
   } finally {
     await rm(home, { recursive: true, force: true });
   }

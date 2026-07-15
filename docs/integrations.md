@@ -393,8 +393,10 @@ The generated service runs `src/server.js` with explicit `--host` and `--home` a
 Activation is still delegated to the OS service manager:
 
 - macOS: `launchctl load ~/Library/LaunchAgents/com.artifacty.server.plist`
-- Linux: `systemctl --user enable --now com.artifacty.server.service`
+- Linux: `sudo loginctl enable-linger $USER`, then `systemctl --user enable --now com.artifacty.server.service`
 - Windows: run the generated PowerShell script, which registers and starts the `ArtifactyServer` scheduled task.
+
+On Linux central servers, user services stop when the user's systemd manager exits unless lingering is enabled. Verify durable operation with `loginctl show-user $USER -p Linger`; it should report `Linger=yes`. Without lingering, Artifacty may be unavailable after logout and appear to recover only after the user logs back in.
 
 For background services, prefer a stable `ARTIFACTY_API_TOKEN` or `--api-token` value. `serve --generate-token` is intended for temporary interactive sessions; the parent CLI returns the generated token in JSON.
 

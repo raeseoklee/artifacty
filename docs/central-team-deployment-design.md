@@ -134,6 +134,19 @@ proxy, keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled unless the team trusts
 all artifact authors, and store `ARTIFACTY_HOME` on local server disk with
 regular backups.
 
+For Linux user-service deployments, enable systemd lingering for the service
+account:
+
+```bash
+sudo loginctl enable-linger artifacty
+loginctl show-user artifacty -p Linger
+```
+
+Use the actual service account name. Without lingering, `systemctl --user`
+services are tied to the user's login manager and can stop after logout, making
+the central dashboard and `/mcp` endpoint unavailable until that user logs in
+again. A system-level unit is another valid option for central servers.
+
 The central server exposes `/mcp` only when explicitly enabled. This keeps the
 local browser/API server behavior unchanged while making team MCP exposure an
 intentional operating mode.

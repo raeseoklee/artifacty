@@ -184,9 +184,11 @@ function definitionForPlatform(platform, options = {}, renderOnly) {
       path: servicePath(platform, options),
       content: createSystemdUserUnit(options),
       nextSteps: [
+        "sudo loginctl enable-linger $USER",
         "systemctl --user daemon-reload",
         `systemctl --user enable --now ${path.basename(servicePath(platform, options))}`,
         `systemctl --user status ${path.basename(servicePath(platform, options))}`,
+        "loginctl show-user $USER -p Linger",
         `journalctl --user -u ${path.basename(servicePath(platform, options))} -f`,
         `systemctl --user disable --now ${path.basename(servicePath(platform, options))}`
       ],

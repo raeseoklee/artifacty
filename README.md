@@ -92,6 +92,10 @@ artifacty serve --host 10.0.0.50 --share-mode team --api-token "$ARTIFACTY_BOOTS
 artifacty install all --mcp-url http://10.0.0.50:8787/mcp --api-token "$ARTIFACTY_PERSONAL_TOKEN"
 ```
 
+When running the central server as a Linux `systemctl --user` service, enable
+lingering for the service account so Artifacty stays up after logout:
+`sudo loginctl enable-linger $USER`.
+
 Administrators can create users individually at `/admin/users` or import them
 from CSV. Use `email,name,role,password,password_reset_required` headers. If
 `password` is empty, Artifacty generates a temporary password, shows it once in
