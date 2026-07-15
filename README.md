@@ -325,6 +325,7 @@ Schema and storage:
 - Bundle artifacts store multiple files or base64 assets as portable JSON.
 - Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, and `video`.
 - Native create/import paths infer `html` from HTML documents or fragments when no explicit format is supplied.
+- `sourceAgent` is canonicalized before storage. Aliases such as `claude-code`, `Claude Code`, `github-copilot`, and `gemini-cli` are stored as `claude`, `copilot`, and `gemini`; legacy `unknown` rows are backfilled only when version metadata, audit data, or source-agent tags provide a known agent.
 - Diagram, component, source snippet, analysis report, table, and media assets use `diagram`, `component`, `snippet`, `analysis-report`, `table`, and `asset` artifact types.
 - Copilot/Cursor examples cover PR reviews, screenshots, demo recordings, and visual evidence bundles.
 - See [docs/artifact-schema-v1.md](docs/artifact-schema-v1.md).

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { isUnknownSourceAgent, normalizeSourceAgent } from "./agents.js";
 import { assertNoSecrets, securityConfig } from "./security.js";
 
 export const STORE_VERSION = 4;
@@ -182,7 +183,11 @@ export async function createArtifact(store = createStore(), input = {}) {
 export async function updateArtifact(store = createStore(), id, input = {}) {
   const secretScan = assertNoSecrets(input, securityConfig());
   input = withSecretScan(input, secretScan);
-  const normalized = normalizeArtifactInput(input, { requireContent: true, requireTitle: false });
+  const normalized = normalizeArtifactInput(input, {
+    requireContent: true,
+    requireTitle: false,
+    defaultSourceAgent: ""
+  });
   const db = openDatabase(store);
 
   try {
@@ -252,7 +257,11 @@ export async function updateArtifact(store = createStore(), id, input = {}) {
 export async function replaceArtifactVersion(store = createStore(), id, versionNumber, input = {}) {
   const secretScan = assertNoSecrets(input, securityConfig());
   input = withSecretScan(input, secretScan);
-  const normalized = normalizeArtifactInput(input, { requireContent: true, requireTitle: false });
+  const normalized = normalizeArtifactInput(input, {
+    requireContent: true,
+    requireTitle: false,
+    defaultSourceAgent: ""
+  });
   const targetVersion = Number(versionNumber);
   if (!Number.isInteger(targetVersion) || targetVersion < 1) {
     throw Object.assign(new Error(`Invalid artifact version: ${versionNumber}`), {
@@ -467,7 +476,7 @@ export async function listArtifactsPage(store = createStore(), filters = {}) {
   const query = normalizeOptionalString(filters.query);
   const normalizedQuery = query.toLowerCase();
   const tag = normalizeOptionalString(filters.tag).toLowerCase();
-  const sourceAgent = normalizeOptionalString(filters.sourceAgent).toLowerCase();
+  const sourceAgent = normalizeSourceAgent(filters.sourceAgent, { defaultValue: "" }).toLowerCase();
 
   try {
     if (query && searchIndexAvailable(db)) {
@@ -1250,6 +1259,7 @@ function openDatabase(store) {
   `);
   initializeSchema(db);
   migrateJsonIndex(db, store);
+  normalizeStoredSourceAgents(db, store);
   syncSearchIndexIfEmpty(db, store);
   return db;
 }
@@ -1492,6 +1502,123 @@ function migrateJsonIndex(db, store) {
   });
 }
 
+const INFERABLE_SOURCE_AGENTS = new Set(["claude", "codex", "copilot", "cursor", "gemini"]);
+
+function normalizeStoredSourceAgents(db, store) {
+  const rows = db.prepare(`
+    SELECT id, source_agent, tags_json
+    FROM artifacts
+  `).all();
+  const updateArtifact = db.prepare("UPDATE artifacts SET source_agent = ?, tags_json = ? WHERE id = ?");
+  let changed = false;
+
+  transaction(db, () => {
+    for (const row of rows) {
+      const normalized = normalizeSourceAgent(row.source_agent, { defaultValue: "unknown" });
+      const inferred = isUnknownSourceAgent(normalized)
+        ? inferStoredSourceAgent(db, row)
+        : normalized;
+      const nextSourceAgent = inferred || normalized;
+      const nextTags = normalizeStoredSourceTags(row.tags_json, nextSourceAgent);
+      if (nextSourceAgent !== row.source_agent || nextTags !== row.tags_json) {
+        updateArtifact.run(nextSourceAgent, nextTags, row.id);
+        changed = true;
+      }
+    }
+
+    const auditRows = db.prepare(`
+      SELECT id, source_agent
+      FROM audit_log
+      WHERE source_agent IS NOT NULL
+        AND TRIM(source_agent) != ''
+    `).all();
+    const updateAudit = db.prepare("UPDATE audit_log SET source_agent = ? WHERE id = ?");
+    for (const row of auditRows) {
+      const normalized = normalizeSourceAgent(row.source_agent, { defaultValue: "" });
+      if (normalized && normalized !== row.source_agent) {
+        updateAudit.run(normalized, row.id);
+        changed = true;
+      }
+    }
+  });
+
+  if (changed) {
+    rebuildSearchIndexInDb(db, store);
+  }
+}
+
+function inferStoredSourceAgent(db, artifactRow) {
+  const tagCandidate = firstInferableSourceAgent(parseJson(artifactRow.tags_json, []));
+  if (tagCandidate) {
+    return tagCandidate;
+  }
+
+  const versionRows = db.prepare(`
+    SELECT metadata_json
+    FROM artifact_versions
+    WHERE artifact_id = ?
+    ORDER BY version DESC
+  `).all(artifactRow.id);
+  for (const row of versionRows) {
+    const metadata = parseJson(row.metadata_json, {});
+    const candidate = firstInferableSourceAgent([
+      metadata.sourceAgent,
+      metadata.source_agent,
+      metadata.agent,
+      metadata.artifactyImport?.sourceAgent,
+      metadata.artifactyImport?.originalAgent
+    ]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const auditRows = db.prepare(`
+    SELECT source_agent
+    FROM audit_log
+    WHERE artifact_id = ?
+      AND source_agent IS NOT NULL
+      AND TRIM(source_agent) != ''
+    ORDER BY created_at DESC
+  `).all(artifactRow.id);
+  return firstInferableSourceAgent(auditRows.map((row) => row.source_agent));
+}
+
+function normalizeStoredSourceTags(tagsJson, sourceAgent) {
+  const tags = parseJson(tagsJson, []);
+  if (!Array.isArray(tags)) {
+    return JSON.stringify([]);
+  }
+  const normalizedTags = [];
+  for (const tag of tags) {
+    const trimmed = normalizeOptionalString(tag);
+    if (!trimmed) {
+      continue;
+    }
+    const canonical = inferableSourceAgent(trimmed);
+    const next = canonical || (trimmed === "unknown" && INFERABLE_SOURCE_AGENTS.has(sourceAgent) ? sourceAgent : trimmed);
+    if (!normalizedTags.includes(next)) {
+      normalizedTags.push(next);
+    }
+  }
+  return JSON.stringify(normalizedTags);
+}
+
+function firstInferableSourceAgent(values) {
+  for (const value of values || []) {
+    const candidate = inferableSourceAgent(value);
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return "";
+}
+
+function inferableSourceAgent(value) {
+  const normalized = normalizeSourceAgent(value, { defaultValue: "" });
+  return INFERABLE_SOURCE_AGENTS.has(normalized) ? normalized : "";
+}
+
 function ensureSearchTable(db) {
   try {
     const existing = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'artifact_search'").get();
@@ -1715,7 +1842,7 @@ function insertArtifactRecord(db, artifact) {
     artifact.title,
     normalizeArtifactType(artifact.artifactType || artifact.artifact_type || "document"),
     normalizeSchemaVersion(artifact.schemaVersion || artifact.schema_version),
-    artifact.sourceAgent || artifact.source_agent || "unknown",
+    normalizeSourceAgent(artifact.sourceAgent || artifact.source_agent, { defaultValue: "unknown" }),
     normalizeOptionalString(artifact.publisherId || artifact.publisher_id) || null,
     normalizeOptionalString(artifact.publisherName || artifact.publisher_name) || null,
     normalizeOptionalString(artifact.publisherUserId || artifact.publisher_user_id) || null,
@@ -1925,7 +2052,9 @@ function normalizeArtifactInput(input, options) {
     contentType: normalizeOptionalString(input.contentType),
     artifactType: normalizeArtifactType(input.artifactType || input.artifact_type || inferArtifactType(input)),
     schemaVersion: normalizeSchemaVersion(input.schemaVersion || input.schema_version),
-    sourceAgent: normalizeOptionalString(input.sourceAgent || input.source_agent || input.agent) || "unknown",
+    sourceAgent: normalizeSourceAgent(input.sourceAgent || input.source_agent || input.agent, {
+      defaultValue: options.defaultSourceAgent ?? "unknown"
+    }),
     tags: normalizeTags(input.tags),
     metadata: normalizeMetadata(input.metadata)
   };

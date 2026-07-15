@@ -83,6 +83,7 @@ test("creates, lists, reads, and versions artifacts", async () => {
       format: "markdown"
     });
     assert.equal(contentOnlyUpdate.title, "Review Notes");
+    assert.equal(contentOnlyUpdate.sourceAgent, "gemini");
     assert.equal(contentOnlyUpdate.latestVersion, 3);
 
     const archived = await archiveArtifact(store, created.id);
@@ -110,6 +111,14 @@ test("skips no-op web edits and lets admins repair or delete versions", async ()
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-version-admin-"));
   try {
     const store = createStore({ home });
+    const aliased = await createArtifact(store, {
+      title: "Aliased Source",
+      content: "alias",
+      format: "text",
+      sourceAgent: "Claude Code"
+    });
+    assert.equal(aliased.sourceAgent, "claude");
+
     const created = await createArtifact(store, {
       title: "Version Cleanup",
       content: "first",
@@ -572,6 +581,86 @@ test("migrates legacy JSON index into SQLite store", async () => {
     const artifact = await getArtifact(store, "legacy-note");
     assert.equal(artifact.content, "# Legacy");
     assert.deepEqual(artifact.version.metadata, { migrated: true });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("normalizes stored source agent aliases and infers unknown from metadata", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-source-normalize-"));
+  try {
+    const aliasDir = path.join(home, "artifacts", "alias-note");
+    const unknownDir = path.join(home, "artifacts", "unknown-note");
+    await mkdir(aliasDir, { recursive: true });
+    await mkdir(unknownDir, { recursive: true });
+    await writeFile(path.join(aliasDir, "v1.html"), "<main>Alias</main>", "utf8");
+    await writeFile(path.join(unknownDir, "v1.html"), "<main>Unknown</main>", "utf8");
+    await writeFile(path.join(home, "index.json"), JSON.stringify({
+      version: 1,
+      artifacts: [
+        {
+          id: "alias-note",
+          title: "Alias Note",
+          artifactType: "html-page",
+          schemaVersion: 1,
+          sourceAgent: "claude-code",
+          tags: ["claude-code", "report6"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          latestVersion: 1,
+          versions: [
+            {
+              version: 1,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              format: "html",
+              contentType: "text/html; charset=utf-8",
+              path: path.join("artifacts", "alias-note", "v1.html"),
+              sizeBytes: 18,
+              sha256: "legacy-sha",
+              metadata: {}
+            }
+          ]
+        },
+        {
+          id: "unknown-note",
+          title: "Unknown Note",
+          artifactType: "html-page",
+          schemaVersion: 1,
+          sourceAgent: "unknown",
+          tags: ["unknown", "report7"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          latestVersion: 1,
+          versions: [
+            {
+              version: 1,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              format: "html",
+              contentType: "text/html; charset=utf-8",
+              path: path.join("artifacts", "unknown-note", "v1.html"),
+              sizeBytes: 20,
+              sha256: "legacy-sha",
+              metadata: {
+                artifactyImport: {
+                  sourceAgent: "Claude Code"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }), "utf8");
+
+    const store = createStore({ home });
+    const alias = await getArtifact(store, "alias-note");
+    const inferred = await getArtifact(store, "unknown-note");
+    assert.equal(alias.sourceAgent, "claude");
+    assert.deepEqual(alias.tags, ["claude", "report6"]);
+    assert.equal(inferred.sourceAgent, "claude");
+    assert.deepEqual(inferred.tags, ["claude", "report7"]);
+
+    const page = await listArtifactsPage(store, { sourceAgent: "claude-code" });
+    assert.equal(page.total, 2);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

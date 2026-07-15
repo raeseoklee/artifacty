@@ -1,9 +1,9 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { normalizeSourceAgent } from "./agents.js";
 import { ARTIFACT_TYPES, contentTypeForFormat, normalizeFormat } from "./storage.js";
 
 const CONTINUATION_AGENTS = new Set(["codex", "copilot", "cursor"]);
-const KNOWN_AGENTS = new Set(["auto", "artifacty", "claude", "codex", "copilot", "cursor", "gemini", "generic"]);
 
 export function convertAgentArtifact(input = {}) {
   const originalAgent = normalizeAgent(input.agent || input.sourceAgent || input.source_agent || "auto");
@@ -28,8 +28,11 @@ export function convertAgentArtifact(input = {}) {
   if (media) {
     content = media.content;
   }
-  const sourceAgent = optionalString(input.sourceAgent || input.source_agent || decoded.sourceAgent) ||
-    (originalAgent === "auto" ? detectAgent(parsed, fileName) : originalAgent);
+  const explicitSourceAgent = optionalString(input.sourceAgent || input.source_agent || decoded.sourceAgent);
+  const detectedSourceAgent = originalAgent === "auto" ? detectAgent(parsed, fileName) : originalAgent;
+  const sourceAgent = explicitSourceAgent
+    ? normalizeAgent(explicitSourceAgent)
+    : normalizeAgent(detectedSourceAgent || "unknown");
 
   const title =
     optionalString(input.title) ||
@@ -1387,29 +1390,10 @@ function cleanTitle(value) {
 }
 
 function normalizeAgent(value) {
-  const normalized = optionalString(value).toLowerCase();
-  if (!normalized) {
-    return "auto";
-  }
-  if (normalized === "claude-code" || normalized === "anthropic") {
-    return "claude";
-  }
-  if (normalized === "gemini-cli" || normalized === "google") {
-    return "gemini";
-  }
-  if (normalized === "github-copilot" || normalized === "copilot-chat" || normalized === "vscode-copilot" || normalized === "vs-code-copilot") {
-    return "copilot";
-  }
-  if (normalized === "cursor-ai") {
-    return "cursor";
-  }
-  if (normalized === "openai" || normalized === "chatgpt") {
-    return "codex";
-  }
-  if (KNOWN_AGENTS.has(normalized)) {
-    return normalized;
-  }
-  return normalized.replace(/[^a-z0-9-]+/g, "-") || "generic";
+  return normalizeSourceAgent(value, {
+    defaultValue: "auto",
+    allowAuto: true
+  });
 }
 
 function normalizeTags(tags) {

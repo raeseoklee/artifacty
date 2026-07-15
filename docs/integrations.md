@@ -321,7 +321,7 @@ Supported converter inputs:
 - Gemini: `returnDisplay`, `llmContent`, text blocks, or local markdown/text/json files.
 - Generic: file extension, content type, HTML doctype/fragments, JSON shape, media data URLs, and markdown headings are used to infer format and title. Generic `text/plain` uploads are upgraded to a more specific format, such as `html`, when filename or content makes that clear.
 
-The converter adds `imported` and source-agent tags, preserves the raw content as an immutable Artifacty version, and records source details under `metadata.artifactyImport`.
+The converter canonicalizes source-agent aliases, adds `imported` and source-agent tags, preserves the raw content as an immutable Artifacty version, and records source details under `metadata.artifactyImport`. For example, `claude-code` and `Claude Code` are stored as `claude`.
 
 Fixture examples for Copilot/Cursor PR review, screenshot, demo recording, and
 visual evidence bundle live under `test/fixtures/` and are covered by converter

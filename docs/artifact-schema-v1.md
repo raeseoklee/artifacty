@@ -50,6 +50,11 @@ Artifacty store. For authenticated central servers this is the personal token
 owner's email; `publisherName` and `publisherUserId` are included when the
 server can map the request to a local user record. Legacy artifacts are
 best-effort backfilled from the first `create` or `import` audit actor.
+Known source-agent aliases are canonicalized before storage. For example,
+`claude-code`, `Claude Code`, and `anthropic` become `claude`;
+`github-copilot` becomes `copilot`; and `gemini-cli` becomes `gemini`.
+Existing `unknown` rows are upgraded only when version metadata, audit data, or
+source-agent tags provide one of the known agent identities.
 
 ## Version Record
 

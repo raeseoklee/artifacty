@@ -18,6 +18,21 @@ test("converts Claude HTML artifact files", () => {
   assert.equal(converted.metadata.artifactyImport.fileName, "deploy-failures.html");
 });
 
+test("canonicalizes explicit source agent aliases", () => {
+  const converted = convertAgentArtifact({
+    agent: "auto",
+    sourceAgent: "Claude Code",
+    fileName: "report.html",
+    content: "<main><h1>Report</h1></main>"
+  });
+
+  assert.equal(converted.sourceAgent, "claude");
+  assert.ok(converted.tags.includes("claude"));
+  assert.equal(converted.tags.includes("claude-code"), false);
+  assert.equal(converted.metadata.artifactyImport.originalAgent, "auto");
+  assert.equal(converted.metadata.artifactyImport.sourceAgent, "claude");
+});
+
 test("detects HTML fragments before falling back to plain text", () => {
   const fragment = convertAgentArtifact({
     agent: "generic",

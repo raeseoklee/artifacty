@@ -1,6 +1,6 @@
 {
   "name": "artifacty",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
   "keywords": [
