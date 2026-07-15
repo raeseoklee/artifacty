@@ -244,6 +244,25 @@ test("stores extended artifact formats and taxonomy", async () => {
   }
 });
 
+test("infers HTML format for native artifacts when format is omitted", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-html-infer-"));
+  try {
+    const store = createStore({ home });
+    const artifact = await createArtifact(store, {
+      title: "HTML Fragment",
+      content: "<section><h1>Ready</h1><p>Rendered as HTML</p></section>",
+      sourceAgent: "codex"
+    });
+
+    assert.equal(artifact.version.format, "html");
+    assert.equal(artifact.version.contentType, "text/html; charset=utf-8");
+    assert.equal(artifact.artifactType, "html-page");
+    assert.ok(artifact.version.path.endsWith(".html"));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("records artifact publishers and backfills legacy rows from audit actors", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-publishers-"));
   try {

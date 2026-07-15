@@ -32,6 +32,20 @@ test("serves HTTP API and browser artifact pages", async () => {
     const list = await listResponse.json();
     assert.equal(list.artifacts.length, 1);
 
+    const inferredHtmlResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Inferred HTML",
+        content: "<article><h1>Rendered</h1><p>HTML fragment</p></article>",
+        sourceAgent: "test"
+      })
+    });
+    assert.equal(inferredHtmlResponse.status, 201);
+    const inferredHtml = await inferredHtmlResponse.json();
+    assert.equal(inferredHtml.version.format, "html");
+    assert.equal(inferredHtml.artifactType, "html-page");
+
     const filteredResponse = await fetch(`${app.url}/?q=Demo&sourceAgent=test`);
     const filteredPage = await filteredResponse.text();
     assert.equal(filteredResponse.status, 200);

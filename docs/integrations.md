@@ -319,7 +319,7 @@ Supported converter inputs:
 - GitHub Copilot: markdown/text/json outputs; Artifacty-compatible JSON payloads; structured handoff, review, diff, and verification JSON payloads with `agent` or `sourceAgent` set to `github-copilot` or `copilot`.
 - Cursor: markdown/text/json outputs; Artifacty-compatible JSON payloads; structured handoff, review, diff, verification, screenshot, demo/video, and visual evidence bundle JSON payloads with `agent` or `sourceAgent` set to `cursor`.
 - Gemini: `returnDisplay`, `llmContent`, text blocks, or local markdown/text/json files.
-- Generic: file extension, content type, HTML doctype, JSON shape, media data URLs, and markdown headings are used to infer format and title.
+- Generic: file extension, content type, HTML doctype/fragments, JSON shape, media data URLs, and markdown headings are used to infer format and title. Generic `text/plain` uploads are upgraded to a more specific format, such as `html`, when filename or content makes that clear.
 
 The converter adds `imported` and source-agent tags, preserves the raw content as an immutable Artifacty version, and records source details under `metadata.artifactyImport`.
 

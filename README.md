@@ -163,6 +163,11 @@ the payload explicitly identifies the agent through `agent` or `sourceAgent`.
 Plain Markdown from these agents stays a normal
 `document` unless you pass an explicit `artifactType`.
 
+When `format` is omitted, Artifacty infers common formats from filename,
+content type, and content. HTML files and HTML fragments such as
+`<section>...</section>` are stored as `html` so the browser viewer renders
+them as HTML instead of plain text.
+
 ## Agent Handoff Example
 
 One agent can publish a continuation artifact, then another agent can discover it, read the context, and append the next version.
@@ -318,6 +323,7 @@ Schema and storage:
 - Archive hides artifacts from default lists without deleting versions.
 - Bundle artifacts store multiple files or base64 assets as portable JSON.
 - Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, and `video`.
+- Native create/import paths infer `html` from HTML documents or fragments when no explicit format is supplied.
 - Diagram, component, source snippet, analysis report, table, and media assets use `diagram`, `component`, `snippet`, `analysis-report`, `table`, and `asset` artifact types.
 - Copilot/Cursor examples cover PR reviews, screenshots, demo recordings, and visual evidence bundles.
 - See [docs/artifact-schema-v1.md](docs/artifact-schema-v1.md).

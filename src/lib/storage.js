@@ -1721,7 +1721,7 @@ function normalizeArtifactInput(input, options) {
   return {
     title,
     content,
-    format: normalizeFormat(input.format || inferFormat(input.contentType)),
+    format: normalizeFormat(input.format || inferFormat(input.contentType, content)),
     contentType: normalizeOptionalString(input.contentType),
     artifactType: normalizeArtifactType(input.artifactType || input.artifact_type || inferArtifactType(input)),
     schemaVersion: normalizeSchemaVersion(input.schemaVersion || input.schema_version),
@@ -1758,9 +1758,9 @@ function normalizeSchemaVersion(value) {
 function inferArtifactType(input) {
   let format;
   try {
-    format = normalizeFormat(input.format || inferFormat(input.contentType));
+    format = normalizeFormat(input.format || inferFormat(input.contentType, input.content));
   } catch {
-    format = normalizeOptionalString(input.format || inferFormat(input.contentType));
+    format = normalizeOptionalString(input.format || inferFormat(input.contentType, input.content));
   }
   if (format === "html") {
     return "html-page";
@@ -2011,7 +2011,7 @@ function verifyPassword(password, stored) {
   return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
-function inferFormat(contentType) {
+function inferFormat(contentType, content = "") {
   const value = normalizeOptionalString(contentType).toLowerCase();
   if (value.includes("vnd.ant.code") || value.includes("source-code")) {
     return "code";
@@ -2046,7 +2046,19 @@ function inferFormat(contentType) {
   if (value.includes("json")) {
     return "json";
   }
+  const trimmed = normalizeOptionalString(content);
+  if (looksLikeHtml(trimmed)) {
+    return "html";
+  }
   return "text";
+}
+
+function looksLikeHtml(value) {
+  if (/^<!doctype html/i.test(value) || /^<html[\s>]/i.test(value)) {
+    return true;
+  }
+  const withoutLeadingComment = value.replace(/^<!--[\s\S]*?-->\s*/, "");
+  return /^<\/?(?:a|article|aside|body|br|button|canvas|code|div|fieldset|figcaption|figure|footer|form|h[1-6]|head|header|hr|iframe|img|input|label|li|link|main|meta|nav|ol|option|p|pre|script|section|select|span|style|table|tbody|td|textarea|tfoot|th|thead|title|tr|ul|video|audio)(?:\s|>|\/)/i.test(withoutLeadingComment);
 }
 
 function makeArtifactId(title) {

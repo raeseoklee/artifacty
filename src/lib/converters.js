@@ -36,7 +36,12 @@ export function convertAgentArtifact(input = {}) {
     optionalString(decoded.title) ||
     inferTitle({ content, format, fileName, sourceAgent });
 
-  const contentType = explicitContentType || decoded.contentType || media?.mimeType || contentTypeForFormat(format);
+  const contentType = resolvedContentType({
+    format,
+    explicitContentType,
+    decodedContentType: decoded.contentType,
+    mediaMimeType: media?.mimeType
+  });
   const artifactType = normalizeArtifactType(
     input.artifactType ||
       input.artifact_type ||
@@ -77,6 +82,14 @@ export function convertAgentArtifact(input = {}) {
   };
 }
 
+function resolvedContentType({ format, explicitContentType, decodedContentType, mediaMimeType }) {
+  const candidate = explicitContentType || decodedContentType || mediaMimeType;
+  if (candidate && !(isGenericTextContentType(candidate) && format !== "text")) {
+    return candidate;
+  }
+  return mediaMimeType || contentTypeForFormat(format);
+}
+
 export function detectFormat({ content = "", contentType = "", fileName = "" } = {}) {
   const type = optionalString(contentType).toLowerCase();
   if (type.includes("vnd.ant.code") || type.includes("source-code")) {
@@ -112,10 +125,6 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (type.includes("json")) {
     return "json";
   }
-  if (type.startsWith("text/")) {
-    return "text";
-  }
-
   const lowerName = optionalString(fileName).toLowerCase();
   if (lowerName.endsWith(".sarif") || lowerName.endsWith(".sarif.json")) {
     return "sarif";
@@ -172,7 +181,7 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (looksLikeMediaDataUrl(trimmed, "video")) {
     return "video";
   }
-  if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
+  if (looksLikeHtml(trimmed)) {
     return "html";
   }
   if (looksLikeSarif(trimmed)) {
@@ -186,6 +195,9 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   }
   if (/^#{1,3}\s+\S/m.test(trimmed) || /^[-*]\s+\S/m.test(trimmed)) {
     return "markdown";
+  }
+  if (type.startsWith("text/")) {
+    return "text";
   }
   return "text";
 }
@@ -1175,6 +1187,19 @@ function isSarifObject(value) {
     (typeof value.version === "string" || optionalString(value.$schema).toLowerCase().includes("sarif"));
 }
 
+function looksLikeHtml(value) {
+  const trimmed = optionalString(value);
+  if (/^<!doctype html/i.test(trimmed) || /^<html[\s>]/i.test(trimmed)) {
+    return true;
+  }
+  const withoutLeadingComment = trimmed.replace(/^<!--[\s\S]*?-->\s*/, "");
+  return htmlTagPattern().test(withoutLeadingComment);
+}
+
+function htmlTagPattern() {
+  return /^<\/?(?:a|article|aside|body|br|button|canvas|code|div|fieldset|figcaption|figure|footer|form|h[1-6]|head|header|hr|iframe|img|input|label|li|link|main|meta|nav|ol|option|p|pre|script|section|select|span|style|table|tbody|td|textarea|tfoot|th|thead|title|tr|ul|video|audio)(?:\s|>|\/)/i;
+}
+
 function looksLikeCsv(value) {
   const lines = optionalString(value)
     .split(/\r?\n/)
@@ -1305,6 +1330,10 @@ function isSupportedImageMime(value) {
 
 function isSupportedVideoMime(value) {
   return new Set(["video/mp4", "video/webm"]).has(optionalString(value).toLowerCase().split(";")[0]);
+}
+
+function isGenericTextContentType(value) {
+  return optionalString(value).toLowerCase().split(";")[0] === "text/plain";
 }
 
 function looksLikeMermaid(value) {

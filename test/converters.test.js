@@ -18,6 +18,25 @@ test("converts Claude HTML artifact files", () => {
   assert.equal(converted.metadata.artifactyImport.fileName, "deploy-failures.html");
 });
 
+test("detects HTML fragments before falling back to plain text", () => {
+  const fragment = convertAgentArtifact({
+    agent: "generic",
+    content: "<section><h1>Status</h1><p>Ready</p></section>"
+  });
+  assert.equal(fragment.format, "html");
+  assert.equal(fragment.artifactType, "html-page");
+
+  const textPlainHtmlFile = convertAgentArtifact({
+    agent: "generic",
+    fileName: "status.html",
+    contentType: "text/plain",
+    content: "<div>Saved from upload</div>"
+  });
+  assert.equal(textPlainHtmlFile.format, "html");
+  assert.equal(textPlainHtmlFile.contentType, "text/html; charset=utf-8");
+  assert.equal(textPlainHtmlFile.artifactType, "html-page");
+});
+
 test("converts fixture-based agent artifacts", async () => {
   const claudeHtml = await readFile("test/fixtures/claude-artifact.html", "utf8");
   const claude = convertAgentArtifact({
