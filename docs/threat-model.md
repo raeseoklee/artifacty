@@ -68,9 +68,10 @@ reachable from the user's browser.
 
 Controls:
 
-- Mutating browser routes reject non-local `Origin` headers.
+- Mutating browser routes allow loopback or same-origin requests and reject
+  cross-origin writes.
 - API routes require a token when configured.
-- LAN/team mode does not relax browser-origin checks.
+- LAN/team mode does not allow arbitrary browser origins.
 
 ### Untrusted Artifact Rendering
 

@@ -949,6 +949,56 @@ test("allows null-origin CORS only for vendored JS assets, not sensitive routes"
   }
 });
 
+test("allows same-origin browser writes from central hosts and rejects cross-origin writes", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-origin-"));
+  const app = await startServer({ port: 0, home });
+
+  try {
+    const createdResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Central Edit",
+        content: "before",
+        format: "text",
+        sourceAgent: "test"
+      })
+    });
+    assert.equal(createdResponse.status, 201);
+    const created = await createdResponse.json();
+
+    const centralHost = "10.0.0.50:8787";
+    const form = new URLSearchParams({
+      title: "Central Edit",
+      format: "text",
+      sourceAgent: "test",
+      tags: "central",
+      content: "after"
+    }).toString();
+
+    const sameOrigin = await rawRequestWithBody(app.url, "POST", `/artifacts/${created.id}/edit`, {
+      Host: centralHost,
+      Origin: `http://${centralHost}`,
+      "content-type": "application/x-www-form-urlencoded"
+    }, form);
+    assert.equal(sameOrigin.status, 303);
+
+    const updated = await (await fetch(`${app.url}/api/artifacts/${created.id}`)).json();
+    assert.equal(updated.content, "after");
+
+    const crossOrigin = await rawRequestWithBody(app.url, "POST", `/artifacts/${created.id}/edit`, {
+      Host: centralHost,
+      Origin: "https://evil.example",
+      "content-type": "application/x-www-form-urlencoded"
+    }, form);
+    assert.equal(crossOrigin.status, 403);
+    assert.match(crossOrigin.body, /NON_LOCAL_ORIGIN/);
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 function rawRequest(baseUrl, method, pathname, headers) {
   const url = new URL(pathname, baseUrl);
   return new Promise((resolve, reject) => {
@@ -967,5 +1017,35 @@ function rawRequest(baseUrl, method, pathname, headers) {
     );
     req.on("error", reject);
     req.end();
+  });
+}
+
+function rawRequestWithBody(baseUrl, method, pathname, headers, body) {
+  const url = new URL(pathname, baseUrl);
+  const payload = Buffer.from(body || "");
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method,
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        headers: {
+          ...headers,
+          "content-length": String(payload.byteLength)
+        }
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body: Buffer.concat(chunks).toString("utf8")
+        }));
+      }
+    );
+    req.on("error", reject);
+    req.end(payload);
   });
 }

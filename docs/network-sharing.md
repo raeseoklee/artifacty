@@ -44,9 +44,9 @@ When Artifacty binds outside loopback, startup output includes a warning that th
 
 ## Browser Write Behavior
 
-Remote browsers can read shared pages, but write actions are intentionally conservative. Mutating browser routes reject non-local `Origin` headers to reduce CSRF risk. For LAN sharing, prefer API or MCP writes with an explicit token header.
+Remote browsers can read shared pages and can submit browser forms when the request is same-origin with the Artifacty host, for example `Origin: http://10.0.0.50:8787` with `Host: 10.0.0.50:8787`. Mutating browser routes reject cross-origin requests to reduce CSRF risk. For scripts and agents, prefer API or MCP writes with an explicit token header.
 
-Do not relax the origin check just to make remote browser writes easier. A future team dashboard should use a dedicated policy that combines same-origin remote requests, explicit token validation, and clear operator intent.
+Do not disable the origin check just to make remote browser writes easier. Same-origin central dashboard writes should pass; writes initiated from another website should fail with `NON_LOCAL_ORIGIN`.
 
 ## Renderer Guidance
 

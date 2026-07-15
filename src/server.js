@@ -816,11 +816,25 @@ export function assertLocalOrigin(request) {
     return;
   }
 
-  const parsed = new URL(origin);
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw Object.assign(new Error(`Rejected invalid origin: ${origin}`), {
+      statusCode: 403,
+      code: "NON_LOCAL_ORIGIN"
+    });
+  }
+
   const hostname = parsed.hostname.toLowerCase();
-  const allowed = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  const host = String(request.headers.host || "").toLowerCase();
+  const allowed =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    (host && parsed.host.toLowerCase() === host && (parsed.protocol === "http:" || parsed.protocol === "https:"));
   if (!allowed) {
-    throw Object.assign(new Error(`Rejected non-local origin: ${origin}`), {
+    throw Object.assign(new Error(`Rejected untrusted origin: ${origin}`), {
       statusCode: 403,
       code: "NON_LOCAL_ORIGIN"
     });
