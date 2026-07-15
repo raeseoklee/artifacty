@@ -53,7 +53,10 @@ best-effort backfilled from the first `create` or `import` audit actor.
 
 ## Version Record
 
-Each version is immutable and points at one content file.
+Normal create and update flows append versions, and each version points at one
+content file. Administrator repair/delete actions are exceptional maintenance
+operations for correcting accidental or sensitive historical versions; they
+write `version-repair` or `version-delete` audit events.
 
 ```json
 {
@@ -115,7 +118,7 @@ Metadata is free-form JSON, but converter-generated metadata uses these keys:
 
 ## Archive Semantics
 
-Artifacts are not deleted by P0 behavior. Archive sets `archivedAt` and hides the artifact from default list results. `includeArchived=true` includes archived records. Restore clears `archivedAt`. Versions and content files remain unchanged.
+Artifacts are not deleted by P0 behavior. Archive sets `archivedAt` and hides the artifact from default list results. `includeArchived=true` includes archived records. Restore clears `archivedAt`. Regular archive/restore leaves versions and content files unchanged. Administrators may repair or delete individual versions from `/admin/artifacts/:id/versions`; the last remaining version cannot be deleted.
 
 ## Bundle Format
 

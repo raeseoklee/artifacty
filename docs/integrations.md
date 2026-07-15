@@ -347,11 +347,14 @@ tests.
 - `GET /artifacts/:id`: browser viewer.
 - `GET /artifacts/:id/react-frame?version=n`: gated React renderer frame. Returns content only when `ARTIFACTY_ENABLE_REACT_RENDERER=true`.
 - `GET /artifacts/:id/edit`: browser version editor.
-- `POST /artifacts/:id/edit`: append a version from the browser editor.
+- `POST /artifacts/:id/edit`: append a version from the browser editor. Unchanged browser edits record `update-noop` without creating another version.
 - `POST /artifacts/:id/archive`: archive from the browser.
 - `POST /artifacts/:id/restore`: restore from the browser.
 - `GET /artifacts/:id/diff`: compare two versions.
 - `GET /artifacts/:id/raw?version=n`: raw content.
+- `GET /admin/artifacts/:id/versions`: administrator-only version repair/delete screen.
+- `POST /admin/artifacts/:id/versions/:version/repair`: administrator-only replacement of one version's content and format.
+- `POST /admin/artifacts/:id/versions/:version/delete`: administrator-only deletion of one version. The last remaining version cannot be deleted.
 
 When `ARTIFACTY_API_TOKEN` is configured, `/api/*` routes require either `Authorization: Bearer <token>` or `x-artifacty-token: <token>`. When users exist, personal tokens issued from `/account` also authenticate API and MCP requests, set created artifacts' `publisherId` to the token owner's email, and map audit `actor` to the same identity. Browser forms can also carry `?token=<token>` in the URL, which is copied to hidden form fields for local team workflows.
 

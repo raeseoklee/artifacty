@@ -669,6 +669,78 @@ test("supports login, user token management, and admin users", async () => {
     assert.equal(created.publisherName, "Admin");
     assert.ok(created.publisherUserId);
 
+    const versionedResponse = await fetch(`${app.url}/api/artifacts/${created.id}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        title: "User Auth Demo",
+        content: "accidental edit",
+        format: "text",
+        sourceAgent: "codex"
+      })
+    });
+    assert.equal(versionedResponse.status, 200);
+    assert.equal((await versionedResponse.json()).latestVersion, 2);
+
+    const artifactPageResponse = await fetch(`${app.url}/artifacts/${created.id}`, {
+      headers: { cookie }
+    });
+    assert.equal(artifactPageResponse.status, 200);
+    assert.match(await artifactPageResponse.text(), /Versions/);
+
+    const versionsPageResponse = await fetch(`${app.url}/admin/artifacts/${created.id}/versions?version=1`, {
+      headers: { cookie }
+    });
+    assert.equal(versionsPageResponse.status, 200);
+    const versionsPage = await versionsPageResponse.text();
+    assert.match(versionsPage, /Manage versions/);
+    assert.match(versionsPage, /v1 content/);
+
+    const repairResponse = await fetch(`${app.url}/admin/artifacts/${created.id}/versions/1/repair`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        format: "text",
+        content: "owned fixed",
+        reason: "Correct imported content"
+      })
+    });
+    assert.equal(repairResponse.status, 303);
+
+    const repairedResponse = await fetch(`${app.url}/api/artifacts/${created.id}?version=1`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(repairedResponse.status, 200);
+    assert.equal((await repairedResponse.json()).content, "owned fixed");
+
+    const deleteVersionResponse = await fetch(`${app.url}/admin/artifacts/${created.id}/versions/2/delete`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        reason: "Remove accidental edit"
+      })
+    });
+    assert.equal(deleteVersionResponse.status, 303);
+
+    const cleanedResponse = await fetch(`${app.url}/api/artifacts/${created.id}`, {
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(cleanedResponse.status, 200);
+    const cleaned = await cleanedResponse.json();
+    assert.equal(cleaned.latestVersion, 1);
+    assert.equal(cleaned.content, "owned fixed");
+
     const listResponse = await fetch(`${app.url}/api/artifacts?q=admin@example.com`, {
       headers: { authorization: `Bearer ${token}` }
     });

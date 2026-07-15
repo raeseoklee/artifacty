@@ -19,6 +19,7 @@ import {
   createStore,
   createSession,
   createUser,
+  deleteArtifactVersion,
   getSessionUser,
   getArtifact,
   importUsersFromCsv,
@@ -31,6 +32,7 @@ import {
   revokeApiToken,
   revokeSession,
   restoreArtifact,
+  replaceArtifactVersion,
   updateArtifact,
   verifyUserPassword
 } from "../src/lib/storage.js";
@@ -99,6 +101,70 @@ test("creates, lists, reads, and versions artifacts", async () => {
     assert.ok(actions.includes("read"));
     assert.ok(actions.includes("archive"));
     assert.ok(actions.includes("restore"));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("skips no-op web edits and lets admins repair or delete versions", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-version-admin-"));
+  try {
+    const store = createStore({ home });
+    const created = await createArtifact(store, {
+      title: "Version Cleanup",
+      content: "first",
+      format: "text",
+      sourceAgent: "codex",
+      tags: ["cleanup"]
+    });
+
+    const noop = await updateArtifact(store, created.id, {
+      title: "Version Cleanup",
+      content: "first",
+      format: "text",
+      sourceAgent: "codex",
+      tags: ["cleanup"],
+      skipNoop: true
+    });
+    assert.equal(noop.latestVersion, 1);
+
+    const updated = await updateArtifact(store, created.id, {
+      title: "Version Cleanup",
+      content: "wrong",
+      format: "text",
+      sourceAgent: "codex",
+      tags: ["cleanup"]
+    });
+    assert.equal(updated.latestVersion, 2);
+
+    const repaired = await replaceArtifactVersion(store, created.id, 1, {
+      content: "fixed first",
+      format: "text",
+      reason: "Correct bad initial content"
+    });
+    assert.equal(repaired.version.version, 1);
+    assert.equal(repaired.content, "fixed first");
+
+    const deleted = await deleteArtifactVersion(store, created.id, 2, {
+      reason: "Remove accidental edit"
+    });
+    assert.equal(deleted.latestVersion, 1);
+    assert.equal(deleted.content, "fixed first");
+    assert.equal(deleted.versions.length, 1);
+
+    await assert.rejects(
+      () => deleteArtifactVersion(store, created.id, 1),
+      /Cannot delete the only version/
+    );
+
+    const integrity = await checkStoreIntegrity(store);
+    assert.equal(integrity.ok, true);
+
+    const auditEvents = await listAuditEvents(store, { artifactId: created.id, limit: 20 });
+    const actions = auditEvents.map((event) => event.action);
+    assert.ok(actions.includes("update-noop"));
+    assert.ok(actions.includes("version-repair"));
+    assert.ok(actions.includes("version-delete"));
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -14,6 +14,7 @@ import {
   createSession,
   createStore,
   createUser,
+  deleteArtifactVersion,
   getArtifact,
   getSessionUser,
   importUsersFromCsv,
@@ -25,6 +26,7 @@ import {
   revokeApiToken,
   revokeSession,
   restoreArtifact,
+  replaceArtifactVersion,
   setUserActive,
   updateArtifact,
   verifyUserPassword
@@ -41,6 +43,7 @@ import {
   renderArtifactFormPage,
   renderArtifactPage,
   renderAccountPage,
+  renderAdminArtifactVersionsPage,
   renderAdminUsersPage,
   renderPasswordPage,
   renderReactFramePage,
@@ -410,6 +413,63 @@ export async function handleRequest({ request, response, store, host, port, secu
     return sendRedirect(response, "/admin/users");
   }
 
+  const adminVersionsMatch = /^\/admin\/artifacts\/([^/]+)\/versions$/.exec(pathname);
+  if (adminVersionsMatch && method === "GET") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    const artifact = await getArtifact(store, adminVersionsMatch[1], {
+      version: url.searchParams.get("version") || undefined
+    });
+    return sendHtml(response, renderAdminArtifactVersionsPage({
+      artifact,
+      selectedVersion: artifact.version,
+      content: artifact.content,
+      baseUrl,
+      user: currentUser,
+      locale,
+      currentPath
+    }), 200, headOnly);
+  }
+
+  const adminVersionActionMatch = /^\/admin\/artifacts\/([^/]+)\/versions\/(\d+)\/(repair|delete)$/.exec(pathname);
+  if (adminVersionActionMatch && method === "POST") {
+    assertLocalOrigin(request);
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    request.artifactyAuth = {
+      type: "session",
+      actor: currentUser.email,
+      user: currentUser,
+      role: currentUser.role
+    };
+    const body = await readFormBody(request);
+    const bodyLocale = localeFromBodyOrUrl(body, url);
+    const artifactId = adminVersionActionMatch[1];
+    const versionNumber = Number(adminVersionActionMatch[2]);
+    const action = adminVersionActionMatch[3];
+    if (action === "repair") {
+      await replaceArtifactVersion(store, artifactId, versionNumber, {
+        content: body.content,
+        format: body.format,
+        reason: body.reason,
+        metadata: {
+          repairedVia: "artifacty-admin"
+        },
+        audit: auditContext(request, "web-admin")
+      });
+    } else {
+      await deleteArtifactVersion(store, artifactId, versionNumber, {
+        reason: body.reason,
+        audit: auditContext(request, "web-admin")
+      });
+    }
+    return sendRedirect(response, localizedHref(`/admin/artifacts/${encodeURIComponent(artifactId)}/versions`, bodyLocale));
+  }
+
   if (pathname === "/mcp") {
     if (!mcpHttp) {
       return sendJson(response, { error: "Not found" }, 404, headOnly);
@@ -585,6 +645,7 @@ export async function handleRequest({ request, response, store, host, port, secu
       metadata: {
         updatedVia: "artifacty-web"
       },
+      skipNoop: true,
       audit: auditContext(request, "web")
     });
     return sendRedirect(response, localizedHref(`/artifacts/${encodeURIComponent(artifact.id)}`, bodyLocale));
@@ -697,7 +758,8 @@ export async function handleRequest({ request, response, store, host, port, secu
       baseUrl,
       authToken,
       locale,
-      currentPath
+      currentPath,
+      user: currentUser
     }), 200, headOnly);
   }
 

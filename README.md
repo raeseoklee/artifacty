@@ -252,7 +252,7 @@ By default Artifacty stores files under `~/.artifacty`.
 ARTIFACTY_HOME=/path/to/shared/store artifacty serve
 ```
 
-Artifact metadata is stored in `artifacty.sqlite`; artifact content is stored as immutable version files under `artifacts/`. The current browser server URL is written to `server.json` so MCP tools can return the correct links when the default port falls back. Existing `index.json` stores are migrated automatically on first access.
+Artifact metadata is stored in `artifacty.sqlite`; artifact content is stored as append-only version files under `artifacts/` for normal create and update flows. Administrators can repair or delete individual bad versions from the browser, and those exceptional actions are recorded in the audit log. The current browser server URL is written to `server.json` so MCP tools can return the correct links when the default port falls back. Existing `index.json` stores are migrated automatically on first access.
 
 Search uses a SQLite FTS5 index when the local Node SQLite build supports it. The index covers the latest version body plus title, tags, source agent, artifact type, format, and metadata summary. If FTS5 is unavailable, Artifacty keeps working with metadata search. Rebuild or check the store when needed:
 
@@ -302,8 +302,9 @@ Browser routes:
 - `/`: list artifacts with search, tag, and source filters.
 - `/new`: create an Artifacty-native artifact with the CodeMirror editor.
 - `/import`: paste an external agent artifact and convert it with automatic editor mode detection.
-- `/artifacts/:id/edit`: save a new version with Markdown, HTML, JSON, text, code, SVG, Mermaid, React, SARIF, CSV, image, or video syntax support.
+- `/artifacts/:id/edit`: save a new version with Markdown, HTML, JSON, text, code, SVG, Mermaid, React, SARIF, CSV, image, or video syntax support. Browser edits that do not change the artifact are recorded as `update-noop` audit events without creating a version.
 - `/artifacts/:id/diff`: compare versions.
+- `/admin/artifacts/:id/versions`: administrator-only repair/delete screen for individual versions.
 - `/api/audit`: list audit events.
 
 List APIs support pagination with `limit` and `offset`. Responses keep the top-level `artifacts` array and include `pagination` and `search` metadata:
@@ -320,7 +321,7 @@ The browser UI defaults to English. Add `?lang=ko` to any browser route to use K
 Schema and storage:
 
 - Metadata lives in SQLite with `schemaVersion: 1`, `artifactType`, `publisherId`, and `archivedAt`.
-- Archive hides artifacts from default lists without deleting versions.
+- Archive hides artifacts from default lists without deleting versions. Admin version repair/delete is available for correcting accidental or sensitive historical versions and records `version-repair` or `version-delete` audit events.
 - Bundle artifacts store multiple files or base64 assets as portable JSON.
 - Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, and `video`.
 - Native create/import paths infer `html` from HTML documents or fragments when no explicit format is supplied.
@@ -341,7 +342,7 @@ Schema and storage:
 - Non-local sharing is intended for trusted LAN or VPN sessions. Prefer a specific interface IP over `0.0.0.0`, keep React rendering disabled, and see [docs/network-sharing.md](docs/network-sharing.md).
 - Non-local binding prints a startup warning because Artifacty does not terminate TLS.
 - Artifact content is scanned for common API keys and private keys before storage. Use `--allow-secrets` or `ARTIFACTY_ALLOW_SECRETS=true` only for intentional exceptions.
-- Creates, updates, reads, imports, archives, and restores write audit events to SQLite. Legacy artifacts without a stored publisher are best-effort backfilled from their first `create` or `import` audit actor.
+- Creates, updates, reads, imports, archives, restores, no-op browser edits, and admin version repair/delete actions write audit events to SQLite. Legacy artifacts without a stored publisher are best-effort backfilled from their first `create` or `import` audit actor.
 - CodeMirror editor/viewer and renderer assets are served from local npm dependencies through a package allowlist, not from a public CDN. JavaScript asset routes answer `Origin: null` requests with `Access-Control-Allow-Origin: null` so sandboxed renderer iframes can import local ESM without `allow-same-origin`.
 - Mutating HTTP routes reject non-local browser origins.
 - HTML artifacts render in a sandboxed iframe.

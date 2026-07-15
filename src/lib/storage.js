@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -189,6 +189,21 @@ export async function updateArtifact(store = createStore(), id, input = {}) {
     let artifact;
     transaction(db, () => {
       artifact = findArtifactById(db, id);
+      const latest = artifact.versions.find((version) => version.version === artifact.latestVersion);
+      if (input.skipNoop && latest) {
+        const latestContent = readFileSync(path.join(store.home, latest.path), "utf8");
+        if (isNoopVersionUpdate(artifact, latest, latestContent, normalized)) {
+          insertAuditRecord(db, {
+            action: "update-noop",
+            artifactId: artifact.id,
+            version: artifact.latestVersion,
+            sourceAgent: artifact.sourceAgent,
+            audit: input.audit,
+            metadata: { reason: "no changes detected" }
+          });
+          return;
+        }
+      }
       const now = new Date().toISOString();
       const nextVersion = artifact.latestVersion + 1;
       const version = writeVersionFile(store, artifact.id, nextVersion, normalized, now);
@@ -225,6 +240,159 @@ export async function updateArtifact(store = createStore(), id, input = {}) {
         sourceAgent: normalized.sourceAgent,
         audit: input.audit,
         metadata: { title: artifact.title, artifactType: artifact.artifactType }
+      });
+    });
+
+    return withLatestContent(store, artifact);
+  } finally {
+    db.close();
+  }
+}
+
+export async function replaceArtifactVersion(store = createStore(), id, versionNumber, input = {}) {
+  const secretScan = assertNoSecrets(input, securityConfig());
+  input = withSecretScan(input, secretScan);
+  const normalized = normalizeArtifactInput(input, { requireContent: true, requireTitle: false });
+  const targetVersion = Number(versionNumber);
+  if (!Number.isInteger(targetVersion) || targetVersion < 1) {
+    throw Object.assign(new Error(`Invalid artifact version: ${versionNumber}`), {
+      code: "INVALID_VERSION",
+      statusCode: 400
+    });
+  }
+  const db = openDatabase(store);
+
+  try {
+    let artifact;
+    transaction(db, () => {
+      artifact = findArtifactById(db, id);
+      const existing = artifact.versions.find((version) => version.version === targetVersion);
+      if (!existing) {
+        throw Object.assign(new Error(`Artifact version not found: ${id}@${targetVersion}`), {
+          code: "ARTIFACT_VERSION_NOT_FOUND",
+          statusCode: 404
+        });
+      }
+
+      const now = new Date().toISOString();
+      const previousPath = existing.path;
+      const repairedMetadata = {
+        ...existing.metadata,
+        ...normalized.metadata,
+        adminRepair: {
+          repairedAt: now,
+          reason: normalizeOptionalString(input.reason),
+          previousSha256: existing.sha256,
+          previousSizeBytes: existing.sizeBytes,
+          previousPath
+        }
+      };
+      const replacement = writeVersionFile(store, artifact.id, targetVersion, {
+        ...normalized,
+        metadata: repairedMetadata
+      }, existing.createdAt);
+
+      if (previousPath !== replacement.path) {
+        removeVersionFile(store, previousPath);
+      }
+
+      db.prepare(`
+        UPDATE artifact_versions
+        SET created_at = ?, format = ?, content_type = ?, path = ?, size_bytes = ?, sha256 = ?, metadata_json = ?
+        WHERE artifact_id = ? AND version = ?
+      `).run(
+        replacement.createdAt,
+        replacement.format,
+        replacement.contentType,
+        replacement.path,
+        replacement.sizeBytes,
+        replacement.sha256,
+        JSON.stringify(replacement.metadata || {}),
+        artifact.id,
+        targetVersion
+      );
+
+      artifact.versions = artifact.versions.map((version) => version.version === targetVersion ? replacement : version);
+      artifact.updatedAt = now;
+      db.prepare("UPDATE artifacts SET updated_at = ? WHERE id = ?").run(now, artifact.id);
+      if (targetVersion === artifact.latestVersion) {
+        upsertSearchIndex(db, artifact, replacement, normalized.content);
+      }
+      insertAuditRecord(db, {
+        action: "version-repair",
+        artifactId: artifact.id,
+        version: targetVersion,
+        sourceAgent: artifact.sourceAgent,
+        audit: input.audit,
+        metadata: {
+          reason: normalizeOptionalString(input.reason),
+          previousSha256: existing.sha256,
+          newSha256: replacement.sha256,
+          previousPath
+        }
+      });
+    });
+
+    return getArtifact(store, id, { version: targetVersion });
+  } finally {
+    db.close();
+  }
+}
+
+export async function deleteArtifactVersion(store = createStore(), id, versionNumber, options = {}) {
+  const targetVersion = Number(versionNumber);
+  if (!Number.isInteger(targetVersion) || targetVersion < 1) {
+    throw Object.assign(new Error(`Invalid artifact version: ${versionNumber}`), {
+      code: "INVALID_VERSION",
+      statusCode: 400
+    });
+  }
+  const db = openDatabase(store);
+
+  try {
+    let artifact;
+    transaction(db, () => {
+      artifact = findArtifactById(db, id);
+      if (artifact.versions.length <= 1) {
+        throw Object.assign(new Error("Cannot delete the only version of an artifact"), {
+          code: "ONLY_VERSION_DELETE_BLOCKED",
+          statusCode: 400
+        });
+      }
+      const existing = artifact.versions.find((version) => version.version === targetVersion);
+      if (!existing) {
+        throw Object.assign(new Error(`Artifact version not found: ${id}@${targetVersion}`), {
+          code: "ARTIFACT_VERSION_NOT_FOUND",
+          statusCode: 404
+        });
+      }
+
+      const now = new Date().toISOString();
+      db.prepare("DELETE FROM artifact_versions WHERE artifact_id = ? AND version = ?").run(artifact.id, targetVersion);
+      removeVersionFile(store, existing.path);
+      artifact.versions = artifact.versions.filter((version) => version.version !== targetVersion);
+      artifact.latestVersion = Math.max(...artifact.versions.map((version) => version.version));
+      artifact.updatedAt = now;
+      db.prepare("UPDATE artifacts SET latest_version = ?, updated_at = ? WHERE id = ?").run(
+        artifact.latestVersion,
+        now,
+        artifact.id
+      );
+
+      const latest = artifact.versions.find((version) => version.version === artifact.latestVersion);
+      const latestContent = readFileSync(path.join(store.home, latest.path), "utf8");
+      upsertSearchIndex(db, artifact, latest, latestContent);
+      insertAuditRecord(db, {
+        action: "version-delete",
+        artifactId: artifact.id,
+        version: targetVersion,
+        sourceAgent: artifact.sourceAgent,
+        audit: options.audit,
+        metadata: {
+          reason: normalizeOptionalString(options.reason),
+          deletedSha256: existing.sha256,
+          deletedPath: existing.path
+        }
       });
     });
 
@@ -1689,6 +1857,38 @@ function writeVersionFile(store, id, versionNumber, input, createdAt) {
     sha256: createHash("sha256").update(contentBuffer).digest("hex"),
     metadata: input.metadata
   };
+}
+
+function removeVersionFile(store, relativePath) {
+  const absolutePath = path.join(store.home, relativePath);
+  if (existsSync(absolutePath)) {
+    rmSync(absolutePath, { force: true });
+  }
+}
+
+function isNoopVersionUpdate(artifact, latest, latestContent, normalized) {
+  const nextTitle = normalized.title || artifact.title;
+  const nextSourceAgent = normalized.sourceAgent || artifact.sourceAgent;
+  const nextArtifactType = normalized.artifactType || artifact.artifactType;
+  const nextSchemaVersion = normalized.schemaVersion || artifact.schemaVersion;
+  const nextTags = normalized.tags.length > 0 ? normalized.tags : artifact.tags;
+  const nextContentType = normalized.contentType || contentTypeForFormat(normalized.format);
+
+  return nextTitle === artifact.title &&
+    nextSourceAgent === artifact.sourceAgent &&
+    nextArtifactType === artifact.artifactType &&
+    nextSchemaVersion === artifact.schemaVersion &&
+    tagsEqual(nextTags, artifact.tags) &&
+    normalized.content === latestContent &&
+    normalized.format === latest.format &&
+    nextContentType === latest.contentType;
+}
+
+function tagsEqual(left = [], right = []) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((item, index) => item === right[index]);
 }
 
 async function withLatestContent(store, artifact) {

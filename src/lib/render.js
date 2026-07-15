@@ -189,6 +189,83 @@ export function renderNewArtifactPage({ baseUrl, authToken = "", locale = DEFAUL
   return renderArtifactFormPage({ mode: "new", baseUrl, authToken, locale, currentPath });
 }
 
+export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, content, baseUrl, user, error = "", locale = DEFAULT_LOCALE, currentPath = "/" }) {
+  const view = viewContext(locale, currentPath);
+  const artifactPath = `/artifacts/${encodeURIComponent(artifact.id)}`;
+  const versionRows = artifact.versions.map((version) => {
+    const active = version.version === selectedVersion.version ? " active" : "";
+    const deleteDisabled = artifact.versions.length <= 1 ? " disabled" : "";
+    return `
+      <tr>
+        <td><a class="version${active}" href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions?version=${version.version}`)}">v${version.version}</a></td>
+        <td>${formatBadge(version.format)}</td>
+        <td>${escapeHtml(version.createdAt)}</td>
+        <td><code>${escapeHtml(version.sha256.slice(0, 12))}</code></td>
+        <td>${escapeHtml(String(version.sizeBytes))}</td>
+        <td>
+          <form class="inline-action" method="post" action="/admin/artifacts/${encodeURIComponent(artifact.id)}/versions/${version.version}/delete">
+            ${localeInput(view.locale)}
+            <input name="reason" placeholder="Reason">
+            <button type="submit"${deleteDisabled}>Delete</button>
+          </form>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  return pageShell({
+    title: `Manage versions · ${artifact.title}`,
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>Manage versions</h1>
+          <p>${escapeHtml(artifact.title)} · ${escapeHtml(artifact.id)} · ${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href(artifactPath)}">Artifact</a>
+          <a href="${view.href(`${artifactPath}/diff`)}">${view.text("nav.diff")}</a>
+          ${authNav(user)}
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-editor">
+        ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
+        <section class="meta-card">
+          <h2>Versions</h2>
+          <table class="data-table">
+            <thead><tr><th>Version</th><th>Format</th><th>Created</th><th>SHA</th><th>Bytes</th><th>Action</th></tr></thead>
+            <tbody>${versionRows}</tbody>
+          </table>
+        </section>
+        <form class="editor-form" method="post" action="/admin/artifacts/${encodeURIComponent(artifact.id)}/versions/${selectedVersion.version}/repair">
+          ${localeInput(view.locale)}
+          <section class="editor-fields">
+            <label class="field">
+              <span>${view.text("form.format")}</span>
+              ${formatSelect(selectedVersion.format)}
+            </label>
+            <label class="field">
+              <span>Reason</span>
+              <input name="reason" value="" autocomplete="off">
+            </label>
+          </section>
+          <section class="field content-field">
+            <label for="artifact-content">v${selectedVersion.version} content</label>
+            <textarea id="artifact-content" name="content" data-artifacty-editor data-editor-format="${escapeAttribute(selectedVersion.format)}" spellcheck="false" required>${escapeHtml(content)}</textarea>
+          </section>
+          <footer class="editor-actions">
+            <a href="${view.href(`${artifactPath}?version=${selectedVersion.version}`)}">View version</a>
+            <button type="submit">Repair version</button>
+          </footer>
+        </form>
+      </main>
+    `,
+    head: editorHead(),
+    afterBody: editorScript(view.locale),
+    locale: view.locale
+  });
+}
+
 export function renderImportArtifactPage({ baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/import" }) {
   const view = viewContext(locale, currentPath);
   const title = view.raw("form.importTitle");
@@ -509,7 +586,7 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
   });
 }
 
-export function renderArtifactPage({ artifact, version, content, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/" }) {
+export function renderArtifactPage({ artifact, version, content, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", user = null }) {
   const view = viewContext(locale, currentPath);
   const versionLinks = artifact.versions
     .map((item) => {
@@ -543,7 +620,9 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit`)}">${view.text("nav.edit")}</a>
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
+          ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">Versions</a>` : ""}
           <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
+          ${authNav(user)}
           ${languageSwitcher(view)}
         </nav>
       </header>
