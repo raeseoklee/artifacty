@@ -258,6 +258,13 @@ ARTIFACTY_HOME=/path/to/shared/store artifacty serve
 
 Artifact metadata is stored in `artifacty.sqlite`; artifact content is stored as append-only version files under `artifacts/` for normal create and update flows. Administrators can repair or delete individual bad versions from the browser, and those exceptional actions are recorded in the audit log. The current browser server URL is written to `server.json` so MCP tools can return the correct links when the default port falls back. Existing `index.json` stores are migrated automatically on first access.
 
+Administrators can download and restore artifact backups from `/admin/backup`.
+The backup bundle contains artifact metadata and version contents, but not
+users, sessions, API token records, or audit logs. Restoring a bundle replaces
+the target server's artifact records and prunes unreferenced version files. For
+large migrations or scripted server moves, use `artifacty backup` and
+`artifacty import-store --file ./artifacty-backup.json`.
+
 Search uses a SQLite FTS5 index when the local Node SQLite build supports it. The index covers the latest version body plus title, tags, source agent, artifact type, format, and metadata summary. If FTS5 is unavailable, Artifacty keeps working with metadata search. Rebuild or check the store when needed:
 
 ```bash
@@ -309,6 +316,9 @@ Browser routes:
 - `/artifacts/:id/edit`: save a new version with Markdown, HTML, JSON, text, code, SVG, Mermaid, React, SARIF, CSV, image, or video syntax support. Browser edits that do not change the artifact are recorded as `update-noop` audit events without creating a version.
 - `/artifacts/:id/diff`: compare versions.
 - `/admin/artifacts/:id/versions`: administrator-only repair/delete screen for individual versions.
+- `/admin/backup`: administrator-only artifact backup download and restore screen.
+- `/api/admin/backup`: administrator-only artifact backup JSON download.
+- `/api/admin/backup/import`: administrator-only artifact backup restore.
 - `/api/audit`: list audit events.
 
 List APIs support pagination with `limit` and `offset`. Responses keep the top-level `artifacts` array and include `pagination` and `search` metadata:

@@ -402,6 +402,10 @@ For background services, prefer a stable `ARTIFACTY_API_TOKEN` or `--api-token` 
 
 ## Backup and Audit
 
+Administrators can open `/admin/backup` to download an artifact backup JSON file
+or restore a backup into the current server. The browser restore flow is useful
+for small and medium migrations; use the CLI for large bundles.
+
 ```bash
 node src/cli.js audit --limit 20
 node src/cli.js backup
@@ -409,4 +413,8 @@ node src/cli.js export --file ./artifacty-backup.json
 node src/cli.js import-store --file ./artifacty-backup.json
 ```
 
-Backups include SQLite metadata plus immutable version file contents in one JSON bundle. Importing a store replaces the target store index, so run it against a new or intentionally chosen `ARTIFACTY_HOME`.
+Backups include artifact metadata plus immutable version file contents in one
+JSON bundle. They do not include users, sessions, API token records, or audit
+logs. Importing a store replaces the target artifact records and prunes
+unreferenced version files, so run it against a new or intentionally chosen
+`ARTIFACTY_HOME`.

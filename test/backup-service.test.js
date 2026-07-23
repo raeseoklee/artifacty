@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { exportStore, importStore, defaultBackupPath } from "../src/lib/backup.js";
-import { createArtifact, createStore, getArtifact, listArtifacts } from "../src/lib/storage.js";
+import { exportStore, importStore, importStoreFromString, defaultBackupPath } from "../src/lib/backup.js";
+import { checkStoreIntegrity, createArtifact, createStore, getArtifact, listArtifacts } from "../src/lib/storage.js";
 import { createLaunchAgentPlist, createSystemdUserUnit, createWindowsTaskScript, serviceCommand } from "../src/lib/service.js";
 
 test("exports and imports a complete store backup", async () => {
@@ -34,6 +35,132 @@ test("exports and imports a complete store backup", async () => {
   } finally {
     await rm(sourceHome, { recursive: true, force: true });
     await rm(targetHome, { recursive: true, force: true });
+  }
+});
+
+test("store restore replaces artifact files without leaving orphans", async () => {
+  const sourceHome = await mkdtemp(path.join(tmpdir(), "artifacty-backup-replace-src-"));
+  const targetHome = await mkdtemp(path.join(tmpdir(), "artifacty-backup-replace-dst-"));
+  try {
+    const sourceStore = createStore({ home: sourceHome });
+    const kept = await createArtifact(sourceStore, {
+      title: "Kept",
+      content: "kept",
+      format: "text",
+      sourceAgent: "test"
+    });
+    const backupFile = path.join(sourceHome, "backup.json");
+    await exportStore(sourceStore, backupFile);
+
+    const targetStore = createStore({ home: targetHome });
+    const removed = await createArtifact(targetStore, {
+      title: "Removed",
+      content: "removed",
+      format: "text",
+      sourceAgent: "test"
+    });
+    assert.notEqual(kept.id, removed.id);
+
+    await importStore(targetStore, backupFile);
+    const artifacts = await listArtifacts(targetStore);
+    assert.deepEqual(artifacts.map((artifact) => artifact.id), [kept.id]);
+
+    const integrity = await checkStoreIntegrity(targetStore);
+    assert.equal(integrity.ok, true);
+    assert.equal(integrity.orphanFiles.length, 0);
+  } finally {
+    await rm(sourceHome, { recursive: true, force: true });
+    await rm(targetHome, { recursive: true, force: true });
+  }
+});
+
+test("store restore rejects unsafe backup version paths", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-backup-path-"));
+  try {
+    const store = createStore({ home });
+    for (const unsafePath of ["../outside.txt", "..\\outside.txt", "C:\\outside.txt"]) {
+      const malicious = JSON.stringify({
+        schemaVersion: 1,
+        artifacts: [
+          {
+            id: "malicious",
+            title: "Malicious",
+            artifactType: "document",
+            schemaVersion: 1,
+            sourceAgent: "test",
+            tags: [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            latestVersion: 1,
+            versions: [
+              {
+                version: 1,
+                createdAt: new Date().toISOString(),
+                format: "text",
+                contentType: "text/plain; charset=utf-8",
+                path: unsafePath,
+                sizeBytes: 3,
+                sha256: "bad",
+                metadata: {},
+                content: "bad"
+              }
+            ]
+          }
+        ]
+      });
+
+      await assert.rejects(
+        () => importStoreFromString(store, malicious),
+        /Invalid Artifacty backup version path/
+      );
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("store restore normalizes portable backup paths across operating systems", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-backup-portable-"));
+  try {
+    const store = createStore({ home });
+    const content = "portable";
+    const backup = JSON.stringify({
+      schemaVersion: 1,
+      artifacts: [
+        {
+          id: "portable",
+          title: "Portable",
+          artifactType: "document",
+          schemaVersion: 1,
+          sourceAgent: "test",
+          tags: [],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          latestVersion: 1,
+          versions: [
+            {
+              version: 1,
+              createdAt: new Date().toISOString(),
+              format: "text",
+              contentType: "text/plain; charset=utf-8",
+              path: "artifacts\\portable\\v1.txt",
+              sizeBytes: Buffer.byteLength(content),
+              sha256: createHash("sha256").update(content).digest("hex"),
+              metadata: {},
+              content
+            }
+          ]
+        }
+      ]
+    });
+
+    await importStoreFromString(store, backup);
+    assert.equal((await getArtifact(store, "portable")).content, content);
+    const restored = await getArtifact(store, "portable");
+    assert.equal(restored.version.path, "artifacts/portable/v1.txt");
+    assert.equal((await checkStoreIntegrity(store)).ok, true);
+  } finally {
+    await rm(home, { recursive: true, force: true });
   }
 });
 

@@ -399,7 +399,7 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          ${user.role === "admin" ? `<a href="/admin/users">Users</a>` : ""}
+          ${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a>` : ""}
           <a href="/account/password">Password</a>
           <form class="nav-form" method="post" action="/logout"><button type="submit">Sign out</button></form>
           ${languageSwitcher(view)}
@@ -483,6 +483,61 @@ export function renderPasswordPage({ baseUrl, user, required = false, error = ""
   });
 }
 
+export function renderAdminBackupPage({ baseUrl, user, integrity, importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/backup" }) {
+  const view = viewContext(locale, currentPath);
+  return pageShell({
+    title: "Backup",
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>Backup</h1>
+          <p>${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          <a href="/admin/users">Users</a>
+          <a href="/account">Account</a>
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-view">
+        ${importResult ? `<p class="auth-success">Restore complete. ${escapeHtml(importResult.artifactCount)} artifacts imported.</p>` : ""}
+        ${importError ? `<p class="auth-error">${escapeHtml(importError)}</p>` : ""}
+        <section class="meta-card">
+          <h2>Store status</h2>
+          <table class="data-table">
+            <tbody>
+              <tr><th>Home</th><td>${escapeHtml(integrity.store)}</td></tr>
+              <tr><th>Artifacts</th><td>${escapeHtml(integrity.artifactCount)}</td></tr>
+              <tr><th>Versions</th><td>${escapeHtml(integrity.versionCount)}</td></tr>
+              <tr><th>Content bytes</th><td>${escapeHtml(integrity.totalBytes)}</td></tr>
+              <tr><th>Integrity</th><td>${integrity.ok ? "OK" : "Needs attention"}</td></tr>
+            </tbody>
+          </table>
+          ${integrity.ok ? "" : `<p class="auth-warning">Run <code>artifacty integrity</code> before migration. Current backup will only include readable referenced version files.</p>`}
+        </section>
+        <section class="meta-card">
+          <h2>Download artifact backup</h2>
+          <p class="muted">Exports artifact metadata and version contents as one JSON bundle. Users, sessions, and API token records are not included.</p>
+          <p><a class="button-link" href="/admin/backup/export">Download backup JSON</a></p>
+        </section>
+        <section class="meta-card">
+          <h2>Restore artifact backup</h2>
+          <p class="auth-warning">Restore replaces the target server's artifact records and version files with the backup contents. Existing users, sessions, API tokens, and audit logs stay unchanged.</p>
+          <form class="editor-form" method="post" action="/admin/backup/import">
+            <label class="field content-field">
+              <span>Backup JSON</span>
+              <textarea class="compact-textarea" name="backup" spellcheck="false" placeholder="{&quot;schemaVersion&quot;:1,&quot;artifacts&quot;:[...]}" required></textarea>
+            </label>
+            <footer class="editor-actions"><button type="submit">Restore backup</button></footer>
+          </form>
+        </section>
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
 export function renderAdminUsersPage({ baseUrl, user, users = [], importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/users" }) {
   const view = viewContext(locale, currentPath);
   const rows = users.map((item) => `
@@ -542,6 +597,7 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          <a href="/admin/backup">Backup</a>
           <a href="/account">Account</a>
           ${languageSwitcher(view)}
         </nav>
@@ -1361,6 +1417,24 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       transition: background 0.15s ease, border-color 0.15s ease;
     }
     button:hover { background: var(--accent-2); border-color: var(--accent-2); }
+    .button-link {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 15px;
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-weight: 600;
+    }
+    .button-link:hover {
+      border-color: var(--accent-2);
+      background: var(--accent-2);
+      color: var(--accent-ink);
+      text-decoration: none;
+    }
     .inline-action button {
       min-height: 32px;
       padding: 5px 12px;
@@ -2043,7 +2117,7 @@ function authNav(user) {
   if (!user) {
     return `<a href="/login">Sign in</a>`;
   }
-  return `${user.role === "admin" ? `<a href="/admin/users">Users</a>` : ""}<a href="/account">Account</a>`;
+  return `${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a>` : ""}<a href="/account">Account</a>`;
 }
 
 export function escapeHtml(value) {

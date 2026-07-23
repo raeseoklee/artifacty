@@ -6,6 +6,7 @@ import http from "node:http";
 import test from "node:test";
 import { startServer } from "../src/server.js";
 import { readServerState } from "../src/lib/server-state.js";
+import { checkStoreIntegrity, createStore, listArtifacts } from "../src/lib/storage.js";
 
 test("serves HTTP API and browser artifact pages", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-"));
@@ -605,6 +606,69 @@ test("requires API token when configured and blocks secrets", async () => {
   }
 });
 
+test("supports token-protected admin backup API", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-backup-api-"));
+  const app = await startServer({ port: 0, home, apiToken: "test-token" });
+  const store = createStore({ home });
+
+  try {
+    const createResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-artifacty-token": "test-token"
+      },
+      body: JSON.stringify({
+        title: "API Backup Kept",
+        content: "kept",
+        format: "text",
+        sourceAgent: "test"
+      })
+    });
+    assert.equal(createResponse.status, 201);
+    const kept = await createResponse.json();
+
+    const exportResponse = await fetch(`${app.url}/api/admin/backup`, {
+      headers: { "x-artifacty-token": "test-token" }
+    });
+    assert.equal(exportResponse.status, 200);
+    assert.match(exportResponse.headers.get("content-disposition"), /attachment; filename="artifacty-/);
+    const backup = await exportResponse.json();
+    assert.equal(backup.artifacts[0].id, kept.id);
+
+    const createRemovedResponse = await fetch(`${app.url}/api/artifacts`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-artifacty-token": "test-token"
+      },
+      body: JSON.stringify({
+        title: "API Backup Removed",
+        content: "removed",
+        format: "text",
+        sourceAgent: "test"
+      })
+    });
+    assert.equal(createRemovedResponse.status, 201);
+    assert.equal((await listArtifacts(store)).length, 2);
+
+    const restoreResponse = await fetch(`${app.url}/api/admin/backup/import`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-artifacty-token": "test-token"
+      },
+      body: JSON.stringify(backup)
+    });
+    assert.equal(restoreResponse.status, 200);
+    assert.equal((await restoreResponse.json()).artifactCount, 1);
+    assert.deepEqual((await listArtifacts(store)).map((artifact) => artifact.id), [kept.id]);
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("supports login, user token management, and admin users", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-users-"));
   const app = await startServer({ port: 0, home });
@@ -853,6 +917,100 @@ test("supports login, user token management, and admin users", async () => {
     });
     assert.equal(loginUserResponse.status, 303);
     assert.match(loginUserResponse.headers.get("set-cookie"), /artifacty_session=/);
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("lets admins download and restore artifact backups from the browser", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-backup-"));
+  const app = await startServer({ port: 0, home });
+  const store = createStore({ home });
+
+  try {
+    const setupResponse = await fetch(`${app.url}/login`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        email: "admin@example.com",
+        name: "Admin",
+        password: "password-123"
+      })
+    });
+    assert.equal(setupResponse.status, 303);
+    const cookie = setupResponse.headers.get("set-cookie");
+
+    const createKeptResponse = await fetch(`${app.url}/new`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        title: "Backup Kept",
+        content: "kept",
+        format: "text",
+        artifactType: "document",
+        sourceAgent: "artifacty"
+      })
+    });
+    assert.equal(createKeptResponse.status, 303);
+    const keptId = createKeptResponse.headers.get("location").split("/").pop();
+
+    const backupPageResponse = await fetch(`${app.url}/admin/backup`, {
+      headers: { cookie }
+    });
+    assert.equal(backupPageResponse.status, 200);
+    const backupPage = await backupPageResponse.text();
+    assert.match(backupPage, /Download artifact backup/);
+    assert.match(backupPage, /Restore artifact backup/);
+
+    const exportResponse = await fetch(`${app.url}/admin/backup/export`, {
+      headers: { cookie }
+    });
+    assert.equal(exportResponse.status, 200);
+    assert.match(exportResponse.headers.get("content-disposition"), /attachment; filename="artifacty-/);
+    const backupJson = await exportResponse.text();
+    const backup = JSON.parse(backupJson);
+    assert.equal(backup.artifacts.length, 1);
+    assert.equal(backup.artifacts[0].id, keptId);
+
+    const createRemovedResponse = await fetch(`${app.url}/new`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({
+        title: "Backup Removed",
+        content: "removed",
+        format: "text",
+        artifactType: "document",
+        sourceAgent: "artifacty"
+      })
+    });
+    assert.equal(createRemovedResponse.status, 303);
+    assert.equal((await listArtifacts(store)).length, 2);
+
+    const restoreResponse = await fetch(`${app.url}/admin/backup/import`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: new URLSearchParams({ backup: backupJson })
+    });
+    assert.equal(restoreResponse.status, 200);
+    assert.match(await restoreResponse.text(), /Restore complete/);
+
+    const artifacts = await listArtifacts(store);
+    assert.deepEqual(artifacts.map((artifact) => artifact.id), [keptId]);
+    const integrity = await checkStoreIntegrity(store);
+    assert.equal(integrity.ok, true);
   } finally {
     await app.close();
     await rm(home, { recursive: true, force: true });

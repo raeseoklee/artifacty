@@ -8,6 +8,7 @@ import {
   archiveArtifact,
   authenticateApiToken,
   changeUserPassword,
+  checkStoreIntegrity,
   countUsers,
   createApiToken,
   createArtifact,
@@ -31,6 +32,7 @@ import {
   updateArtifact,
   verifyUserPassword
 } from "./lib/storage.js";
+import { MAX_BACKUP_BYTES, buildStoreBackup, exportStoreToString, importStoreBundle, importStoreFromString } from "./lib/backup.js";
 import { convertAgentArtifact } from "./lib/converters.js";
 import { createLineDiff } from "./lib/diff.js";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, viewerClientFilePath } from "./lib/editor-assets.js";
@@ -43,6 +45,7 @@ import {
   renderArtifactFormPage,
   renderArtifactPage,
   renderAccountPage,
+  renderAdminBackupPage,
   renderAdminArtifactVersionsPage,
   renderAdminUsersPage,
   renderPasswordPage,
@@ -334,6 +337,60 @@ export async function handleRequest({ request, response, store, host, port, secu
     return sendRedirect(response, "/account");
   }
 
+  if (method === "GET" && pathname === "/admin/backup") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    return sendHtml(response, renderAdminBackupPage({
+      baseUrl,
+      user: currentUser,
+      integrity: await checkStoreIntegrity(store),
+      locale,
+      currentPath
+    }), 200, headOnly);
+  }
+
+  if (method === "GET" && pathname === "/admin/backup/export") {
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    return sendBackupDownload(response, await exportStoreToString(store), headOnly);
+  }
+
+  if (method === "POST" && pathname === "/admin/backup/import") {
+    assertLocalOrigin(request);
+    if (!currentUser) {
+      return sendRedirect(response, "/login");
+    }
+    requireAdmin(currentUser);
+    const body = await readFormBody(request, MAX_BACKUP_BYTES);
+    try {
+      const importResult = await importStoreFromString(store, body.backup || "");
+      return sendHtml(response, renderAdminBackupPage({
+        baseUrl,
+        user: currentUser,
+        integrity: await checkStoreIntegrity(store),
+        importResult,
+        locale,
+        currentPath: "/admin/backup"
+      }));
+    } catch (error) {
+      if ((error.statusCode || 500) >= 500) {
+        throw error;
+      }
+      return sendHtml(response, renderAdminBackupPage({
+        baseUrl,
+        user: currentUser,
+        integrity: await checkStoreIntegrity(store),
+        importError: error.message,
+        locale,
+        currentPath: "/admin/backup"
+      }), error.statusCode || 400);
+    }
+  }
+
   if (method === "GET" && pathname === "/admin/users") {
     if (!currentUser) {
       return sendRedirect(response, "/login");
@@ -588,6 +645,23 @@ export async function handleRequest({ request, response, store, host, port, secu
     return sendJson(response, { events }, 200, headOnly);
   }
 
+  if (method === "GET" && pathname === "/api/admin/backup") {
+    requireAdminAuth(request.artifactyAuth);
+    return sendJson(response, await buildStoreBackup(store), 200, headOnly, {
+      "content-disposition": `attachment; filename="${backupFileName()}"`
+    });
+  }
+
+  if (method === "POST" && pathname === "/api/admin/backup/import") {
+    assertLocalOrigin(request);
+    requireAdminAuth(request.artifactyAuth);
+    const body = await readJsonBody(request, MAX_BACKUP_BYTES);
+    const result = typeof body.backup === "string"
+      ? await importStoreFromString(store, body.backup)
+      : await importStoreBundle(store, Array.isArray(body.artifacts) ? body : body.backup);
+    return sendJson(response, result);
+  }
+
   if (method === "POST" && pathname === "/api/artifacts") {
     assertLocalOrigin(request);
     const body = await readJsonBody(request);
@@ -835,8 +909,8 @@ function paginationJson(page) {
   };
 }
 
-export async function readJsonBody(request) {
-  const raw = await readBody(request, MAX_ARTIFACT_BYTES + 1024);
+export async function readJsonBody(request, limitBytes = MAX_ARTIFACT_BYTES + 1024) {
+  const raw = await readBody(request, limitBytes);
   if (!raw.trim()) {
     return {};
   }
@@ -850,8 +924,8 @@ export async function readJsonBody(request) {
   }
 }
 
-export async function readFormBody(request) {
-  const raw = await readBody(request, MAX_ARTIFACT_BYTES + 1024);
+export async function readFormBody(request, limitBytes = MAX_ARTIFACT_BYTES + 1024) {
+  const raw = await readBody(request, limitBytes);
   const params = new URLSearchParams(raw);
   return Object.fromEntries(params.entries());
 }
@@ -903,13 +977,28 @@ export function assertLocalOrigin(request) {
   }
 }
 
-export function sendJson(response, data, statusCode = 200, headOnly = false) {
+export function sendJson(response, data, statusCode = 200, headOnly = false, headers = {}) {
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
-    "x-content-type-options": "nosniff"
+    "x-content-type-options": "nosniff",
+    ...headers
   });
   response.end(headOnly ? undefined : `${JSON.stringify(data, null, 2)}\n`);
+}
+
+function sendBackupDownload(response, content, headOnly = false) {
+  response.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "content-disposition": `attachment; filename="${backupFileName()}"`,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff"
+  });
+  response.end(headOnly ? undefined : content);
+}
+
+function backupFileName() {
+  return `artifacty-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
 }
 
 export function sendHtml(response, html, statusCode = 200, headOnly = false, contentSecurityPolicy = defaultContentSecurityPolicy()) {
@@ -1093,6 +1182,15 @@ async function requireBrowserWriteAuth({ store, request, url, body, config, curr
 
 function requireAdmin(user) {
   if (user?.role !== "admin") {
+    throw Object.assign(new Error("Artifacty admin privileges required"), {
+      code: "ADMIN_REQUIRED",
+      statusCode: 403
+    });
+  }
+}
+
+function requireAdminAuth(auth) {
+  if (auth?.role !== "admin" && auth?.user?.role !== "admin") {
     throw Object.assign(new Error("Artifacty admin privileges required"), {
       code: "ADMIN_REQUIRED",
       statusCode: 403

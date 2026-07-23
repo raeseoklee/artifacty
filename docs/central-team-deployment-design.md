@@ -132,7 +132,9 @@ the user's email as `actor` and created artifacts record the same email as
 Production-like internal deployments should run Artifacty behind a TLS reverse
 proxy, keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled unless the team trusts
 all artifact authors, and store `ARTIFACTY_HOME` on local server disk with
-regular backups.
+regular backups. Administrators can export and restore artifact backup bundles
+from `/admin/backup`; large migrations can use `artifacty backup` on the old
+server and `artifacty import-store --file <backup.json>` on the new server.
 
 For Linux user-service deployments, enable systemd lingering for the service
 account:
