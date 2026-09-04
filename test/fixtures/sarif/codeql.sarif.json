@@ -1,0 +1,74 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "organization": "GitHub",
+          "semanticVersion": "2.15.3",
+          "rules": [
+            {
+              "id": "js/path-injection",
+              "name": "Uncontrolled data used in path expression",
+              "shortDescription": { "text": "Uncontrolled data used in path expression" },
+              "fullDescription": { "text": "Building a file path from untrusted data could allow an attacker to access unexpected resources." },
+              "defaultConfiguration": { "level": "error" },
+              "properties": { "tags": ["security", "external/cwe/cwe-022"] }
+            },
+            {
+              "id": "js/unused-local-variable",
+              "name": "Unused variable, import, function or class",
+              "shortDescription": { "text": "Unused variable, import, function or class" },
+              "defaultConfiguration": { "level": "note" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "js/path-injection",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": { "text": "This path depends on a user-provided value, and is used to access the file system." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/lib/storage.js" },
+                "region": { "startLine": 512, "startColumn": 10, "endColumn": 41 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "js/unused-local-variable",
+          "ruleIndex": 1,
+          "message": { "text": "Unused variable 'legacyToken'." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/server.js" },
+                "region": { "startLine": 88, "startColumn": 9 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "js/path-injection",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": { "text": "This path depends on a user-provided value, and is used to access the file system." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/cli.js" },
+                "region": { "startLine": 204, "startColumn": 5 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

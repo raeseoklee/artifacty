@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { normalizeSourceAgent } from "./agents.js";
-import { ARTIFACT_TYPES, contentTypeForFormat, normalizeFormat } from "./storage.js";
+import { ARTIFACT_TYPES, BUNDLE_BINARY_CONTENT_TYPES, contentTypeForFormat, normalizeFormat } from "./storage.js";
 
 const CONTINUATION_AGENTS = new Set(["codex", "copilot", "cursor"]);
 
@@ -119,6 +119,9 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (type.includes("vnd.ant.react") || type.includes("jsx")) {
     return "react";
   }
+  if (type.includes("ipynb") || type.includes("notebook")) {
+    return "notebook";
+  }
   if (type.includes("html")) {
     return "html";
   }
@@ -126,9 +129,12 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
     return "markdown";
   }
   if (type.includes("json")) {
-    return "json";
+    return looksLikeNotebook(content) ? "notebook" : "json";
   }
   const lowerName = optionalString(fileName).toLowerCase();
+  if (lowerName.endsWith(".ipynb")) {
+    return "notebook";
+  }
   if (lowerName.endsWith(".sarif") || lowerName.endsWith(".sarif.json")) {
     return "sarif";
   }
@@ -161,6 +167,9 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   if (extension === ".jsx" || extension === ".tsx") {
     return "react";
   }
+  if (extension === ".ipynb") {
+    return "notebook";
+  }
   if (isCodeExtension(extension)) {
     return "code";
   }
@@ -189,6 +198,9 @@ export function detectFormat({ content = "", contentType = "", fileName = "" } =
   }
   if (looksLikeSarif(trimmed)) {
     return "sarif";
+  }
+  if (looksLikeNotebook(trimmed)) {
+    return "notebook";
   }
   if (looksLikeJson(trimmed)) {
     return "json";
@@ -244,6 +256,21 @@ function decodeObjectPayload(value, agent) {
       tags: artifactObject.tags,
       metadata: {
         originalPayloadShape: "sarif"
+      }
+    };
+  }
+
+  if (isNotebookObject(artifactObject)) {
+    return {
+      content: JSON.stringify(artifactObject, null, 2),
+      format: "notebook",
+      contentType: "application/x-ipynb+json; charset=utf-8",
+      title: artifactObject.title || artifactObject.name || "Notebook",
+      sourceAgent: artifactObject.sourceAgent || artifactObject.source_agent || artifactObject.agent || (agent === "auto" ? undefined : agent),
+      artifactType: artifactObject.artifactType || artifactObject.artifact_type || "analysis-report",
+      tags: artifactObject.tags,
+      metadata: {
+        originalPayloadShape: "notebook"
       }
     };
   }
@@ -440,13 +467,30 @@ function decodeBundlePayload(object, agent) {
     ? collectContinuationMetadata(continuationAgent, { agent: sourceAgent }, bundle, object)
     : {};
   const normalizedFiles = files.map((file, index) => {
+    const filePath = optionalString(file.path || file.name || `file-${index + 1}`);
+    const declaredContentType = optionalString(file.contentType || file.mimeType).toLowerCase().split(";")[0].trim();
+    const isBinary = file.encoding === "base64" || BUNDLE_BINARY_CONTENT_TYPES.has(declaredContentType);
+
+    if (isBinary) {
+      const base64 = normalizeBase64(typeof file.content === "string" ? file.content : "");
+      const decoded = base64 ? Buffer.from(base64, "base64") : Buffer.alloc(0);
+      return {
+        path: filePath,
+        content: base64,
+        encoding: "base64",
+        contentType: declaredContentType || "application/octet-stream",
+        sizeBytes: decoded.byteLength,
+        sha256: createHash("sha256").update(decoded).digest("hex")
+      };
+    }
+
     const content = typeof file.content === "string" ? file.content : "";
     return {
-      path: optionalString(file.path || file.name || `file-${index + 1}`),
+      path: filePath,
       content,
       contentType: optionalString(file.contentType || file.mimeType) || contentTypeForFormat(detectFormat({
         content,
-        fileName: file.path || file.name
+        fileName: filePath
       })),
       sizeBytes: Buffer.byteLength(content, "utf8"),
       sha256: createHash("sha256").update(content).digest("hex")
@@ -1098,7 +1142,7 @@ function inferArtifactType({ format, content, fileName, metadata }) {
   if (format === "code") {
     return "snippet";
   }
-  if (format === "sarif") {
+  if (format === "sarif" || format === "notebook") {
     return "analysis-report";
   }
   if (format === "csv") {
@@ -1188,6 +1232,27 @@ function isSarifObject(value) {
     !Array.isArray(value) &&
     Array.isArray(value.runs) &&
     (typeof value.version === "string" || optionalString(value.$schema).toLowerCase().includes("sarif"));
+}
+
+function looksLikeNotebook(value) {
+  if (!looksLikeJson(value)) {
+    return false;
+  }
+  try {
+    return isNotebookObject(JSON.parse(optionalString(value)));
+  } catch {
+    return false;
+  }
+}
+
+export function isNotebookObject(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      value.nbformat !== undefined &&
+      Array.isArray(value.cells)
+  );
 }
 
 function looksLikeHtml(value) {
@@ -1419,4 +1484,33 @@ function optionalString(value) {
     return "";
   }
   return String(value).trim();
+}
+
+// Resolves the best available image/video content type for a stored
+// artifact: an explicit media MIME type in version metadata, then the
+// version's own contentType if it is itself image/video, then a
+// format-based fallback. Used when serving raw media bytes (e.g. GET
+// /artifacts/:id/raw) so a stale or missing contentType still renders.
+export function mediaContentType(artifact) {
+  const metadataType = String(artifact.version.metadata?.mimeType || "").toLowerCase();
+  if (metadataType.startsWith("image/") || metadataType.startsWith("video/")) {
+    return metadataType;
+  }
+  const versionType = String(artifact.version.contentType || "").toLowerCase().split(";")[0];
+  if (versionType.startsWith("image/") || versionType.startsWith("video/")) {
+    return versionType;
+  }
+  return artifact.version.format === "video" ? "video/mp4" : "image/png";
+}
+
+// Decodes an image/video artifact's stored content (a data: URL or bare
+// base64 string) into raw bytes, or returns null if it isn't valid base64.
+export function decodeMediaContent(content) {
+  const value = String(content || "").trim();
+  const dataUrl = /^data:[^;,]+;base64,([A-Za-z0-9+/=_-\s]+)$/i.exec(value);
+  const base64 = (dataUrl ? dataUrl[1] : value).replace(/\s+/g, "").replaceAll("-", "+").replaceAll("_", "/");
+  if (!base64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    return null;
+  }
+  return Buffer.from(base64, "base64");
 }

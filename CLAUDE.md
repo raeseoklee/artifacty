@@ -39,7 +39,7 @@ The store lives at `ARTIFACTY_HOME` or `~/.artifacty` by default.
 - `server.json` records the currently running browser server URL so CLI and MCP responses keep working when the default port falls back.
 - Legacy `index.json` stores migrate automatically on first access.
 
-Versions are append-only. Do not mutate prior content files.
+Versions are append-only. Do not mutate prior content files, except through the audited admin repair (`replaceArtifactVersion`) and delete (`deleteArtifactVersion`) paths, which exist specifically to correct bad historical versions and record every change in the audit log.
 
 ### Security Model
 

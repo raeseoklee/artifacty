@@ -3,6 +3,8 @@ import path from "node:path";
 import { arch, platform } from "node:os";
 import { backgroundStatus } from "./background.js";
 import { checkMcpTools } from "./check.js";
+import { createEmbeddingProvider } from "./embeddings.js";
+import { getRetentionPolicy, isRetentionPolicyInert } from "./retention.js";
 import { securityConfig, validateServerExposure, exposureWarning } from "./security.js";
 import { serviceCommand } from "./service.js";
 import { checkStoreIntegrity, createStore } from "./storage.js";
@@ -17,6 +19,8 @@ export async function runDoctor(options = {}) {
   await collect(checks, "runtime", () => runtimeCheck(packageRoot));
   await collect(checks, "security", () => securityCheck(options));
   await collect(checks, "storage", () => storageCheck(store));
+  await collect(checks, "retention", () => retentionCheck(store));
+  await collect(checks, "embeddings", () => embeddingsCheck());
   await collect(checks, "server", () => serverCheck(store));
   await collect(checks, "service", () => serviceCheck(options));
   if (options.skipMcp) {
@@ -116,13 +120,95 @@ async function storageCheck(store) {
   };
 }
 
+async function retentionCheck(store) {
+  const policy = await getRetentionPolicy(store);
+  const inert = isRetentionPolicyInert(policy);
+  return {
+    status: "pass",
+    message: inert
+      ? "No retention policy configured; artifacts, audit rows, and events are kept indefinitely"
+      : "Retention policy is configured",
+    data: { policy, purgeAllowed: process.env.ARTIFACTY_RETENTION_ALLOW_PURGE === "true" }
+  };
+}
+
+// Reports whether a semantic-search embedding provider is configured,
+// redacting the API key (never logging or returning it in full) since
+// doctor output is often pasted into issues or chat.
+function embeddingsCheck() {
+  const provider = createEmbeddingProvider(process.env);
+  if (!provider) {
+    return {
+      status: "pass",
+      message: "No embedding provider is configured; search falls back to keyword-only.",
+      data: { configured: false }
+    };
+  }
+  const data = {
+    configured: true,
+    provider: provider.name,
+    model: provider.model
+  };
+  if (provider.name === "openai-compatible") {
+    data.url = redactUrlUserinfo(process.env.ARTIFACTY_EMBEDDINGS_URL);
+    data.apiKey = redactSecret(process.env.ARTIFACTY_EMBEDDINGS_API_KEY);
+  }
+  if (provider.name === "command") {
+    data.command = redactSecretAssignments(process.env.ARTIFACTY_EMBEDDINGS_COMMAND);
+  }
+  return {
+    status: "pass",
+    message: `Embedding provider "${provider.name}" is configured with model "${provider.model}"`,
+    data
+  };
+}
+
+function redactSecret(value) {
+  if (!value) {
+    return undefined;
+  }
+  // Fixed-width placeholder: doesn't reveal the key's length or any of its
+  // characters, unlike a partial reveal.
+  return "****";
+}
+
+// Doctor output is often pasted into issues or chat, so any credential that
+// could be embedded in a command line or URL must be scrubbed, not just the
+// dedicated API key field above.
+function redactSecretAssignments(value) {
+  if (!value) {
+    return undefined;
+  }
+  return String(value).replace(
+    /\b([A-Za-z_][A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD)[A-Za-z0-9_]*)\s*=\s*(?:"[^"]*"|'[^']*'|\S+)/gi,
+    "$1=****"
+  );
+}
+
+function redactUrlUserinfo(value) {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const url = new URL(String(value));
+    if (url.username || url.password) {
+      url.username = "****";
+      url.password = "";
+      return url.toString();
+    }
+    return String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 async function serverCheck(store) {
   const status = await backgroundStatus({ home: store.home });
   if (status.running) {
     return {
       status: "pass",
-      message: `Managed server is healthy at ${status.url}`,
-      data: status
+      message: `Managed server is healthy at ${status.url} (OpenAPI: ${status.url}/openapi.json)`,
+      data: { ...status, openApiUrl: `${status.url}/openapi.json` }
     };
   }
   if (status.processRunning || status.pidFileExists) {

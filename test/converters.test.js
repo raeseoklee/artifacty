@@ -180,6 +180,58 @@ test("converts SARIF and CSV output artifacts", () => {
   assert.equal(plainCsv.artifactType, "table");
 });
 
+test("converts Jupyter notebook artifacts", () => {
+  const notebookJson = JSON.stringify({
+    nbformat: 4,
+    nbformat_minor: 5,
+    metadata: { language_info: { name: "python" } },
+    cells: [
+      { cell_type: "markdown", source: ["# Report\n"] },
+      { cell_type: "code", execution_count: 1, source: ["print('hi')"], outputs: [] }
+    ]
+  });
+
+  const notebookFile = convertAgentArtifact({
+    agent: "codex",
+    fileName: "analysis.ipynb",
+    content: notebookJson
+  });
+  assert.equal(notebookFile.format, "notebook");
+  assert.equal(notebookFile.contentType, "application/x-ipynb+json; charset=utf-8");
+  assert.equal(notebookFile.artifactType, "analysis-report");
+
+  const notebookMime = convertAgentArtifact({
+    agent: "generic",
+    contentType: "application/x-ipynb+json",
+    content: notebookJson
+  });
+  assert.equal(notebookMime.format, "notebook");
+  assert.equal(notebookMime.artifactType, "analysis-report");
+
+  const notebookSniffed = convertAgentArtifact({
+    agent: "generic",
+    content: notebookJson
+  });
+  assert.equal(notebookSniffed.format, "notebook");
+  assert.equal(notebookSniffed.artifactType, "analysis-report");
+
+  const notebookObject = convertAgentArtifact({
+    agent: "auto",
+    payload: JSON.parse(notebookJson)
+  });
+  assert.equal(notebookObject.format, "notebook");
+  assert.equal(notebookObject.metadata.originalPayloadShape, "notebook");
+
+  // A plain JSON object that merely happens to have a "cells" array but no
+  // nbformat marker should not be misdetected as a notebook.
+  const plainJsonWithCells = convertAgentArtifact({
+    agent: "generic",
+    contentType: "application/json",
+    content: JSON.stringify({ cells: ["a", "b"] })
+  });
+  assert.equal(plainJsonWithCells.format, "json");
+});
+
 test("converts first-class media output artifacts", () => {
   const pngBase64 = "iVBORw0KGgo=";
   const image = convertAgentArtifact({
@@ -513,6 +565,39 @@ test("converts file bundles into Artifacty bundle JSON", () => {
   assert.equal(bundle.files[0].path, "README.md");
 });
 
+test("converts file bundles with binary document entries into base64 bundle file entries", () => {
+  const pdfBytes = Buffer.from("%PDF-1.4 fake pdf bytes");
+  const converted = convertAgentArtifact({
+    agent: "codex",
+    payload: {
+      title: "Doc bundle",
+      files: [
+        { path: "README.md", content: "# Readme" },
+        {
+          path: "report.pdf",
+          contentType: "application/pdf",
+          encoding: "base64",
+          content: pdfBytes.toString("base64")
+        }
+      ]
+    }
+  });
+  const bundle = JSON.parse(converted.content);
+
+  assert.equal(converted.artifactType, "bundle");
+  assert.equal(bundle.files.length, 2);
+
+  const pdfEntry = bundle.files.find((file) => file.path === "report.pdf");
+  assert.equal(pdfEntry.encoding, "base64");
+  assert.equal(pdfEntry.contentType, "application/pdf");
+  assert.equal(pdfEntry.sizeBytes, pdfBytes.byteLength);
+  assert.equal(pdfEntry.content, pdfBytes.toString("base64"));
+
+  const readmeEntry = bundle.files.find((file) => file.path === "README.md");
+  assert.equal(readmeEntry.encoding, undefined);
+  assert.equal(readmeEntry.content, "# Readme");
+});
+
 test("converts Artifacty-compatible JSON payloads", () => {
   const converted = convertAgentArtifact({
     agent: "auto",
@@ -532,3 +617,26 @@ test("converts Artifacty-compatible JSON payloads", () => {
   assert.equal(converted.schemaVersion, 1);
   assert.ok(converted.tags.includes("handoff"));
 });
+
+// Roadmap section 7: real-world SARIF fixtures from CodeQL, Semgrep, and
+// Trivy, verifying import still infers sarif/analysis-report for each tool's
+// actual output shape (not just the hand-rolled minimal SARIF used above).
+for (const tool of ["codeql", "semgrep", "trivy"]) {
+  test(`imports real-world ${tool} SARIF fixture as an analysis-report`, async () => {
+    const content = await readFile(`test/fixtures/sarif/${tool}.sarif.json`, "utf8");
+    const converted = convertAgentArtifact({
+      agent: "codex",
+      fileName: `${tool}-results.sarif.json`,
+      content
+    });
+    assert.equal(converted.format, "sarif");
+    assert.equal(converted.artifactType, "analysis-report");
+    assert.deepEqual(JSON.parse(converted.content), JSON.parse(content));
+
+    const parsed = JSON.parse(converted.content);
+    assert.equal(parsed.version, "2.1.0");
+    assert.ok(parsed.runs.length > 0);
+    assert.ok(parsed.runs[0].tool.driver.name.length > 0);
+    assert.ok(parsed.runs[0].results.length > 0);
+  });
+}

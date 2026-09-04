@@ -51,7 +51,7 @@ artifacty doctor
 
 ## Operations
 
-- Export a backup before upgrades: `artifacty backup`.
+- Export a backup before upgrades: `artifacty backup` (artifacts only) or `artifacty backup --full` (also users, tokens, audit log, relations, webhooks) before a server move or major upgrade.
 - Confirm `artifacty audit --limit 20` shows recent create/update/read/archive events.
 - Confirm `artifacty doctor` reports no failures. A stopped server warning is acceptable when intentionally checking an offline store.
 - For background service installs, dry-run first: `artifacty service install --dry-run`. Use `--platform macos|linux|windows` to review another OS definition.

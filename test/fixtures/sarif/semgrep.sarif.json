@@ -1,0 +1,58 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Semgrep OSS",
+          "informationUri": "https://semgrep.dev",
+          "semanticVersion": "1.78.0",
+          "rules": [
+            {
+              "id": "javascript.express.security.audit.express-insecure-cookie.express-insecure-cookie",
+              "shortDescription": { "text": "Insecure cookie configuration" },
+              "fullDescription": { "text": "Cookies are set without the `secure` and `httpOnly` flags." },
+              "help": { "text": "Set `secure: true` and `httpOnly: true` when configuring session cookies." },
+              "defaultConfiguration": { "level": "warning" },
+              "properties": { "tags": ["security", "owasp-a05"] }
+            },
+            {
+              "id": "javascript.lang.security.audit.hardcoded-credentials.hardcoded-credentials",
+              "shortDescription": { "text": "Hardcoded credentials" },
+              "defaultConfiguration": { "level": "error" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "javascript.express.security.audit.express-insecure-cookie.express-insecure-cookie",
+          "level": "warning",
+          "message": { "text": "Session cookie is missing the 'secure' and 'httpOnly' flags." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/server.js" },
+                "region": { "startLine": 140, "startColumn": 3, "endLine": 145 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "javascript.lang.security.audit.hardcoded-credentials.hardcoded-credentials",
+          "level": "error",
+          "message": { "text": "Hardcoded credential detected in source; move it to an environment variable." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "test/fixtures/sample-config.js" },
+                "region": { "startLine": 12, "startColumn": 14 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

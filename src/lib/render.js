@@ -1,39 +1,26 @@
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
 import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, switchLocaleHref } from "./i18n.js";
-import { ARTIFACT_FORMATS, ARTIFACT_TYPES } from "./storage.js";
+import { ARTIFACT_FORMATS, ARTIFACT_TYPES, REVIEW_STATUSES, SAVED_VIEW_FILTER_KEYS, VISIBILITY_VALUES } from "./storage.js";
+import { normalizeMaxEntries as resolveMaxDiffEntries } from "./diff.js";
+import { parseCsv } from "./csv.js";
+import {
+  isSarifDocument,
+  rulesMapsForRun,
+  sarifResultLevel,
+  sarifResultRuleId
+} from "./sarif-csv-export.js";
+import { isNotebookObject } from "./converters.js";
+import { GROUP_BY_VALUES, groupKeyFor } from "./listing.js";
 
-export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/", user = null }) {
+export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/", user = null, savedViews = [], embeddingsAvailable = false }) {
   const view = viewContext(locale, currentPath);
   const total = pagination?.total ?? artifacts.length;
   const start = artifacts.length ? (pagination?.offset ?? 0) + 1 : 0;
   const end = artifacts.length ? (pagination?.offset ?? 0) + artifacts.length : 0;
   const searchBackend = pagination?.search?.backend;
   const pager = renderDashboardPager({ pagination, filters, view });
-  const rows = artifacts
-    .map((artifact) => {
-      const tags = artifact.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
-      const status = artifact.archivedAt ? statusBadge("archived") : "";
-      const publisher = publisherDisplay(artifact, view);
-      const snippet = artifact.searchSnippet
-        ? `<span class="row-snippet">${escapeHtml(artifact.searchSnippet)}</span>`
-        : "";
-      return `
-        <a class="artifact-row" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">
-          <span class="row-main">
-            <strong>${escapeHtml(artifact.title)}</strong>
-            <span>${escapeHtml(artifact.id)}</span>
-            ${snippet}
-          </span>
-          <span>${escapeHtml(artifact.sourceAgent)}</span>
-          <span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>
-          ${typeBadge(artifact.artifactType || "document")}
-          ${formatBadge(artifact.format || "text")}
-          <span>v${artifact.latestVersion}</span>
-          <span class="tags">${status}${tags}</span>
-        </a>
-      `;
-    })
-    .join("");
+  const rowsHtml = renderArtifactRows(artifacts, filters.groupBy, view);
+  const sidebar = renderSavedViewsSidebar({ savedViews, filters, view });
 
   return pageShell({
     title: "Artifacty",
@@ -54,29 +41,177 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
           ${languageSwitcher(view)}
         </nav>
       </header>
-      <main class="dashboard">
-        <section class="toolbar">
-          <span>${view.text("dashboard.range", { start, end, total })}</span>
-          ${searchBackend ? `<span>${view.text("dashboard.searchBackend", { backend: searchBackend })}</span>` : ""}
-        </section>
-        <form class="filter-form" method="get" action="/">
-          ${localeInput(view.locale)}
-          ${filters.limit ? `<input type="hidden" name="limit" value="${escapeAttribute(filters.limit)}">` : ""}
-          <input name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("filter.search")}">
-          <input name="tag" value="${escapeAttribute(filters.tag || "")}" placeholder="${view.attr("filter.tag")}">
-          <input name="sourceAgent" value="${escapeAttribute(filters.sourceAgent || "")}" placeholder="${view.attr("filter.source")}">
-          <label class="checkbox-field"><input type="checkbox" name="includeArchived" value="true"${filters.includeArchived ? " checked" : ""}> ${view.text("filter.archived")}</label>
-          <button type="submit">${view.text("filter.submit")}</button>
-          <a href="${view.href("/")}">${view.text("filter.clear")}</a>
-        </form>
-        <section class="artifact-list">
-          ${rows || `<div class="empty">${view.text("dashboard.empty")}</div>`}
-        </section>
-        ${pager}
-      </main>
+      <div class="dashboard-layout">
+        ${sidebar}
+        <main class="dashboard">
+          <section class="toolbar">
+            <span>${view.text("dashboard.range", { start, end, total })}</span>
+            ${searchBackend ? `<span>${view.text("dashboard.searchBackend", { backend: searchBackend })}</span>` : ""}
+          </section>
+          <form class="filter-form" method="get" action="/">
+            ${localeInput(view.locale)}
+            ${filters.limit ? `<input type="hidden" name="limit" value="${escapeAttribute(filters.limit)}">` : ""}
+            <input name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("filter.search")}">
+            <input name="tag" value="${escapeAttribute(filters.tag || "")}" placeholder="${view.attr("filter.tag")}">
+            <input name="sourceAgent" value="${escapeAttribute(filters.sourceAgent || "")}" placeholder="${view.attr("filter.source")}">
+            ${filterArtifactTypeSelect(filters.artifactType, view)}
+            <input name="publisher" value="${escapeAttribute(filters.publisher || "")}" placeholder="${view.attr("filter.publisher")}">
+            <input type="date" name="createdAfter" value="${escapeAttribute(filters.createdAfter || "")}" title="${view.attr("filter.createdAfter")}">
+            <input type="date" name="createdBefore" value="${escapeAttribute(filters.createdBefore || "")}" title="${view.attr("filter.createdBefore")}">
+            ${filterReviewStatusSelect(filters.reviewStatus, view)}
+            ${embeddingsAvailable ? filterModeSelect(filters.mode, view) : ""}
+            ${filterGroupBySelect(filters.groupBy, view)}
+            <label class="checkbox-field"><input type="checkbox" name="includeArchived" value="true"${filters.includeArchived ? " checked" : ""}> ${view.text("filter.archived")}</label>
+            <button type="submit">${view.text("filter.submit")}</button>
+            <a href="${view.href("/")}">${view.text("filter.clear")}</a>
+          </form>
+          <section class="artifact-list">
+            ${rowsHtml || `<div class="empty">${view.text("dashboard.empty")}</div>`}
+          </section>
+          ${pager}
+        </main>
+      </div>
     `,
     locale: view.locale
   });
+}
+
+function renderArtifactRow(artifact, view) {
+  const tags = artifact.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
+  const status = artifact.archivedAt ? statusBadge("archived") : "";
+  const visibility = visibilityBadge(artifact, view);
+  const publisher = publisherDisplay(artifact, view);
+  const snippet = artifact.searchSnippet
+    ? `<span class="row-snippet">${escapeHtml(artifact.searchSnippet)}</span>`
+    : "";
+  return `
+    <a class="artifact-row" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">
+      <span class="row-main">
+        <strong>${escapeHtml(artifact.title)}</strong>
+        <span>${escapeHtml(artifact.id)}</span>
+        ${snippet}
+      </span>
+      <span>${escapeHtml(artifact.sourceAgent)}</span>
+      <span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>
+      ${typeBadge(artifact.artifactType || "document")}
+      ${formatBadge(artifact.format || "text")}
+      <span>v${artifact.latestVersion}</span>
+      <span class="tags">${status}${visibility}${tags}</span>
+    </a>
+  `;
+}
+
+// groupBy is purely presentational: it groups the already-fetched, already-
+// sorted page of artifacts into labeled sections without changing the query.
+function renderArtifactRows(artifacts, groupBy, view) {
+  if (!GROUP_BY_VALUES.includes(groupBy)) {
+    return artifacts.map((artifact) => renderArtifactRow(artifact, view)).join("");
+  }
+
+  const groups = new Map();
+  for (const artifact of artifacts) {
+    const key = groupKeyFor(artifact, groupBy);
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(artifact);
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, group]) => `
+      <section class="artifact-group">
+        <h2 class="artifact-group-heading">${escapeHtml(groupHeadingLabel(key, groupBy, view))}</h2>
+        ${group.map((artifact) => renderArtifactRow(artifact, view)).join("")}
+      </section>
+    `)
+    .join("");
+}
+
+function groupHeadingLabel(key, groupBy, view) {
+  if (groupBy === "day" && !key) {
+    return view.raw("dashboard.groupUnknown");
+  }
+  return key || view.raw("dashboard.groupUnknown");
+}
+
+// Shared by every <select> whose options are just ARTIFACT_TYPES rendered
+// as their own value and (escaped) label.
+function artifactTypeOptions(selected) {
+  return ARTIFACT_TYPES.map((type) => `<option value="${type}"${type === selected ? " selected" : ""}>${escapeHtml(type)}</option>`).join("");
+}
+
+function filterArtifactTypeSelect(selected, view) {
+  return `<select name="artifactType">
+    <option value="">${view.text("filter.artifactTypeAny")}</option>
+    ${artifactTypeOptions(selected)}
+  </select>`;
+}
+
+function filterReviewStatusSelect(selected, view) {
+  return `<select name="reviewStatus">
+    <option value="">${view.text("filter.reviewStatusAny")}</option>
+    ${REVIEW_STATUSES.map((status) => `<option value="${status}"${status === selected ? " selected" : ""}>${view.text(`reviewStatus.${status}`)}</option>`).join("")}
+  </select>`;
+}
+
+const SEARCH_MODE_VALUES = ["keyword", "semantic", "hybrid"];
+
+// Only rendered when the caller confirms an embedding provider is
+// configured (roadmap section 6): semantic/hybrid search silently falls
+// back to keyword without one, so the toggle would otherwise mislead.
+function filterModeSelect(selected, view) {
+  return `<select name="mode">
+    <option value="">${view.text("filter.modeDefault")}</option>
+    ${SEARCH_MODE_VALUES.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${view.text(`filter.mode.${value}`)}</option>`).join("")}
+  </select>`;
+}
+
+function filterGroupBySelect(selected, view) {
+  return `<select name="groupBy">
+    <option value="">${view.text("filter.groupByNone")}</option>
+    ${GROUP_BY_VALUES.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${view.text(`filter.groupBy.${value}`)}</option>`).join("")}
+  </select>`;
+}
+
+function renderSavedViewsSidebar({ savedViews, filters, view }) {
+  const items = savedViews.length
+    ? savedViews.map((savedView) => `
+        <li class="saved-view-item">
+          <a href="${view.href(`/?view=${encodeURIComponent(savedView.id)}`)}">${escapeHtml(savedView.name)}</a>
+          ${savedView.shared ? `<span class="badge saved-view-shared">${view.text("views.shared")}</span>` : ""}
+          <form method="post" action="${view.href(`/views/${encodeURIComponent(savedView.id)}/delete`)}" class="saved-view-delete">
+            ${localeInput(view.locale)}
+            <button type="submit">${view.text("views.delete")}</button>
+          </form>
+        </li>
+      `).join("")
+    : `<li class="empty">${view.text("views.empty")}</li>`;
+
+  return `
+    <aside class="dashboard-sidebar">
+      <h2>${view.text("views.title")}</h2>
+      <ul class="saved-view-list">${items}</ul>
+      <form method="post" action="${view.href("/views")}" class="saved-view-form">
+        ${localeInput(view.locale)}
+        ${savedViewFilterHiddenInputs(filters)}
+        <input name="name" placeholder="${view.attr("views.namePlaceholder")}" required>
+        <label class="checkbox-field"><input type="checkbox" name="shared" value="true"> ${view.text("views.shared")}</label>
+        <button type="submit">${view.text("views.save")}</button>
+      </form>
+    </aside>
+  `;
+}
+
+// Every SAVED_VIEW_FILTER_KEYS entry as a hidden form field, so a filter
+// added there (e.g. relatedTo/relation) is captured by "save current
+// filters" automatically instead of needing a hand-added <input> here too.
+function savedViewFilterHiddenInputs(filters) {
+  return SAVED_VIEW_FILTER_KEYS.map((key) => {
+    if (key === "includeArchived") {
+      return `<input type="hidden" name="includeArchived" value="${filters.includeArchived ? "true" : ""}">`;
+    }
+    return `<input type="hidden" name="${key}" value="${escapeAttribute(filters[key] || "")}">`;
+  }).join("\n        ");
 }
 
 function renderDashboardPager({ pagination, filters, view }) {
@@ -96,14 +231,21 @@ function renderDashboardPager({ pagination, filters, view }) {
 
 function dashboardPageHref(filters, offset) {
   const params = new URLSearchParams();
-  if (filters.query) {
-    params.set("q", filters.query);
+  // Every SAVED_VIEW_FILTER_KEYS entry (except includeArchived, handled
+  // below) round-trips through the dashboard's pager links the same way it
+  // round-trips through the saved-view form above, so relatedTo/relation
+  // (or any future filter key) can't silently drop out of pagination.
+  for (const key of SAVED_VIEW_FILTER_KEYS) {
+    if (key === "includeArchived" || !filters[key]) {
+      continue;
+    }
+    params.set(key === "query" ? "q" : key, filters[key]);
   }
-  if (filters.tag) {
-    params.set("tag", filters.tag);
+  if (filters.groupBy) {
+    params.set("groupBy", filters.groupBy);
   }
-  if (filters.sourceAgent) {
-    params.set("sourceAgent", filters.sourceAgent);
+  if (filters.view) {
+    params.set("view", filters.view);
   }
   if (filters.includeArchived) {
     params.set("includeArchived", "true");
@@ -118,7 +260,7 @@ function dashboardPageHref(filters, offset) {
   return query ? `/?${query}` : "/";
 }
 
-export function renderArtifactFormPage({ mode, baseUrl, artifact, version, content, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/" }) {
+export function renderArtifactFormPage({ mode, baseUrl, artifact, version, content, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", expectedVersion, conflict = null }) {
   const view = viewContext(locale, currentPath);
   const isEdit = mode === "edit";
   const title = isEdit ? view.raw("form.editTitle", { title: artifact.title }) : view.raw("form.newTitle");
@@ -128,6 +270,13 @@ export function renderArtifactFormPage({ mode, baseUrl, artifact, version, conte
   const artifactType = artifact?.artifactType || "document";
   const tags = artifact?.tags?.join(", ") || "";
   const body = content ?? "# New artifact";
+  const editVersion = expectedVersion ?? version?.version ?? artifact?.latestVersion;
+  const conflictBanner = conflict
+    ? `<div class="conflict-banner" role="alert">
+        <p>${view.text("form.conflict", { latestVersion: conflict.latestVersion })}</p>
+        <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff?from=${encodeURIComponent(editVersion)}&to=${encodeURIComponent(conflict.latestVersion)}`)}">${view.text("form.conflictDiff")}</a>
+      </div>`
+    : "";
 
   return pageShell({
     title,
@@ -143,9 +292,11 @@ export function renderArtifactFormPage({ mode, baseUrl, artifact, version, conte
         </nav>
       </header>
       <main class="artifact-editor">
+        ${conflictBanner}
         <form class="editor-form" method="post" action="${action}">
           ${hiddenToken(authToken)}
           ${localeInput(view.locale)}
+          ${isEdit && (conflict?.latestVersion ?? editVersion) != null ? `<input type="hidden" name="expectedVersion" value="${escapeAttribute(String(conflict?.latestVersion ?? editVersion))}">` : ""}
           <section class="editor-fields">
             <label class="field">
               <span>${view.text("form.title")}</span>
@@ -167,6 +318,10 @@ export function renderArtifactFormPage({ mode, baseUrl, artifact, version, conte
               <span>${view.text("form.tags")}</span>
               <input name="tags" value="${escapeAttribute(tags)}" autocomplete="off">
             </label>
+            ${isEdit ? "" : `<label class="field">
+              <span>${view.text("artifact.visibility.label")}</span>
+              ${visibilitySelect(artifact?.visibility || "team", view)}
+            </label>`}
           </section>
           <section class="field content-field">
             <label for="artifact-content">${view.text("form.content")}</label>
@@ -373,11 +528,20 @@ export function renderLoginPage({ baseUrl, setup = false, error = "", locale = D
   });
 }
 
-export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "", locale = DEFAULT_LOCALE, currentPath = "/account" }) {
+export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "", privateArtifacts = [], locale = DEFAULT_LOCALE, currentPath = "/account" }) {
   const view = viewContext(locale, currentPath);
+  const privateArtifactRows = privateArtifacts.map((artifact) => `
+    <tr>
+      <td><a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">${escapeHtml(artifact.title)}</a></td>
+      <td>${escapeHtml(artifact.id)}</td>
+      <td>${escapeHtml(artifact.updatedAt)}</td>
+      <td>${artifact.archivedAt ? statusBadge(view.text("artifact.archived", { date: artifact.archivedAt })) : ""}</td>
+    </tr>
+  `).join("");
   const rows = tokens.map((token) => `
     <tr>
       <td>${escapeHtml(token.name)}</td>
+      <td>${escapeHtml((token.scopes || ["read", "write"]).join(", "))}</td>
       <td>${escapeHtml(token.createdAt)}</td>
       <td>${token.lastUsedAt ? escapeHtml(token.lastUsedAt) : "Never"}</td>
       <td>${token.revokedAt ? escapeHtml(token.revokedAt) : "Active"}</td>
@@ -418,17 +582,30 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
           <p>Role: ${escapeHtml(user.role)}</p>
         </section>
         <section class="meta-card">
-          <h2>Create API token</h2>
-          <form class="inline-action" method="post" action="/account/tokens">
+          <h2>${view.text("tokens.createTitle")}</h2>
+          <form class="inline-action token-create-form" method="post" action="/account/tokens">
             <input name="name" placeholder="Token name" autocomplete="off" required>
+            <fieldset class="token-scopes">
+              <legend>${view.text("tokens.scopes")}</legend>
+              <label><input type="checkbox" name="scopeRead" checked> ${view.text("tokens.scope.read")}</label>
+              <label><input type="checkbox" name="scopeWrite" checked> ${view.text("tokens.scope.write")}</label>
+              ${user.role === "admin" ? `<label><input type="checkbox" name="scopeAdmin"> ${view.text("tokens.scope.admin")}</label>` : ""}
+            </fieldset>
             <button type="submit">Create token</button>
           </form>
         </section>
         <section class="meta-card">
           <h2>API tokens</h2>
           <table class="data-table">
-            <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="5">No API tokens.</td></tr>`}</tbody>
+            <thead><tr><th>Name</th><th>${view.text("tokens.scopes")}</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="6">No API tokens.</td></tr>`}</tbody>
+          </table>
+        </section>
+        <section class="meta-card">
+          <h2>${view.text("account.privateArtifacts")}</h2>
+          <table class="data-table">
+            <thead><tr><th>Title</th><th>ID</th><th>Updated</th><th>Status</th></tr></thead>
+            <tbody>${privateArtifactRows || `<tr><td colspan="4">None.</td></tr>`}</tbody>
           </table>
         </section>
       </main>
@@ -483,7 +660,17 @@ export function renderPasswordPage({ baseUrl, user, required = false, error = ""
   });
 }
 
-export function renderAdminBackupPage({ baseUrl, user, integrity, importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/backup" }) {
+function renderFullImportSummary(tableCounts) {
+  if (!tableCounts || typeof tableCounts !== "object") {
+    return "";
+  }
+  const parts = Object.entries(tableCounts)
+    .map(([table, count]) => `${escapeHtml(table)}: ${escapeHtml(count)}`)
+    .join(", ");
+  return parts ? ` (${parts})` : "";
+}
+
+export function renderAdminBackupPage({ baseUrl, integrity, importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/backup" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({
     title: "Backup",
@@ -496,12 +683,13 @@ export function renderAdminBackupPage({ baseUrl, user, integrity, importResult =
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
           <a href="/admin/users">Users</a>
+          <a href="/admin/retention">${view.text("retention.navLabel")}</a>
           <a href="/account">Account</a>
           ${languageSwitcher(view)}
         </nav>
       </header>
       <main class="artifact-view">
-        ${importResult ? `<p class="auth-success">Restore complete. ${escapeHtml(importResult.artifactCount)} artifacts imported.</p>` : ""}
+        ${importResult ? `<p class="auth-success">Restore complete. ${escapeHtml(importResult.artifactCount)} artifacts imported${importResult.scope === "full" ? renderFullImportSummary(importResult.tableCounts) : ""}.</p>` : ""}
         ${importError ? `<p class="auth-error">${escapeHtml(importError)}</p>` : ""}
         <section class="meta-card">
           <h2>Store status</h2>
@@ -517,18 +705,29 @@ export function renderAdminBackupPage({ baseUrl, user, integrity, importResult =
           ${integrity.ok ? "" : `<p class="auth-warning">Run <code>artifacty integrity</code> before migration. Current backup will only include readable referenced version files.</p>`}
         </section>
         <section class="meta-card">
-          <h2>Download artifact backup</h2>
-          <p class="muted">Exports artifact metadata and version contents as one JSON bundle. Users, sessions, and API token records are not included.</p>
-          <p><a class="button-link" href="/admin/backup/export">Download backup JSON</a></p>
+          <h2>Download backup</h2>
+          <p class="muted">Exports artifact metadata and version contents as one JSON bundle. The full scope also includes users, API tokens, audit history, relations, and webhooks (secrets are never included and must be re-issued after restore).</p>
+          <form class="editor-form" method="get" action="/admin/backup/export">
+            <label class="field">
+              <span>${view.text("backup.scopeLabel")}</span>
+              <select name="scope">
+                <option value="artifacts">${view.text("backup.scopeArtifacts")}</option>
+                <option value="full">${view.text("backup.scopeFull")}</option>
+              </select>
+            </label>
+            <footer class="editor-actions"><button type="submit">${view.text("backup.downloadButton")}</button></footer>
+          </form>
         </section>
         <section class="meta-card">
-          <h2>Restore artifact backup</h2>
-          <p class="auth-warning">Restore replaces the target server's artifact records and version files with the backup contents. Existing users, sessions, API tokens, and audit logs stay unchanged.</p>
+          <h2>Restore backup</h2>
+          <p class="auth-warning">Restore replaces the target server's artifact records and version files with the backup contents. An artifacts-only bundle leaves users, sessions, API tokens, and audit logs unchanged. A full-scope bundle also replaces users, API tokens, audit history, relations, and webhooks (disabled on import; they must be re-issued) — check both boxes below to proceed, and force-users only if this server already has accounts.</p>
           <form class="editor-form" method="post" action="/admin/backup/import">
             <label class="field content-field">
               <span>Backup JSON</span>
               <textarea class="compact-textarea" name="backup" spellcheck="false" placeholder="{&quot;schemaVersion&quot;:1,&quot;artifacts&quot;:[...]}" required></textarea>
             </label>
+            <label class="checkbox-field"><input type="checkbox" name="confirm" value="replace-all"> ${view.text("backup.confirmLabel")}</label>
+            <label class="checkbox-field"><input type="checkbox" name="forceUsers" value="1"> ${view.text("backup.forceUsersLabel")}</label>
             <footer class="editor-actions"><button type="submit">Restore backup</button></footer>
           </form>
         </section>
@@ -598,6 +797,7 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
           <a href="/admin/backup">Backup</a>
+          <a href="/admin/retention">${view.text("retention.navLabel")}</a>
           <a href="/account">Account</a>
           ${languageSwitcher(view)}
         </nav>
@@ -642,7 +842,170 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
   });
 }
 
-export function renderArtifactPage({ artifact, version, content, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", user = null }) {
+export function renderAdminWebhooksPage({ baseUrl, webhooks = [], createdSecret = null, createdWebhookId = null, locale = DEFAULT_LOCALE, currentPath = "/admin/webhooks" }) {
+  const view = viewContext(locale, currentPath);
+  const rows = webhooks.map((webhook) => `
+    <tr>
+      <td><code>${escapeHtml(webhook.url)}</code></td>
+      <td>${(webhook.eventTypes || []).length ? webhook.eventTypes.map((type) => escapeHtml(type)).join(", ") : view.text("webhooks.allEvents")}</td>
+      <td>${webhook.disabledAt ? view.text("webhooks.disabled") : view.text("webhooks.active")}</td>
+      <td>${webhook.lastStatus ?? "-"}</td>
+      <td>${webhook.failureCount}</td>
+      <td>
+        <form method="post" action="/admin/webhooks/${encodeURIComponent(webhook.id)}/delete" onsubmit="return confirm('${escapeAttribute(view.text("webhooks.confirmDelete"))}')">
+          <button type="submit">${view.text("webhooks.delete")}</button>
+        </form>
+      </td>
+    </tr>
+  `).join("");
+
+  const secretBanner = createdSecret ? `
+    <section class="meta-card">
+      <h2>${view.text("webhooks.secretTitle")}</h2>
+      <p class="auth-warning">${view.text("webhooks.secretWarning")}</p>
+      <p><code>${escapeHtml(createdSecret)}</code></p>
+      ${createdWebhookId ? `<p class="muted">${view.text("webhooks.webhookId")}: <code>${escapeHtml(createdWebhookId)}</code></p>` : ""}
+    </section>
+  ` : "";
+
+  return pageShell({
+    title: view.text("webhooks.title"),
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>${view.text("webhooks.title")}</h1>
+          <p>${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          <a href="/admin/backup">Backup</a>
+          <a href="/admin/users">Users</a>
+          <a href="/admin/retention">${view.text("retention.navLabel")}</a>
+          <a href="/account">Account</a>
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-view">
+        ${secretBanner}
+        <section class="meta-card">
+          <h2>${view.text("webhooks.createTitle")}</h2>
+          <form class="editor-form" method="post" action="/admin/webhooks">
+            <section class="editor-fields">
+              <label class="field"><span>${view.text("webhooks.url")}</span><input type="url" name="url" placeholder="https://example.com/hooks/artifacty" required></label>
+              <label class="field"><span>${view.text("webhooks.eventTypes")}</span><input name="eventTypes" placeholder="${view.text("webhooks.eventTypesPlaceholder")}"></label>
+            </section>
+            <footer class="editor-actions"><button type="submit">${view.text("webhooks.create")}</button></footer>
+          </form>
+        </section>
+        <section class="meta-card">
+          <h2>${view.text("webhooks.existingTitle")}</h2>
+          <table class="data-table">
+            <thead><tr><th>${view.text("webhooks.url")}</th><th>${view.text("webhooks.eventTypes")}</th><th>${view.text("webhooks.status")}</th><th>${view.text("webhooks.lastStatus")}</th><th>${view.text("webhooks.failures")}</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </section>
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
+export function renderAdminRetentionPage({ baseUrl, policy, lastSweep = null, report = null, locale = DEFAULT_LOCALE, currentPath = "/admin/retention" }) {
+  const view = viewContext(locale, currentPath);
+  const byTypeText = Object.entries(policy.archiveAfterDays.byType || {})
+    .map(([type, days]) => `${type}=${days}`)
+    .join("\n");
+
+  const lastSweepSection = lastSweep ? `
+    <section class="meta-card">
+      <h2>${view.text("retention.lastSweepTitle")}</h2>
+      <table class="data-table">
+        <tbody>
+          <tr><th>${view.text("retention.sweepAt")}</th><td>${escapeHtml(lastSweep.createdAt)}</td></tr>
+          <tr><th>${view.text("retention.archived")}</th><td>${escapeHtml(lastSweep.metadata?.archived ?? 0)}</td></tr>
+          <tr><th>${view.text("retention.purged")}</th><td>${escapeHtml(lastSweep.metadata?.purged ?? 0)}</td></tr>
+          <tr><th>${view.text("retention.purgeSkipped")}</th><td>${lastSweep.metadata?.purgeSkipped ? view.text("retention.yes") : view.text("retention.no")}</td></tr>
+          <tr><th>${view.text("retention.auditRowsDeleted")}</th><td>${escapeHtml(lastSweep.metadata?.auditRowsDeleted ?? 0)}</td></tr>
+          <tr><th>${view.text("retention.eventRowsDeleted")}</th><td>${escapeHtml(lastSweep.metadata?.eventRowsDeleted ?? 0)}</td></tr>
+        </tbody>
+      </table>
+    </section>
+  ` : "";
+
+  const archiveRows = (report?.archive || []).map((item) => `
+    <tr><td><code>${escapeHtml(item.id)}</code></td><td>${escapeHtml(item.artifactType)}</td><td>${escapeHtml(item.ageDays)}</td><td>${escapeHtml(item.thresholdDays)}</td></tr>
+  `).join("");
+  const purgeRows = (report?.purge || []).map((item) => `
+    <tr><td><code>${escapeHtml(item.id)}</code></td><td>${escapeHtml(item.ageDays)}</td><td>${escapeHtml(item.thresholdDays)}</td></tr>
+  `).join("");
+
+  const reportSection = report ? `
+    <section class="meta-card">
+      <h2>${report.dryRun ? view.text("retention.dryRunReportTitle") : view.text("retention.appliedReportTitle")}</h2>
+      <p class="muted">${view.text("retention.auditRowsToDelete")}: ${escapeHtml(report.auditRowsToDelete)} · ${view.text("retention.eventRowsToDelete")}: ${escapeHtml(report.eventRowsToDelete)}</p>
+      ${report.purgeSkipped ? `<p class="auth-warning">${view.text("retention.purgeGatedWarning")}</p>` : ""}
+      <h3>${view.text("retention.toArchive")} (${report.archive.length})</h3>
+      ${archiveRows ? `<table class="data-table">
+        <thead><tr><th>${view.text("retention.artifactId")}</th><th>${view.text("retention.artifactType")}</th><th>${view.text("retention.ageDays")}</th><th>${view.text("retention.thresholdDays")}</th></tr></thead>
+        <tbody>${archiveRows}</tbody>
+      </table>` : `<p class="muted">${view.text("retention.none")}</p>`}
+      <h3>${view.text("retention.toPurge")} (${report.purge.length})</h3>
+      ${purgeRows ? `<table class="data-table">
+        <thead><tr><th>${view.text("retention.artifactId")}</th><th>${view.text("retention.ageDays")}</th><th>${view.text("retention.thresholdDays")}</th></tr></thead>
+        <tbody>${purgeRows}</tbody>
+      </table>` : `<p class="muted">${view.text("retention.none")}</p>`}
+    </section>
+  ` : "";
+
+  return pageShell({
+    title: view.text("retention.title"),
+    body: `
+      <header class="topbar">
+        <div>
+          <h1>${view.text("retention.title")}</h1>
+          <p>${escapeHtml(baseUrl)}</p>
+        </div>
+        <nav>
+          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+          <a href="/admin/backup">Backup</a>
+          <a href="/admin/users">Users</a>
+          <a href="/account">Account</a>
+          ${languageSwitcher(view)}
+        </nav>
+      </header>
+      <main class="artifact-view">
+        <section class="meta-card">
+          <h2>${view.text("retention.policyTitle")}</h2>
+          <form class="editor-form" method="post" action="/admin/retention">
+            <section class="editor-fields">
+              <label class="field"><span>${view.text("retention.archiveAfterDaysDefault")}</span><input type="number" min="1" name="archiveAfterDaysDefault" value="${policy.archiveAfterDays.default ?? ""}"></label>
+              <label class="field content-field"><span>${view.text("retention.archiveAfterDaysByType")}</span><textarea class="compact-textarea" name="archiveAfterDaysByType" placeholder="test-report=30">${escapeHtml(byTypeText)}</textarea></label>
+              <label class="field"><span>${view.text("retention.purgeArchivedAfterDays")}</span><input type="number" min="1" name="purgeArchivedAfterDays" value="${policy.purgeArchivedAfterDays ?? ""}"></label>
+              <label class="field"><span>${view.text("retention.auditRetentionDays")}</span><input type="number" min="1" name="auditRetentionDays" value="${policy.auditRetentionDays ?? ""}"></label>
+              <label class="field"><span>${view.text("retention.eventRetentionRows")}</span><input type="number" min="1" name="eventRetentionRows" value="${policy.eventRetentionRows ?? ""}"></label>
+              <label class="field"><span>${view.text("retention.keepTags")}</span><input name="keepTags" value="${escapeAttribute((policy.keepTags || []).join(", "))}" placeholder="pinned, release"></label>
+            </section>
+            <footer class="editor-actions"><button type="submit">${view.text("retention.saveButton")}</button></footer>
+          </form>
+        </section>
+        ${lastSweepSection}
+        <section class="meta-card">
+          <h2>${view.text("retention.runTitle")}</h2>
+          <p class="auth-warning">${view.text("retention.purgeGateNote")}</p>
+          <form class="editor-form" method="post" action="/admin/retention/run">
+            <label class="checkbox-field"><input type="checkbox" name="dryRun" value="1" checked> ${view.text("retention.dryRunLabel")}</label>
+            <label class="checkbox-field"><input type="checkbox" name="allowPurge" value="1"> ${view.text("retention.allowPurgeLabel")}</label>
+            <footer class="editor-actions"><button type="submit">${view.text("retention.runButton")}</button></footer>
+          </form>
+        </section>
+        ${reportSection}
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
+export function renderArtifactPage({ artifact, version, content, comments = [], baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", user = null }) {
   const view = viewContext(locale, currentPath);
   const versionLinks = artifact.versions
     .map((item) => {
@@ -655,14 +1018,39 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
     reactFrameUrl: reactRendererEnabled()
       ? view.href(`/artifacts/${encodeURIComponent(artifact.id)}/react-frame?version=${version.version}`)
       : "",
-    rawUrl: view.href(`/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`)
+    rawUrl: view.href(`/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`),
+    artifactType: artifact.artifactType,
+    // Include the viewed version explicitly so an older bundle version's
+    // files are fetched from that version's own content rather than
+    // whatever is currently latest (the raw route resolves ?version the
+    // same way the page itself did above).
+    bundleFileUrl: (fileName) => view.href(`/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}&file=${encodeURIComponent(fileName)}`),
+    view
   });
   const viewClass = artifactViewClass({ artifact, version });
-  const needsViewerScript = version.format === "code";
+  // Comments render through markdownToHtml for every artifact format and can
+  // emit a data-artifacty-mermaid placeholder regardless of the version's
+  // own format, so a json/html/svg/react/image/video/text artifact with a
+  // mermaid fence in a comment still needs the viewer script to mount it
+  // (otherwise the reader sees a blank box).
+  const needsViewerScript = version.format === "code" || version.format === "markdown" || version.format === "notebook" ||
+    version.format === "sarif" || version.format === "csv" || comments.length > 0;
   const rawUrl = `/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`;
   const archiveAction = artifact.archivedAt ? "restore" : "archive";
   const archiveLabel = artifact.archivedAt ? view.text("artifact.restore") : view.text("artifact.archive");
   const publisher = publisherDisplay(artifact, view);
+  const canManageVisibility = !user || user.role === "admin" || (artifact.ownerUserId && user.id === artifact.ownerUserId);
+  const visibilityForm = canManageVisibility
+    ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/visibility">
+        ${hiddenToken(authToken)}
+        ${localeInput(view.locale)}
+        <label>
+          <span>${view.text("artifact.visibility.label")}</span>
+          ${visibilitySelect(artifact.visibility || "team", view)}
+        </label>
+        <button type="submit">${view.text("artifact.visibility.change")}</button>
+      </form>`
+    : "";
 
   return pageShell({
     title: artifact.title,
@@ -688,6 +1076,7 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
           ${typeBadge(artifact.artifactType || "document")}
           <span>${view.text("artifact.schema", { version: artifact.schemaVersion || 1 })}</span>
           ${artifact.archivedAt ? statusBadge(view.text("artifact.archived", { date: artifact.archivedAt })) : ""}
+          ${visibilityBadge(artifact, view)}
           <span title="${escapeAttribute(publisherTitle(artifact, view))}">${view.text("artifact.publisher", { publisher })}</span>
           <span>${view.text("artifact.bytes", { size: version.sizeBytes })}</span>
           <span>${escapeHtml(version.createdAt)}</span>
@@ -698,8 +1087,11 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
           ${localeInput(view.locale)}
           <button type="submit">${archiveLabel}</button>
         </form>
+        ${visibilityForm}
         <section class="version-strip">${versionLinks}</section>
         ${rendered}
+        ${renderRelationsSection(artifact, view)}
+        ${renderCommentsSection(artifact, comments, view, { version: version.version, authToken, canModerate: canManageVisibility })}
       </main>
     `,
     head: needsViewerScript ? editorHead() : "",
@@ -708,8 +1100,240 @@ export function renderArtifactPage({ artifact, version, content, baseUrl, authTo
   });
 }
 
+// --- Comments and review status (roadmap section 5) -----------------------
+
+function renderCommentsSection(artifact, comments, view, { version, authToken, canModerate }) {
+  const grouped = new Map();
+  for (const comment of comments) {
+    if (!grouped.has(comment.version)) {
+      grouped.set(comment.version, []);
+    }
+    grouped.get(comment.version).push(comment);
+  }
+  const versions = [...grouped.keys()].sort((a, b) => b - a);
+
+  // One shared mermaid diagram state for the whole comments section: the
+  // ARTIFACTY_MAX_INLINE_DIAGRAMS cap is meant to bound diagrams per page,
+  // not per comment. Passing a fresh state to markdownToHtml for each
+  // comment (the old behavior) let the cap reset every time, so N comments
+  // with diagrams could still embed N * cap base64 srcdoc payloads.
+  const diagramState = createMermaidDiagramState();
+  const groups = versions
+    .map((groupVersion) => renderCommentVersionGroup(artifact, grouped.get(groupVersion), groupVersion, view, { activeVersion: version, authToken, canModerate, diagramState }))
+    .join("");
+
+  return `
+    <section class="comments">
+      <h2>${view.text("comments.title")}</h2>
+      <div class="comment-review-status">
+        ${reviewStatusBadge(artifact, view)}
+        ${canModerate ? renderReviewStatusForm(artifact, view, authToken) : ""}
+      </div>
+      ${comments.length === 0 ? `<p class="comments-empty">${view.text("comments.empty")}</p>` : groups}
+      ${versions.includes(version) ? "" : renderCommentForm(artifact, view, { version, authToken })}
+    </section>
+  `;
+}
+
+function renderCommentVersionGroup(artifact, versionComments, groupVersion, view, { activeVersion, authToken, canModerate, diagramState }) {
+  const roots = versionComments.filter((comment) => !comment.parentId);
+  const repliesByParent = new Map();
+  for (const comment of versionComments) {
+    if (comment.parentId) {
+      if (!repliesByParent.has(comment.parentId)) {
+        repliesByParent.set(comment.parentId, []);
+      }
+      repliesByParent.get(comment.parentId).push(comment);
+    }
+  }
+  const isActiveVersion = groupVersion === activeVersion;
+  const items = roots
+    .map((root) => renderCommentThread(artifact, root, repliesByParent.get(root.id) || [], view, { authToken, canModerate, allowReply: isActiveVersion, diagramState }))
+    .join("");
+
+  return `
+    <div class="comment-version-group">
+      <h3>${view.text("comments.version", { version: groupVersion })}</h3>
+      <ul class="comment-list">${items}</ul>
+      ${isActiveVersion ? renderCommentForm(artifact, view, { version: groupVersion, authToken }) : ""}
+    </div>
+  `;
+}
+
+function renderCommentThread(artifact, root, replies, view, { authToken, canModerate, allowReply, diagramState }) {
+  const replyItems = replies
+    .map((reply) => renderCommentEntry(artifact, reply, view, { authToken, canModerate, isReply: true, diagramState }))
+    .join("");
+  const replyForm = allowReply
+    ? renderCommentForm(artifact, view, { version: root.version, authToken, parentId: root.id, compact: true })
+    : "";
+
+  return `
+    <li class="comment-thread">
+      ${renderCommentEntry(artifact, root, view, { authToken, canModerate, isReply: false, diagramState })}
+      ${replyItems ? `<ul class="comment-replies">${replyItems}</ul>` : ""}
+      ${replyForm}
+    </li>
+  `;
+}
+
+function renderCommentEntry(artifact, comment, view, { authToken, canModerate, isReply, diagramState }) {
+  const anchorLabel = commentAnchorLabel(comment.anchor, view);
+  const resolved = comment.status === "resolved";
+  const resolveForm = !resolved
+    ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/comments/${encodeURIComponent(comment.id)}/resolve">
+        ${hiddenToken(authToken)}
+        ${localeInput(view.locale)}
+        <button type="submit">${view.text("comments.resolve")}</button>
+      </form>`
+    : "";
+  const deleteForm = canModerate
+    ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/comments/${encodeURIComponent(comment.id)}/delete">
+        ${hiddenToken(authToken)}
+        ${localeInput(view.locale)}
+        <button type="submit">${view.text("comments.delete")}</button>
+      </form>`
+    : "";
+
+  return `
+    <li class="comment-item${isReply ? " comment-reply" : ""}${resolved ? " comment-resolved" : ""}">
+      <div class="comment-header">
+        <span class="comment-author">${escapeHtml(comment.authorLabel)}</span>
+        <span class="comment-meta">${escapeHtml(comment.createdAt)}</span>
+        ${anchorLabel ? `<span class="comment-anchor">${anchorLabel}</span>` : ""}
+        ${resolved ? `<span class="badge s-archived">${view.text("comments.resolved")}</span>` : ""}
+      </div>
+      <div class="comment-body">${markdownToHtml(comment.body, diagramState)}</div>
+      <div class="comment-actions">${resolveForm}${deleteForm}</div>
+    </li>
+  `;
+}
+
+// Line/row/path anchors are rendering hints, not validated against content.
+// Rendering them as plain text here (rather than a CodeMirror gutter
+// marker) is the deliberately simpler fallback the roadmap allows.
+function commentAnchorLabel(anchor, view) {
+  if (!anchor || typeof anchor !== "object") {
+    return "";
+  }
+  if (anchor.line !== undefined && anchor.line !== null) {
+    return view.text("comments.anchorLine", { line: anchor.line });
+  }
+  if (anchor.row !== undefined && anchor.row !== null) {
+    return view.text("comments.anchorRow", { row: anchor.row });
+  }
+  if (anchor.path) {
+    return view.text("comments.anchorPath", { path: anchor.path });
+  }
+  return "";
+}
+
+function renderCommentForm(artifact, view, { version, authToken, parentId, compact } = {}) {
+  return `
+    <form class="comment-form${compact ? " comment-reply-form" : ""}" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/comments">
+      ${hiddenToken(authToken)}
+      ${localeInput(view.locale)}
+      <input type="hidden" name="version" value="${escapeAttribute(String(version))}">
+      ${parentId ? `<input type="hidden" name="parentId" value="${escapeAttribute(parentId)}">` : ""}
+      <label>
+        <span>${view.text(compact ? "comments.replyLabel" : "comments.bodyLabel")}</span>
+        <textarea name="body" required maxlength="16384"></textarea>
+      </label>
+      ${compact ? "" : `<label class="comment-line-label">
+        <span>${view.text("comments.lineLabel")}</span>
+        <input type="number" name="line" min="1">
+      </label>`}
+      <button type="submit">${view.text(compact ? "comments.reply" : "comments.submit")}</button>
+    </form>
+  `;
+}
+
+function renderReviewStatusForm(artifact, view, authToken) {
+  const current = artifact.reviewStatus || "none";
+  return `
+    <form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/review-status">
+      ${hiddenToken(authToken)}
+      ${localeInput(view.locale)}
+      <label>
+        <span>${view.text("comments.reviewStatus.label")}</span>
+        <select name="status">
+          ${REVIEW_STATUSES.map((status) => `<option value="${status}"${status === current ? " selected" : ""}>${view.text(`comments.reviewStatus.${status}`)}</option>`).join("")}
+        </select>
+      </label>
+      <button type="submit">${view.text("comments.reviewStatus.change")}</button>
+    </form>
+  `;
+}
+
+// Only rendered for a non-default review status so the common case doesn't
+// add visual noise to every artifact page.
+function reviewStatusBadge(artifact, view) {
+  const status = artifact.reviewStatus || "none";
+  if (status === "none") {
+    return "";
+  }
+  const slug = status.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  return `<span class="badge rs-${escapeAttribute(slug)}">${view.text(`comments.reviewStatus.${status}`)}</span>`;
+}
+
+function renderRelationsSection(artifact, view) {
+  const relations = artifact.relations || { outgoing: [], incoming: [] };
+  const hasRelations = relations.outgoing.length > 0 || relations.incoming.length > 0;
+
+  return `
+    <section class="relations">
+      <h2>${view.text("relations.title")}</h2>
+      ${hasRelations ? "" : `<p class="relations-empty">${view.text("relations.empty")}</p>`}
+      ${renderRelationGroup(relations.outgoing, view.text("relations.outgoing"), view)}
+      ${renderRelationGroup(relations.incoming, view.text("relations.incoming"), view)}
+    </section>
+  `;
+}
+
+function renderRelationGroup(entries, label, view) {
+  if (!entries.length) {
+    return "";
+  }
+  const items = entries.map((entry) => renderRelationEntry(entry, view)).join("");
+  return `
+    <div class="relation-group">
+      <h3>${escapeHtml(label)}</h3>
+      <ul class="relation-list">${items}</ul>
+    </div>
+  `;
+}
+
+function renderRelationEntry(entry, view) {
+  const relationLabel = escapeHtml(entry.relation);
+  const createdAt = escapeHtml(view.text("relations.createdAt", { date: entry.createdAt }));
+  if (entry.restricted) {
+    return `
+      <li class="relation-item relation-missing">
+        <span class="badge">${relationLabel}</span>
+        <span class="relation-missing-label">(${view.text("relations.restricted")})</span>
+      </li>
+    `;
+  }
+  if (entry.missing || !entry.artifact) {
+    return `
+      <li class="relation-item relation-missing">
+        <span class="badge">${relationLabel}</span>
+        <span>${escapeHtml(entry.artifactId)}</span>
+        <span class="relation-missing-label">(${view.text("relations.missing")})</span>
+      </li>
+    `;
+  }
+  return `
+    <li class="relation-item">
+      <span class="badge">${relationLabel}</span>
+      <a href="${view.href(`/artifacts/${encodeURIComponent(entry.artifactId)}`)}">${escapeHtml(entry.artifact.title)}</a>
+      <span class="relation-meta">${createdAt}</span>
+    </li>
+  `;
+}
+
 function artifactViewClass({ artifact, version }) {
-  const wideFormats = new Set(["html", "svg", "mermaid", "react", "sarif", "csv", "image", "video"]);
+  const wideFormats = new Set(["html", "svg", "mermaid", "react", "sarif", "csv", "image", "video", "notebook"]);
   const wideTypes = new Set(["dashboard", "design-option", "diff-walkthrough"]);
   const classes = ["artifact-view"];
   if (wideFormats.has(version.format) || wideTypes.has(artifact.artifactType)) {
@@ -718,14 +1342,17 @@ function artifactViewClass({ artifact, version }) {
   return classes.join(" ");
 }
 
-export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, toContent, diffRows, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, toContent, diffRows, view: diffView = "lines", structuredDiff, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/" }) {
   const view = viewContext(locale, currentPath);
   const title = view.raw("diff.title", { title: artifact.title });
   const versionOptions = artifact.versions
     .map((item) => `<option value="${item.version}">v${item.version}</option>`)
     .join("");
 
-  const rows = diffRows
+  const maxDiffRows = resolveMaxDiffEntries();
+  const diffRowsTruncated = diffRows.length > maxDiffRows;
+  const visibleDiffRows = diffRowsTruncated ? diffRows.slice(0, maxDiffRows) : diffRows;
+  const rows = visibleDiffRows
     .map((row) => `
       <tr class="diff-${row.type}">
         <td>${escapeHtml(row.beforeLine)}</td>
@@ -734,6 +1361,9 @@ export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, 
       </tr>
     `)
     .join("");
+  const lineDiffTruncatedNote = diffRowsTruncated
+    ? `<p class="diff-truncated-note">${escapeHtml(view.raw("diff.truncated", { count: visibleDiffRows.length }))}</p>`
+    : "";
 
   const preview = toVersion.format === "html"
     ? `<section class="split-preview">
@@ -741,6 +1371,21 @@ export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, 
         <div>${renderContent(toVersion.format, toContent)}</div>
       </section>`
     : "";
+
+  const resolvedView = diffView === "structured" && structuredDiff ? "structured" : "lines";
+  const otherView = resolvedView === "structured" ? "lines" : "structured";
+  const toggleHref = view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff?from=${encodeURIComponent(fromVersion.version)}&to=${encodeURIComponent(toVersion.version)}&view=${otherView}`);
+  const viewToggle = `<p class="diff-view-toggle">
+    ${view.text("diff.viewLabel")}: ${resolvedView === "structured" ? view.text("diff.structured") : view.text("diff.lines")}
+    &middot; <a href="${toggleHref}">${view.text(resolvedView === "structured" ? "diff.viewLines" : "diff.viewStructured")}</a>
+  </p>`;
+
+  const diffBody = resolvedView === "structured"
+    ? renderStructuredDiffSection(view, structuredDiff)
+    : `${lineDiffTruncatedNote}<table class="diff-table">
+        <thead><tr><th>${view.text("diff.from")}</th><th>${view.text("diff.to")}</th><th>${view.text("diff.line")}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
 
   return pageShell({
     title,
@@ -758,6 +1403,7 @@ export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, 
       <main class="artifact-view">
         <form class="diff-form" method="get" action="/artifacts/${encodeURIComponent(artifact.id)}/diff">
           ${localeInput(view.locale)}
+          <input type="hidden" name="view" value="${escapeAttribute(resolvedView)}">
           <label class="field">
             <span>${view.text("diff.from")}</span>
             <select name="from">${versionOptions}</select>
@@ -772,15 +1418,226 @@ export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, 
           document.querySelector('select[name="from"]').value = ${JSON.stringify(String(fromVersion.version))};
           document.querySelector('select[name="to"]').value = ${JSON.stringify(String(toVersion.version))};
         </script>
-        <table class="diff-table">
-          <thead><tr><th>${view.text("diff.from")}</th><th>${view.text("diff.to")}</th><th>${view.text("diff.line")}</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
+        ${viewToggle}
+        ${diffBody}
         ${preview}
       </main>
     `,
     locale: view.locale
   });
+}
+
+function renderStructuredDiffSection(view, structuredDiff) {
+  if (!structuredDiff) {
+    return `<p class="diff-truncated-note">${view.text("diff.noChanges")}</p>`;
+  }
+
+  const summary = structuredDiff.summary || {};
+  const summaryText = `+${summary.added || 0} -${summary.removed || 0} ~${summary.changed || 0}`;
+  const truncatedNote = structuredDiff.truncated
+    ? `<p class="diff-truncated-note">${escapeHtml(view.raw("diff.truncated", { count: structuredDiff.entries.length }))}</p>`
+    : "";
+
+  if (structuredDiff.entries.length === 0) {
+    return `<p class="diff-summary">${escapeHtml(summaryText)}</p><p class="diff-truncated-note">${view.text("diff.noChanges")}</p>`;
+  }
+
+  if (structuredDiff.kind === "lines") {
+    return `<div class="structured-diff structured-diff-lines">
+      <p class="diff-summary">${escapeHtml(summaryText)}</p>
+      ${truncatedNote}
+      <table class="diff-table">
+        <thead><tr><th>${view.text("diff.from")}</th><th>${view.text("diff.to")}</th><th>${view.text("diff.line")}</th></tr></thead>
+        <tbody>${structuredDiff.entries.map((entry) => renderLineEntryRows(entry)).join("")}</tbody>
+      </table>
+    </div>`;
+  }
+
+  if (structuredDiff.kind === "json") {
+    return `<div class="structured-diff structured-diff-json">
+      <p class="diff-summary">${escapeHtml(summaryText)}</p>
+      ${truncatedNote}
+      <table class="structured-diff-table">
+        <thead><tr><th>${view.text("diff.op")}</th><th>${view.text("diff.path")}</th><th>${view.text("diff.before")}</th><th>${view.text("diff.after")}</th></tr></thead>
+        <tbody>${structuredDiff.entries.map((entry) => renderJsonEntryRow(view, entry)).join("")}</tbody>
+      </table>
+    </div>`;
+  }
+
+  if (structuredDiff.kind === "csv") {
+    return `<div class="structured-diff structured-diff-csv">
+      <p class="diff-summary">${escapeHtml(summaryText)}</p>
+      ${truncatedNote}
+      <table class="structured-diff-table">
+        <thead><tr><th>${view.text("diff.op")}</th><th>${view.text("diff.row")}</th><th>${view.text("diff.column")}</th><th>${view.text("diff.before")}</th><th>${view.text("diff.after")}</th></tr></thead>
+        <tbody>${structuredDiff.entries.map((entry) => renderCsvEntryRow(view, entry)).join("")}</tbody>
+      </table>
+    </div>`;
+  }
+
+  if (structuredDiff.kind === "bundle") {
+    return `<div class="structured-diff structured-diff-bundle">
+      <p class="diff-summary">${escapeHtml(summaryText)}</p>
+      ${truncatedNote}
+      <table class="structured-diff-table">
+        <thead><tr><th>${view.text("diff.file")}</th><th>${view.text("diff.op")}</th><th>${view.text("diff.path")}</th><th>${view.text("diff.before")}</th><th>${view.text("diff.after")}</th></tr></thead>
+        <tbody>${structuredDiff.entries.map((entry) => renderBundleEntryRow(view, entry)).join("")}</tbody>
+      </table>
+    </div>`;
+  }
+
+  return "";
+}
+
+function renderLineEntryRows(entry) {
+  if (entry.op === "changed") {
+    const beforeHtml = renderWordSpans(entry.words, "removed");
+    const afterHtml = renderWordSpans(entry.words, "added");
+    return `<tr class="diff-removed">
+        <td>${escapeHtml(entry.beforeLine ?? "")}</td>
+        <td></td>
+        <td><code>${escapeHtml(diffPrefix("removed"))}${beforeHtml}</code></td>
+      </tr>
+      <tr class="diff-added">
+        <td></td>
+        <td>${escapeHtml(entry.afterLine ?? "")}</td>
+        <td><code>${escapeHtml(diffPrefix("added"))}${afterHtml}</code></td>
+      </tr>`;
+  }
+  return `<tr class="diff-${entry.op}">
+    <td>${escapeHtml(entry.beforeLine ?? "")}</td>
+    <td>${escapeHtml(entry.afterLine ?? "")}</td>
+    <td><code>${escapeHtml(diffPrefix(entry.op))}${escapeHtml(entry.text)}</code></td>
+  </tr>`;
+}
+
+function renderWordSpans(words, keepOp) {
+  if (!Array.isArray(words)) {
+    return "";
+  }
+  const dropOp = keepOp === "removed" ? "added" : "removed";
+  return words
+    .filter((word) => word.op !== dropOp)
+    .map((word) => {
+      if (word.op === keepOp) {
+        return `<span class="diff-word-${keepOp}">${escapeHtml(word.text)}</span>`;
+      }
+      return escapeHtml(word.text);
+    })
+    .join("");
+}
+
+function renderJsonEntryRow(view, entry) {
+  return `<tr class="diff-${entry.op}">
+    <td>${opLabel(view, entry.op)}</td>
+    <td><code>${escapeHtml(entry.path)}</code></td>
+    <td><code>${escapeHtml(formatDiffValue(entry.before))}</code></td>
+    <td><code>${escapeHtml(formatDiffValue(entry.after))}</code></td>
+  </tr>`;
+}
+
+function renderCsvEntryRow(view, entry) {
+  const rowLabel = entry.row === "header" ? view.text("diff.header") : String(entry.row);
+  const beforeValue = entry.cells !== undefined ? JSON.stringify(entry.cells) : formatDiffValue(entry.before);
+  const afterValue = entry.cells !== undefined ? JSON.stringify(entry.cells) : formatDiffValue(entry.after);
+  return `<tr class="diff-${entry.op}">
+    <td>${opLabel(view, entry.op)}</td>
+    <td><code>${escapeHtml(rowLabel)}</code></td>
+    <td>${entry.column !== undefined ? escapeHtml(entry.column) : ""}</td>
+    <td><code>${escapeHtml(beforeValue)}</code></td>
+    <td><code>${escapeHtml(afterValue)}</code></td>
+  </tr>`;
+}
+
+function renderBundleEntryRow(view, entry) {
+  const label = entry.path !== undefined
+    ? entry.path
+    : entry.row !== undefined
+      ? String(entry.row)
+      : (entry.beforeLine ?? entry.afterLine ?? "");
+  const beforeValue = entry.cells !== undefined
+    ? JSON.stringify(entry.cells)
+    : formatDiffValue(entry.before ?? entry.text);
+  const afterValue = entry.cells !== undefined ? JSON.stringify(entry.cells) : formatDiffValue(entry.after);
+  const rowClass = entry.op === "changed" ? "changed" : entry.op;
+  return `<tr class="diff-${rowClass}">
+    <td><code>${escapeHtml(entry.file || "")}</code></td>
+    <td>${opLabel(view, entry.op)}</td>
+    <td><code>${escapeHtml(label)}</code></td>
+    <td><code>${escapeHtml(beforeValue)}</code></td>
+    <td><code>${escapeHtml(afterValue)}</code></td>
+  </tr>`;
+}
+
+function formatDiffValue(value) {
+  if (value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
+function opLabel(view, op) {
+  return view.text(`diff.op.${op}`);
+}
+
+// Bundle document assets (roadmap section 17). Renders binary file entries
+// (encoding: "base64") from a bundle artifact's `files` array: PDFs get a
+// sandboxed iframe pointed at the raw file route (no allow-same-origin, no
+// scripts), other document types show metadata and a download link. Returns
+// "" when there is nothing to show so callers can fall back cleanly.
+function renderBundleFiles(content, options = {}) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return "";
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.files)) {
+    return "";
+  }
+  const documentFiles = parsed.files.filter((file) => file && typeof file === "object" && file.encoding === "base64");
+  if (documentFiles.length === 0) {
+    return "";
+  }
+
+  const view = options.view;
+  const label = (key, params) => (view ? view.text(key, params) : escapeHtml(String(key)));
+  const bundleFileUrl = typeof options.bundleFileUrl === "function" ? options.bundleFileUrl : (fileName) => `?file=${encodeURIComponent(fileName)}`;
+
+  const items = documentFiles.map((file) => {
+    const fileName = String(file.path || file.name || "file");
+    const contentType = String(file.contentType || "application/octet-stream");
+    const fileUrl = bundleFileUrl(fileName);
+    const sizeLabel = Number.isFinite(file.sizeBytes) ? label("artifact.bytes", { size: file.sizeBytes }) : "";
+
+    if (contentType === "application/pdf") {
+      return `<div class="bundle-file bundle-file-pdf">
+        <div class="bundle-file-meta">
+          <span class="bundle-file-name">${escapeHtml(fileName)}</span>
+          <span class="bundle-file-type">${escapeHtml(contentType)}</span>
+          <span class="bundle-file-size">${sizeLabel}</span>
+        </div>
+        <iframe class="artifact-frame bundle-file-frame" sandbox src="${escapeAttribute(fileUrl)}"></iframe>
+      </div>`;
+    }
+
+    return `<div class="bundle-file bundle-file-download">
+      <div class="bundle-file-meta">
+        <span class="bundle-file-name">${escapeHtml(fileName)}</span>
+        <span class="bundle-file-type">${escapeHtml(contentType)}</span>
+        <span class="bundle-file-size">${sizeLabel}</span>
+      </div>
+      <a class="bundle-file-link" href="${escapeAttribute(fileUrl)}">${label("bundle.download")}</a>
+    </div>`;
+  }).join("");
+
+  return `<section class="bundle-files">
+    <h3>${label("bundle.files")}</h3>
+    ${items}
+  </section>`;
 }
 
 export function renderContent(format, content, metadata = {}, options = {}) {
@@ -801,7 +1658,17 @@ export function renderContent(format, content, metadata = {}, options = {}) {
   }
 
   if (format === "json") {
+    if (options.artifactType === "bundle") {
+      const bundleFiles = renderBundleFiles(content, options);
+      if (bundleFiles) {
+        return `${bundleFiles}<pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>`;
+      }
+    }
     return `<pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>`;
+  }
+
+  if (format === "notebook") {
+    return renderNotebook(content);
   }
 
   if (format === "sarif") {
@@ -1101,11 +1968,85 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     .filter-form,
     .diff-form {
-      display: grid;
-      grid-template-columns: minmax(180px, 1fr) 160px 160px auto auto auto;
+      display: flex;
+      flex-wrap: wrap;
       gap: 10px;
       margin-bottom: 12px;
-      align-items: end;
+      align-items: center;
+    }
+    .filter-form input,
+    .filter-form select {
+      min-width: 120px;
+    }
+    .dashboard-layout {
+      display: flex;
+      align-items: flex-start;
+      gap: 24px;
+      width: min(1180px, calc(100vw - 32px));
+      margin: 28px auto 72px;
+    }
+    .dashboard-layout .dashboard {
+      flex: 1;
+      min-width: 0;
+      width: auto;
+      margin: 0;
+    }
+    .dashboard-sidebar {
+      width: 240px;
+      flex: none;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+      padding: 14px;
+    }
+    .dashboard-sidebar h2 {
+      margin: 0 0 10px;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--faint);
+    }
+    .saved-view-list {
+      list-style: none;
+      margin: 0 0 14px;
+      padding: 0;
+      display: grid;
+      gap: 6px;
+    }
+    .saved-view-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+    .saved-view-item a {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .saved-view-delete {
+      margin: 0;
+    }
+    .saved-view-delete button {
+      min-height: 0;
+      padding: 2px 8px;
+      font-size: 12px;
+    }
+    .saved-view-form {
+      display: grid;
+      gap: 8px;
+    }
+    .artifact-group-heading {
+      margin: 0;
+      padding: 10px 14px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--faint);
+      background: var(--panel-2);
+      border-bottom: 1px solid var(--line);
     }
     .checkbox-field {
       display: inline-flex;
@@ -1234,6 +2175,21 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       color: #92400e;
       background: #fffbeb;
       border-color: #fde68a;
+    }
+    .conflict-banner {
+      display: grid;
+      gap: 6px;
+      color: #92400e;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
+    .conflict-banner a {
+      color: inherit;
+      text-decoration: underline;
+      width: fit-content;
     }
     .muted {
       color: var(--muted);
@@ -1567,6 +2523,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .badge.f-image { --bh: #f59e0b; }
     .badge.f-video { --bh: #db2777; }
     .badge.s-archived { --bh: #94a3b8; }
+    .badge.v-private { --bh: #b91c1c; }
     .empty {
       padding: 28px;
     }
@@ -1662,9 +2619,54 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     .diff-added { background: color-mix(in srgb, #2ea043 16%, transparent); }
     .diff-removed { background: color-mix(in srgb, #f85149 15%, transparent); }
+    .diff-changed { background: color-mix(in srgb, #d29922 16%, transparent); }
     .diff-table code {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+    }
+    .diff-view-toggle {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 4px 0 12px;
+    }
+    .diff-summary {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 6px;
+    }
+    .diff-truncated-note {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 6px;
+    }
+    .structured-diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+      font-size: 13px;
+    }
+    .structured-diff-table th,
+    .structured-diff-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    .structured-diff-table th {
+      color: var(--muted);
+      text-align: left;
+      font-family: var(--mono);
+      background: var(--panel-2);
+    }
+    .diff-word-removed {
+      background: color-mix(in srgb, #f85149 35%, transparent);
+      text-decoration: line-through;
+    }
+    .diff-word-added {
+      background: color-mix(in srgb, #2ea043 35%, transparent);
     }
     .artifact-doc,
     .artifact-code {
@@ -1689,6 +2691,97 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       border-radius: 5px;
       background: var(--panel-2);
       font-size: 0.88em;
+    }
+    .artifact-doc pre {
+      margin: 16px 0;
+      padding: 16px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--code);
+      color: var(--code-text);
+    }
+    .artifact-doc pre code {
+      padding: 0;
+      border: 0;
+      background: none;
+      font-size: 0.92em;
+    }
+    .artifact-doc-codemirror {
+      margin: 16px 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .artifact-doc-codemirror .cm-editor {
+      background: var(--code);
+      color: var(--code-text);
+    }
+    .artifact-doc-codemirror .cm-scroller {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .task-list-item {
+      list-style: none;
+      margin-left: -20px;
+    }
+    .task-list-item label {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .artifact-mermaid-embed {
+      margin: 16px 0;
+    }
+    .artifact-mermaid-embed .artifact-frame {
+      width: 100%;
+      height: 240px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .artifact-mermaid-capped {
+      margin: 16px 0;
+    }
+    .artifact-mermaid-notice,
+    .artifact-notebook-notice,
+    .artifact-notebook-output-placeholder,
+    .artifact-notebook-output-truncated {
+      margin: 0 0 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .artifact-notebook-cell {
+      margin: 0 0 24px;
+    }
+    .artifact-notebook-cell:last-child {
+      margin-bottom: 0;
+    }
+    .artifact-notebook-cell-code {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel);
+    }
+    .artifact-notebook-execcount {
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    .artifact-notebook-output {
+      margin-top: 12px;
+    }
+    .artifact-notebook-output.artifact-code {
+      min-height: unset;
+    }
+    .artifact-notebook-error code {
+      color: #dc2626;
     }
     .artifact-table-scroll {
       width: 100%;
@@ -1783,6 +2876,76 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .sarif-level.warning { --bh: #d97706; }
     .sarif-level.note { --bh: #2563eb; }
     .sarif-level.none { --bh: #64748b; }
+    .csv-sort-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: none;
+      background: none;
+      color: inherit;
+      font: inherit;
+      font-weight: inherit;
+      cursor: pointer;
+      padding: 0;
+    }
+    .csv-sort-btn:hover,
+    .csv-sort-btn:focus-visible {
+      text-decoration: underline;
+    }
+    .csv-sort-indicator {
+      font-size: 10px;
+      color: var(--accent);
+    }
+    .csv-filter-row th {
+      padding: 4px 8px;
+      background: var(--panel-2);
+    }
+    .csv-filter-input,
+    .sarif-rule-filter {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 4px 6px;
+      border: 1px solid var(--line-2);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      font-size: 12px;
+    }
+    .sarif-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .sarif-level-chips {
+      display: flex;
+      gap: 6px;
+    }
+    .sarif-chip {
+      border: 1px solid var(--line-2);
+      background: var(--panel);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .sarif-chip.active {
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+      border-color: var(--accent);
+      color: var(--accent-2);
+    }
+    .sarif-rule-filter {
+      max-width: 220px;
+    }
+    .artifact-csv-status,
+    .artifact-sarif-status {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
     .artifact-raw-details {
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -1921,7 +3084,13 @@ function formatSelect(selected) {
 
 function artifactTypeSelect(selected) {
   return `<select name="artifactType">
-    ${ARTIFACT_TYPES.map((type) => `<option value="${type}"${type === selected ? " selected" : ""}>${escapeHtml(type)}</option>`).join("")}
+    ${artifactTypeOptions(selected)}
+  </select>`;
+}
+
+function visibilitySelect(selected, view) {
+  return `<select name="visibility">
+    ${VISIBILITY_VALUES.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${view.text(`artifact.visibility.${value}`)}</option>`).join("")}
   </select>`;
 }
 
@@ -2009,6 +3178,15 @@ function statusBadge(label) {
   return `<span class="badge s-archived">${label}</span>`;
 }
 
+// Only rendered for 'private' artifacts (the non-default visibility) so the
+// common case doesn't add visual noise to every row.
+function visibilityBadge(artifact, view) {
+  if ((artifact.visibility || "team") !== "private") {
+    return "";
+  }
+  return `<span class="badge v-private">${view.text("artifact.visibility.private")}</span>`;
+}
+
 function htmlFrameContent(content) {
   const reporter = `<script>(function(){function report(){var doc=document.documentElement;var body=document.body;var height=Math.max(doc.scrollHeight,doc.offsetHeight,body?body.scrollHeight:0,body?body.offsetHeight:0);parent.postMessage({__artifactyHeight:height},"*");}window.addEventListener("load",report);window.addEventListener("resize",report);if(window.ResizeObserver){try{new ResizeObserver(report).observe(document.documentElement);}catch(error){}}var ticks=0;var timer=setInterval(function(){report();if(++ticks>8){clearInterval(timer);}},250);report();})();</script>`;
   if (content.includes("</body>")) {
@@ -2091,8 +3269,13 @@ function jsonForScript(value) {
     .replaceAll("\\u2029", "\\\\u2029");
 }
 
+// Handles resize messages from any number of same-page sandboxed frames
+// (the single whole-document HTML/SVG/Mermaid/React frame, plus any number
+// of lazily created per-fence Mermaid frames embedded in Markdown and
+// notebook cells), matching each message to its source frame by
+// contentWindow rather than assuming a single frame exists up front.
 function frameResizeScript() {
-  return `<script>(function(){var frame=document.querySelector(".artifact-frame");if(!frame){return;}window.addEventListener("message",function(event){if(event.source!==frame.contentWindow){return;}var data=event.data;if(!data||typeof data.__artifactyHeight!=="number"){return;}var height=Math.min(Math.max(Math.ceil(data.__artifactyHeight),200),200000);frame.style.height=height+"px";});})();</script>`;
+  return `<script>(function(){window.addEventListener("message",function(event){var data=event.data;if(!data||typeof data.__artifactyHeight!=="number"){return;}var frames=document.querySelectorAll(".artifact-frame");for(var i=0;i<frames.length;i+=1){if(frames[i].contentWindow===event.source){var height=Math.min(Math.max(Math.ceil(data.__artifactyHeight),200),200000);frames[i].style.height=height+"px";break;}}});})();</script>`;
 }
 
 function viewerScript() {
@@ -2133,10 +3316,21 @@ export function escapeAttribute(value) {
   return escapeHtml(value).replaceAll("\n", "&#10;");
 }
 
-function markdownToHtml(markdown) {
-  const lines = markdown.split(/\r?\n/);
+// Section 14: fenced code blocks keep server-rendered escaped
+// `<pre><code class="language-x">` output (viewer.js applies read-only
+// CodeMirror highlighting client-side on top of that markup, so the no-JS
+// output stays correct on its own). ```mermaid``` fences render through the
+// same sandboxed iframe mechanism as whole-document Mermaid artifacts, one
+// lazily-created iframe per diagram, capped per document by
+// mermaidDiagramState()/ARTIFACTY_MAX_INLINE_DIAGRAMS. Task list items
+// render as disabled checkboxes; tables already render inside a horizontally
+// scrolling container via renderMarkdownTable.
+function markdownToHtml(markdown, diagramState = createMermaidDiagramState()) {
+  const lines = String(markdown ?? "").split(/\r?\n/);
   const html = [];
   let inCode = false;
+  let codeLang = "";
+  let codeBuffer = [];
   let inList = false;
   let paragraph = [];
 
@@ -2152,6 +3346,12 @@ function markdownToHtml(markdown) {
       inList = false;
     }
   };
+  const closeCodeFence = () => {
+    html.push(renderMarkdownCodeFence(codeBuffer.join("\n"), codeLang, diagramState));
+    inCode = false;
+    codeLang = "";
+    codeBuffer = [];
+  };
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -2159,17 +3359,18 @@ function markdownToHtml(markdown) {
       flushParagraph();
       closeList();
       if (inCode) {
-        html.push("</code></pre>");
-        inCode = false;
+        closeCodeFence();
       } else {
-        html.push("<pre><code>");
         inCode = true;
+        const langToken = line.slice(3).trim();
+        codeLang = /^[a-zA-Z0-9+#_.-]+$/.test(langToken) ? langToken.toLowerCase() : "";
+        codeBuffer = [];
       }
       continue;
     }
 
     if (inCode) {
-      html.push(`${escapeHtml(line)}\n`);
+      codeBuffer.push(line);
       continue;
     }
 
@@ -2197,6 +3398,18 @@ function markdownToHtml(markdown) {
       continue;
     }
 
+    const taskItem = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(line);
+    if (taskItem) {
+      flushParagraph();
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      const checked = taskItem[1].toLowerCase() === "x";
+      html.push(`<li class="task-list-item"><label><input type="checkbox" disabled${checked ? " checked" : ""}> ${inlineMarkdown(taskItem[2])}</label></li>`);
+      continue;
+    }
+
     const listItem = /^[-*]\s+(.+)$/.exec(line);
     if (listItem) {
       flushParagraph();
@@ -2214,9 +3427,49 @@ function markdownToHtml(markdown) {
   flushParagraph();
   closeList();
   if (inCode) {
-    html.push("</code></pre>");
+    closeCodeFence();
   }
   return html.join("\n");
+}
+
+function renderMarkdownCodeFence(source, lang, diagramState) {
+  if (lang === "mermaid") {
+    return renderMermaidEmbed(source, diagramState);
+  }
+  const classAttribute = lang ? ` class="language-${escapeAttribute(lang)}"` : "";
+  return `<pre><code${classAttribute}>${escapeHtml(source)}</code></pre>`;
+}
+
+// ARTIFACTY_MAX_INLINE_DIAGRAMS caps the number of Mermaid fences per
+// Markdown/notebook document that get a live sandboxed iframe; any fence
+// beyond the cap stays as escaped source with a notice instead, enforced
+// server-side before the page is ever sent to a browser.
+const DEFAULT_MAX_INLINE_DIAGRAMS = 20;
+
+function mermaidDiagramCap() {
+  const parsed = Number.parseInt(process.env.ARTIFACTY_MAX_INLINE_DIAGRAMS, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_MAX_INLINE_DIAGRAMS;
+}
+
+function createMermaidDiagramState() {
+  return { count: 0, cap: mermaidDiagramCap() };
+}
+
+// Renders a placeholder that viewer.js lazily upgrades into a sandboxed
+// Mermaid iframe (one per diagram) using IntersectionObserver, keeping the
+// no-JS/no-op fallback as the escaped Mermaid source in a <noscript> block.
+function renderMermaidEmbed(source, diagramState) {
+  diagramState.count += 1;
+  if (diagramState.count > diagramState.cap) {
+    return `<section class="artifact-mermaid-capped">
+      <p class="artifact-mermaid-notice">Inline diagram limit reached (${diagramState.cap}). Showing Mermaid source instead.</p>
+      <pre><code class="language-mermaid">${escapeHtml(source)}</code></pre>
+    </section>`;
+  }
+  const srcdocBase64 = Buffer.from(mermaidFrameContent(source), "utf8").toString("base64");
+  return `<div class="artifact-mermaid-embed" data-artifacty-mermaid data-mermaid-srcdoc="${srcdocBase64}">
+    <noscript><pre><code class="language-mermaid">${escapeHtml(source)}</code></pre></noscript>
+  </div>`;
 }
 
 function inlineMarkdown(value) {
@@ -2356,10 +3609,10 @@ function renderCsv(content) {
   const rowTruncated = parsed.rows.length - 1 > CSV_RENDER_ROW_LIMIT;
   const columnTruncated = columnCount > CSV_RENDER_COLUMN_LIMIT;
   const headerHtml = Array.from({ length: visibleColumns }, (_, index) =>
-    `<th>${escapeHtml(header[index] || `Column ${index + 1}`)}</th>`
+    `<th data-csv-col="${index}">${escapeHtml(header[index] || `Column ${index + 1}`)}</th>`
   ).join("");
   const bodyHtml = bodyRows.map((row) =>
-    `<tr>${Array.from({ length: visibleColumns }, (_, index) =>
+    `<tr data-csv-row>${Array.from({ length: visibleColumns }, (_, index) =>
       `<td>${escapeHtml(row[index] || "")}</td>`
     ).join("")}</tr>`
   ).join("\n");
@@ -2370,59 +3623,15 @@ function renderCsv(content) {
     columnTruncated ? `showing first ${CSV_RENDER_COLUMN_LIMIT} columns` : ""
   ].filter(Boolean).join(" · ");
 
-  return `<section class="artifact-csv">
+  return `<section class="artifact-csv" data-artifact-csv>
     <p class="artifact-csv-note">${escapeHtml(notes)}</p>
     <div class="artifact-table-scroll">
-      <table class="artifact-table">
+      <table class="artifact-table" data-csv-table>
         <thead><tr>${headerHtml}</tr></thead>
         <tbody>${bodyHtml}</tbody>
       </table>
     </div>
   </section>`;
-}
-
-function parseCsv(content) {
-  const text = String(content || "");
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let inQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "\"") {
-      if (inQuotes && text[index + 1] === "\"") {
-        cell += "\"";
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === "," && !inQuotes) {
-      row.push(cell);
-      cell = "";
-    } else if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && text[index + 1] === "\n") {
-        index += 1;
-      }
-      row.push(cell);
-      if (row.length > 1 || row[0] !== "") {
-        rows.push(row);
-      }
-      row = [];
-      cell = "";
-    } else {
-      cell += char;
-    }
-  }
-
-  if (inQuotes) {
-    return { ok: false, error: "unterminated quoted field", rows: [] };
-  }
-  row.push(cell);
-  if (row.length > 1 || row[0] !== "") {
-    rows.push(row);
-  }
-  return { ok: true, rows };
 }
 
 function renderSarif(content) {
@@ -2446,7 +3655,7 @@ function renderSarif(content) {
   const results = collectSarifResults(sarif);
   const counts = countBy(results, (result) => result.level);
   const visibleResults = results.slice(0, SARIF_RENDER_RESULT_LIMIT);
-  const rowHtml = visibleResults.map((result) => `<tr>
+  const rowHtml = visibleResults.map((result) => `<tr data-sarif-result data-level="${escapeAttribute(result.level)}" data-rule="${escapeAttribute(result.ruleId)}" data-location="${escapeAttribute(result.location)}">
     <td><span class="sarif-level ${escapeAttribute(result.level)}">${escapeHtml(result.level)}</span></td>
     <td>${escapeHtml(result.ruleId)}</td>
     <td>${escapeHtml(result.message)}</td>
@@ -2457,7 +3666,7 @@ function renderSarif(content) {
     ? `Showing first ${SARIF_RENDER_RESULT_LIMIT} of ${results.length} results.`
     : `${results.length} results.`;
 
-  return `<section class="artifact-sarif">
+  return `<section class="artifact-sarif" data-artifact-sarif>
     <div class="artifact-summary-grid">
       ${summaryCard("Runs", sarif.runs.length)}
       ${summaryCard("Results", results.length)}
@@ -2467,8 +3676,8 @@ function renderSarif(content) {
     </div>
     <p class="artifact-sarif-note">${escapeHtml(note)}</p>
     <div class="artifact-table-scroll">
-      <table class="artifact-table">
-        <thead><tr><th>Level</th><th>Rule</th><th>Message</th><th>Location</th><th>Tool</th></tr></thead>
+      <table class="artifact-table" data-sarif-table>
+        <thead><tr><th data-sarif-sort="level">Level</th><th data-sarif-sort="rule">Rule</th><th>Message</th><th data-sarif-sort="location">Location</th><th>Tool</th></tr></thead>
         <tbody>${rowHtml}</tbody>
       </table>
     </div>
@@ -2479,40 +3688,21 @@ function renderSarif(content) {
   </section>`;
 }
 
-function isSarifDocument(value) {
-  return value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    Array.isArray(value.runs) &&
-    (typeof value.version === "string" || String(value.$schema || "").toLowerCase().includes("sarif"));
-}
-
 function collectSarifResults(sarif) {
   return sarif.runs.flatMap((run) => {
     const tool = run?.tool?.driver?.name || run?.tool?.driver?.fullName || "unknown";
-    const rules = new Map();
-    for (const [index, rule] of (run?.tool?.driver?.rules || []).entries()) {
-      if (rule?.id) {
-        rules.set(rule.id, rule);
-      }
-      rules.set(index, rule);
-    }
+    const { rulesById, rulesByIndex } = rulesMapsForRun(run);
     return (run?.results || []).map((result) => {
-      const rule = rules.get(result.ruleId) || rules.get(result.ruleIndex);
+      const rule = rulesById.get(result.ruleId) || rulesByIndex.get(result.ruleIndex);
       return {
-        level: normalizeSarifLevel(result.level || rule?.defaultConfiguration?.level),
-        ruleId: result.ruleId || rule?.id || (Number.isInteger(result.ruleIndex) ? `#${result.ruleIndex}` : "unknown"),
+        level: sarifResultLevel(result, rulesById, rulesByIndex),
+        ruleId: sarifResultRuleId(result, rulesById, rulesByIndex),
         message: sarifMessage(result.message) || sarifMessage(rule?.shortDescription) || sarifMessage(rule?.fullDescription) || "",
         location: sarifLocation(result),
         tool
       };
     });
   });
-}
-
-function normalizeSarifLevel(value) {
-  const normalized = String(value || "warning").toLowerCase();
-  return ["error", "warning", "note", "none"].includes(normalized) ? normalized : "warning";
 }
 
 function sarifMessage(message) {
@@ -2553,4 +3743,184 @@ function formatJson(content) {
   } catch {
     return content;
   }
+}
+
+// --- Notebook format (roadmap section 15) ----------------------------------
+//
+// The stored content is always the original notebook JSON; this only
+// normalizes it for rendering. Parse failures fail closed to formatted JSON
+// so a malformed .ipynb never breaks the page.
+
+const NOTEBOOK_MAX_RENDERED_CELLS = 500;
+const NOTEBOOK_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+const NOTEBOOK_MAX_OUTPUTS_PER_CELL = 200;
+const NOTEBOOK_OUTPUT_MIME_PRIORITY = [
+  "text/html",
+  "image/svg+xml",
+  "image/png",
+  "image/jpeg",
+  "text/markdown",
+  "text/plain"
+];
+
+function renderNotebook(content) {
+  let notebook;
+  try {
+    notebook = JSON.parse(content);
+  } catch {
+    return `<pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>`;
+  }
+  if (!isNotebookObject(notebook)) {
+    return `<pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>`;
+  }
+
+  const language = notebook.metadata?.language_info?.name || notebook.metadata?.kernelspec?.language || "";
+  const diagramState = createMermaidDiagramState();
+  const cells = notebook.cells;
+  const rendered = cells.slice(0, NOTEBOOK_MAX_RENDERED_CELLS)
+    .map((cell) => renderNotebookCell(cell, language, diagramState))
+    .join("");
+  const notice = cells.length > NOTEBOOK_MAX_RENDERED_CELLS
+    ? `<p class="artifact-notebook-notice">Showing the first ${NOTEBOOK_MAX_RENDERED_CELLS} of ${cells.length} cells.</p>`
+    : "";
+
+  return `<article class="artifact-doc artifact-notebook">${notice}${rendered}</article>`;
+}
+
+function renderNotebookCell(cell, language, diagramState) {
+  const cellType = cell?.cell_type;
+  const source = notebookText(cell?.source);
+
+  if (cellType === "markdown") {
+    return `<section class="artifact-notebook-cell artifact-notebook-cell-markdown">${markdownToHtml(source, diagramState)}</section>`;
+  }
+
+  if (cellType === "code") {
+    const executionLabel = typeof cell?.execution_count === "number" ? `[${cell.execution_count}]` : "[ ]";
+    // Validate the language token the same way markdown fences are
+    // validated before it feeds a class attribute (escapeAttribute doesn't
+    // escape spaces, so an unvalidated name could inject extra class
+    // tokens, e.g. "artifact-frame", which frameResizeScript selects).
+    const safeLanguage = /^[a-zA-Z0-9+#_.-]+$/.test(language) ? language.toLowerCase() : "";
+    const classAttribute = safeLanguage ? ` class="language-${escapeAttribute(safeLanguage)}"` : "";
+    const cellOutputs = Array.isArray(cell?.outputs) ? cell.outputs : [];
+    const visibleOutputs = cellOutputs.slice(0, NOTEBOOK_MAX_OUTPUTS_PER_CELL);
+    const outputsNotice = cellOutputs.length > NOTEBOOK_MAX_OUTPUTS_PER_CELL
+      ? `<p class="artifact-notebook-notice">Showing the first ${NOTEBOOK_MAX_OUTPUTS_PER_CELL} of ${cellOutputs.length} outputs.</p>`
+      : "";
+    const outputs = visibleOutputs.map((output) => renderNotebookOutput(output, diagramState)).join("") + outputsNotice;
+    return `<section class="artifact-notebook-cell artifact-notebook-cell-code">
+      <div class="artifact-notebook-execcount">${escapeHtml(executionLabel)}</div>
+      <pre><code${classAttribute}>${escapeHtml(source)}</code></pre>
+      ${outputs}
+    </section>`;
+  }
+
+  // "raw" cells and any other/unknown cell_type render as escaped source.
+  return `<section class="artifact-notebook-cell artifact-notebook-cell-raw"><pre class="artifact-code"><code>${escapeHtml(source)}</code></pre></section>`;
+}
+
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_PATTERN = /\x1B\[[0-9;]*[a-zA-Z]/g;
+
+function stripAnsiEscapes(value) {
+  return String(value ?? "").replace(ANSI_ESCAPE_PATTERN, "");
+}
+
+function renderNotebookOutput(output, diagramState) {
+  const outputType = output?.output_type;
+
+  if (outputType === "stream") {
+    return renderNotebookTextOutput(notebookText(output.text));
+  }
+
+  if (outputType === "error") {
+    // Unlike cell.source, traceback array elements carry no trailing
+    // newline in nbformat, so joining with "" runs every line together.
+    // ANSI color escapes are also common in tracebacks and there is no
+    // terminal here to interpret them, so strip them rather than leak the
+    // raw escape codes into the page.
+    const rawTraceback = Array.isArray(output.traceback)
+      ? output.traceback.map((line) => (typeof line === "string" ? line : String(line ?? ""))).join("\n")
+      : notebookText(output.traceback);
+    const traceback = stripAnsiEscapes(rawTraceback) ||
+      `${notebookText(output.ename)}: ${notebookText(output.evalue)}`;
+    return renderNotebookTextOutput(traceback, "artifact-notebook-error");
+  }
+
+  if (outputType === "execute_result" || outputType === "display_data") {
+    return renderNotebookMimeBundle(output.data, diagramState);
+  }
+
+  return "";
+}
+
+function renderNotebookTextOutput(text, extraClass = "") {
+  const truncated = notebookTruncateIfOversized(text);
+  if (truncated) {
+    return truncated;
+  }
+  const classAttribute = extraClass ? ` ${extraClass}` : "";
+  return `<pre class="artifact-notebook-output artifact-code${classAttribute}"><code>${escapeHtml(text)}</code></pre>`;
+}
+
+function renderNotebookMimeBundle(data, diagramState) {
+  const bundle = data && typeof data === "object" && !Array.isArray(data) ? data : {};
+  const keys = Object.keys(bundle);
+  if (keys.length === 0) {
+    return "";
+  }
+
+  const mime = NOTEBOOK_OUTPUT_MIME_PRIORITY.find((candidate) => keys.includes(candidate));
+  if (!mime) {
+    return `<p class="artifact-notebook-output-placeholder">Unsupported output type: ${escapeHtml(keys[0])}</p>`;
+  }
+
+  const value = notebookText(bundle[mime]);
+  const truncated = notebookTruncateIfOversized(value);
+  if (truncated) {
+    return truncated;
+  }
+
+  if (mime === "text/plain") {
+    return `<pre class="artifact-notebook-output artifact-code"><code>${escapeHtml(value)}</code></pre>`;
+  }
+  if (mime === "text/markdown") {
+    return `<div class="artifact-notebook-output artifact-doc">${markdownToHtml(value, diagramState)}</div>`;
+  }
+  if (mime === "image/png" || mime === "image/jpeg") {
+    const dataUrl = mediaDataUrl(value, mime);
+    if (!dataUrl) {
+      return `<p class="artifact-notebook-output-placeholder">Unsupported output type: ${escapeHtml(mime)}</p>`;
+    }
+    return `<figure class="artifact-media artifact-image artifact-notebook-output"><img src="${escapeAttribute(dataUrl)}" alt="Notebook output image"></figure>`;
+  }
+  if (mime === "image/svg+xml") {
+    return `<iframe class="artifact-frame artifact-svg-frame artifact-notebook-output" sandbox srcdoc="${escapeAttribute(svgFrameContent(value))}"></iframe>`;
+  }
+  if (mime === "text/html") {
+    return `<iframe class="artifact-frame artifact-notebook-output" sandbox="allow-scripts allow-forms allow-popups" srcdoc="${escapeAttribute(htmlFrameContent(value))}"></iframe>`;
+  }
+  return "";
+}
+
+function notebookTruncateIfOversized(value) {
+  const size = Buffer.byteLength(String(value ?? ""), "utf8");
+  if (size <= NOTEBOOK_MAX_OUTPUT_BYTES) {
+    return null;
+  }
+  return `<p class="artifact-notebook-output-truncated">Output truncated: ${escapeHtml(String(size))} bytes exceeds the 2 MB limit.</p>`;
+}
+
+function notebookText(value) {
+  if (Array.isArray(value)) {
+    return value.map((part) => (typeof part === "string" ? part : String(part ?? ""))).join("");
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === undefined || value === null) {
+    return "";
+  }
+  return String(value);
 }

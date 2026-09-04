@@ -1,0 +1,62 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Trivy",
+          "informationUri": "https://github.com/aquasecurity/trivy",
+          "version": "0.53.0",
+          "rules": [
+            {
+              "id": "CVE-2024-12345",
+              "name": "OsPackageVulnerability",
+              "shortDescription": { "text": "libexample: heap buffer overflow in decode_frame" },
+              "fullDescription": { "text": "A heap buffer overflow in libexample before 1.4.2 allows remote attackers to cause a denial of service via a crafted frame." },
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-12345",
+              "defaultConfiguration": { "level": "error" },
+              "properties": { "security-severity": "8.6", "tags": ["security", "CVE-2024-12345"] }
+            },
+            {
+              "id": "CVE-2023-98765",
+              "name": "OsPackageVulnerability",
+              "shortDescription": { "text": "libsample: use-after-free in connection cleanup" },
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2023-98765",
+              "defaultConfiguration": { "level": "warning" },
+              "properties": { "security-severity": "5.3" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2024-12345",
+          "level": "error",
+          "message": { "text": "Package libexample 1.4.1 is vulnerable to CVE-2024-12345. Upgrade to 1.4.2 or later." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "Dockerfile" },
+                "region": { "startLine": 3 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "CVE-2023-98765",
+          "level": "warning",
+          "message": { "text": "Package libsample 2.0.0 is vulnerable to CVE-2023-98765. Upgrade to 2.0.1 or later." },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "Dockerfile" },
+                "region": { "startLine": 3 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
