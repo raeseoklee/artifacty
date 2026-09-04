@@ -926,7 +926,6 @@ function normalizeSearchMode(value) {
 }
 
 export async function listArtifactsPage(store = createStore(), filters = {}) {
-  const db = openDatabase(store);
   const limit = clampInteger(filters.limit, 1, 200, 50);
   const offset = clampInteger(filters.offset, 0, 1_000_000, 0);
   const query = normalizeOptionalString(filters.query);
@@ -941,10 +940,13 @@ export async function listArtifactsPage(store = createStore(), filters = {}) {
   const createdAfter = parseFilterDate(filters.createdAfter, "createdAfter");
   const createdBefore = parseFilterDate(filters.createdBefore, "createdBefore");
   const access = filters.access || null;
-  const bypassVisibility = !access || isSingleUserMode(db);
   const visibility = filters.visibility ? normalizeVisibility(filters.visibility) : undefined;
   const ownerUserId = normalizeOptionalString(filters.ownerUserId) || undefined;
   const requestedMode = normalizeSearchMode(filters.mode);
+  // Filter validation above runs before the handle is opened so a rejected
+  // filter never leaks an open connection.
+  const db = openDatabase(store);
+  const bypassVisibility = !access || isSingleUserMode(db);
 
   const baseFilters = {
     tag,
@@ -3330,15 +3332,22 @@ export function openDatabase(store) {
   mkdirSync(store.artifactsDir, { recursive: true });
 
   const db = new DatabaseSync(store.dbPath);
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-    PRAGMA busy_timeout = 5000;
-  `);
-  initializeSchema(db);
-  migrateJsonIndex(db, store);
-  normalizeStoredSourceAgents(db, store);
-  syncSearchIndexIfEmpty(db, store);
+  try {
+    db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA foreign_keys = ON;
+      PRAGMA busy_timeout = 5000;
+    `);
+    initializeSchema(db);
+    migrateJsonIndex(db, store);
+    normalizeStoredSourceAgents(db, store);
+    syncSearchIndexIfEmpty(db, store);
+  } catch (error) {
+    // Never leak an open handle when initialization fails (for example the
+    // store_version guard); on Windows an open handle blocks file removal.
+    db.close();
+    throw error;
+  }
   return db;
 }
 

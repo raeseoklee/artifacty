@@ -155,7 +155,7 @@ export function parseCommandArgv(command) {
     if (quote) {
       if (char === quote) {
         quote = null;
-      } else if (char === "\\" && quote === "\"" && index + 1 < text.length) {
+      } else if (char === "\\" && quote === "\"" && index + 1 < text.length && /["\\]/.test(text[index + 1])) {
         index += 1;
         current += text[index];
       } else {
@@ -168,7 +168,9 @@ export function parseCommandArgv(command) {
       hasCurrent = true;
       continue;
     }
-    if (char === "\\" && index + 1 < text.length) {
+    // A backslash escapes only a quote, another backslash, or whitespace so
+    // that Windows paths such as C:\Program Files\node.exe survive intact.
+    if (char === "\\" && index + 1 < text.length && /["'\\\s]/.test(text[index + 1])) {
       index += 1;
       current += text[index];
       hasCurrent = true;

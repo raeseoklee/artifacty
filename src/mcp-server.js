@@ -1483,7 +1483,8 @@ function waitForEvent({ artifactId, tag, type, timeoutMs, access } = {}) {
       unsubscribe();
       resolve({ timedOut: true });
     }, boundedTimeoutMs);
-    timer.unref?.();
+    // Deliberately not unref'd: a pending wait is a live tool call and must
+    // keep the process alive until it resolves or times out (max 120s).
 
     // A matching event for a private artifact the caller cannot see must
     // not resolve or leak the wait: keep waiting (silently) until a visible

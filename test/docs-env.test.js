@@ -63,7 +63,7 @@ test("every ARTIFACTY_* environment variable read in src/ is documented in READM
 test("every ARTIFACTY_* environment variable read in src/ is documented in the CLI help env section", async () => {
   const envVars = await envVarsReadInSrc();
   const cliSource = await readFile(path.join(srcDir, "cli.js"), "utf8");
-  const envSectionMatch = cliSource.match(/Environment:\n([\s\S]*?)`\);/);
+  const envSectionMatch = cliSource.match(/Environment:\r?\n([\s\S]*?)`\);/);
   assert.ok(envSectionMatch, "cli.js help output must contain an Environment: section");
   const envSection = envSectionMatch[1];
 

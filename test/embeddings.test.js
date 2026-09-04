@@ -260,3 +260,16 @@ test("openai-compatible provider strips a trailing slash from the base URL", asy
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("parseCommandArgv keeps Windows-style backslash paths intact and still honors quotes and escapes", async () => {
+  const { parseCommandArgv } = await import("../src/lib/embeddings.js");
+  assert.deepEqual(
+    parseCommandArgv("C:\\hostedtoolcache\\windows\\node\\24.19.0\\x64\\node.exe scripts\\embed.js --flag"),
+    ["C:\\hostedtoolcache\\windows\\node\\24.19.0\\x64\\node.exe", "scripts\\embed.js", "--flag"]
+  );
+  assert.deepEqual(
+    parseCommandArgv('"C:\\Program Files\\node\\node.exe" embed.js'),
+    ["C:\\Program Files\\node\\node.exe", "embed.js"]
+  );
+  assert.deepEqual(parseCommandArgv("node my\\ script.js 'a b' c\\\\d"), ["node", "my script.js", "a b", "c\\d"]);
+});
