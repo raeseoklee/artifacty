@@ -131,7 +131,7 @@ test("mutations publish events in order only after the transaction commits, and 
       unsubscribe();
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -165,7 +165,7 @@ test("listEventsSince replays persisted events in order and applies filters, wit
       }
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -211,7 +211,7 @@ test("listEventsSince re-derives visibility/owner from the live artifact row ins
     const trustedView = await listEventsSince(store, 0, {}, 200, null);
     assert.ok(trustedView.some((event) => event.artifactId === artifact.id));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -246,6 +246,6 @@ test("comment-add audit/event rows carry the artifact's tags and artifactType, l
     const auditRows = await listAuditEvents(store, { artifactId: artifact.id, action: "comment-add" });
     assert.equal(auditRows.length, 1);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

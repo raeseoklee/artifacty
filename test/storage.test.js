@@ -127,7 +127,7 @@ test("creates, lists, reads, and versions artifacts", async () => {
     assert.ok(actions.includes("archive"));
     assert.ok(actions.includes("restore"));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -199,7 +199,7 @@ test("skips no-op web edits and lets admins repair or delete versions", async ()
     assert.ok(actions.includes("version-repair"));
     assert.ok(actions.includes("version-delete"));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -271,7 +271,7 @@ test("replaceArtifactVersion and deleteArtifactVersion enforce owner/admin acces
     });
     assert.equal(adminRepaired.content, "fixed by admin");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -437,7 +437,7 @@ test("stores extended artifact formats and taxonomy", async () => {
     assert.equal(notebookByExtension.version.format, "notebook");
     assert.equal(notebookByExtension.artifactType, "analysis-report");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -456,7 +456,7 @@ test("infers HTML format for native artifacts when format is omitted", async () 
     assert.equal(artifact.artifactType, "html-page");
     assert.ok(artifact.version.path.endsWith(".html"));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -538,7 +538,7 @@ test("records artifact publishers and backfills legacy rows from audit actors", 
     assert.equal(cleared.publisherName, null);
     assert.equal(cleared.publisherUserId, null);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -592,7 +592,7 @@ test("a second open of an already-backfilled store performs no UPDATE on artifac
 
     assert.equal(updateCount, 0, "openDatabase() must not UPDATE the artifacts table when nothing needs backfilling");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -619,7 +619,7 @@ test("blocks detected secrets unless explicitly allowed", async () => {
     assert.equal(artifact.version.metadata.secretScan.status, "allowed");
     assert.equal(artifact.version.metadata.secretScan.findingCount, 1);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -655,7 +655,7 @@ test("manages users, sessions, and hashed API tokens", async () => {
     assert.equal(await revokeApiToken(store, createdToken.record.id, admin.id), true);
     assert.equal(await authenticateApiToken(store, createdToken.token), null);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -709,7 +709,7 @@ test("imports users from CSV with generated temporary passwords", async () => {
     const providedNoReset = await importUsersFromCsv(store, "email,name,role,password,password_reset_required\nready@example.com,Ready,user,password-333,false");
     assert.equal(providedNoReset.created[0].user.passwordResetRequired, false);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -758,7 +758,7 @@ test("migrates legacy JSON index into SQLite store", async () => {
     assert.equal(artifact.content, "# Legacy");
     assert.deepEqual(artifact.version.metadata, { migrated: true });
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -846,7 +846,7 @@ test("normalizes stored source agent aliases and infers unknown from metadata", 
       db.close();
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -908,7 +908,7 @@ test("paginates artifact lists and searches latest content with FTS5 when availa
     assert.equal(metadataSearch.length, 1);
     assert.equal(metadataSearch[0].id, first.id);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -940,7 +940,7 @@ test("checks store integrity for missing, changed, and orphaned version files", 
     assert.equal(broken.orphanFiles.length, 1);
     assert.equal(broken.orphanFiles[0].path, path.join("artifacts", "orphan", "v1.txt"));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1004,7 +1004,7 @@ test("updateArtifact enforces optimistic concurrency with expectedVersion", asyn
     });
     assert.equal(noConflict.latestVersion, 3);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1064,7 +1064,7 @@ test("artifact relations: round trip, inverse names, and getArtifact/listRelatio
     const afterRemove = await listRelations(store, a.id);
     assert.equal(afterRemove.incoming.length, 1);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1094,7 +1094,7 @@ test("artifact relations: rejects self-links, unknown relations, and unknown art
       (error) => error.code === "RELATION_NOT_FOUND"
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1112,7 +1112,7 @@ test("artifact relations: unique constraint ignores duplicate insert instead of 
     const relations = await listRelations(store, a.id);
     assert.equal(relations.incoming.length, 1);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1135,7 +1135,7 @@ test("artifact relations: dangling target is reported as missing, not dropped", 
     assert.equal(bWithContent.relations.outgoing[0].artifact, null);
     assert.equal(bWithContent.relations.outgoing[0].artifactId, a.id);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1155,7 +1155,7 @@ test("artifact relations: cascades on artifact delete via foreign key", async ()
 
     assert.equal(remainingRelations.length, 0, "expected the relation row to cascade-delete with its artifact");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1187,7 +1187,7 @@ test("relatedTo and relation filters restrict listArtifactsPage, with pagination
     const relatedByOtherRelation = await listArtifactsPage(store, { relatedTo: a.id, relation: "supersedes" });
     assert.equal(relatedByOtherRelation.total, 0);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1212,7 +1212,7 @@ test("relations array passed to createArtifact and updateArtifact links in the s
     const relationNames = cRelations.outgoing.map((entry) => entry.relation).sort();
     assert.deepEqual(relationNames, ["references", "supersedes"]);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1275,7 +1275,7 @@ test("personal API token scopes: defaults, validation, admin restriction, and le
     const legacyAuth = await authenticateApiToken(store, defaultToken.token);
     assert.deepEqual(legacyAuth.scopes, ["read", "write"]);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1325,7 +1325,7 @@ test("listArtifactsPage filters by artifactType, publisher, createdAfter, create
     const noReviewMatch = await listArtifactsPage(store, { reviewStatus: "approved" });
     assert.equal(noReviewMatch.total, 0);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1353,7 +1353,7 @@ test("listArtifactsPage rejects invalid createdAfter/createdBefore with code inv
       }
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1381,7 +1381,7 @@ test("artifactType, publisher, createdAfter/Before, and reviewStatus filters com
     const noMatch = await listArtifactsPage(store, { query: "deployment", publisher: "nobody" });
     assert.equal(noMatch.artifacts.length, 0);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1405,7 +1405,7 @@ test("createSavedView rejects filter keys outside the allowlist", async () => {
     assert.equal(view.name, "Good View");
     assert.deepEqual(view.filters, { query: "x", tag: "y" });
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1429,7 +1429,7 @@ test("saved views are global in single-user mode and resolvable by id or name", 
     const missing = await resolveSavedView(store, "does-not-exist", {});
     assert.equal(missing, null);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1477,7 +1477,7 @@ test("saved view ownership and sharing visibility in team mode", async () => {
     const afterDelete = await listSavedViews(store, { access: ownerAccess });
     assert.deepEqual(afterDelete.map((v) => v.id), [sharedView.id]);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1540,7 +1540,7 @@ test("comments: add, list, thread depth limit, size cap, anchor pass-through", a
     assert.equal(comments.length, 2);
     assert.deepEqual(comments.map((c) => c.id).sort(), [root.id, reply.id].sort());
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1580,7 +1580,7 @@ test("comments: resolve and soft delete hide from list but keep audit history", 
       (error) => error.code === "COMMENT_NOT_FOUND"
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1644,7 +1644,7 @@ test("review status: set, reset to pending on new version after approved, and ac
     const adminStatus = await setReviewStatus(store, privateArtifact.id, "pending", { access: adminAccess });
     assert.equal(adminStatus.reviewStatus, "pending");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1695,7 +1695,7 @@ test("bundle document assets: accepts an allowed binary content type and rejects
       (error) => error.code === "UNSUPPORTED_BUNDLE_FILE_TYPE"
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1718,7 +1718,7 @@ test("bundle document assets: rejects a binary file entry over the per-file cap"
       (error) => error.code === "BUNDLE_FILE_TOO_LARGE"
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1746,7 +1746,7 @@ test("bundle document assets: file paths must be safe relative paths", async () 
       (error) => error.code === "INVALID_BUNDLE_FILE_PATH"
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1776,7 +1776,7 @@ test("bundle document assets: updateArtifact re-validates binary file entries on
       (error) => error.code === "UNSUPPORTED_BUNDLE_FILE_TYPE"
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1828,7 +1828,7 @@ test("bundle document assets: secret scanning skips binary file content but stil
       (error) => error.code === "SECRET_DETECTED"
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1847,7 +1847,7 @@ test("opening a store whose stored store_version is newer than this build's STOR
       /newer version/i
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1874,7 +1874,7 @@ test("listAuditEvents filters by action, as a string or an array, with and witho
     const noMatch = await listAuditEvents(store, { artifactId: artifact.id, action: "webhook-create" });
     assert.deepEqual(noMatch, []);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1915,7 +1915,7 @@ test("readBundleFile serves a bundle's binary file entries by path or name, reus
     });
     assert.equal(readBundleFile(artifact, unsafeContent, "../escape.pdf"), null);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

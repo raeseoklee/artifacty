@@ -82,7 +82,7 @@ test("serve can generate and enforce a startup API token", async () => {
     assert.equal(authorized.status, 200);
   } finally {
     await stopProcess(child);
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -120,7 +120,7 @@ test("imports users from CSV through the CLI", async () => {
     assert.equal(result.created[0].user.passwordResetRequired, true);
     assert.match(result.created[0].temporaryPassword, /^tmp_[A-Za-z0-9_-]+$/);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -174,8 +174,8 @@ test("backs up and restores a full-scope bundle through the CLI", async () => {
     ]);
     assert.match(usersStdout, /Full Backup Demo/);
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -214,7 +214,7 @@ test("serve starts a background server by default and returns generated auth", a
     assert.equal(authorized.status, 200);
   } finally {
     await execFileAsync(process.execPath, ["src/cli.js", "stop", "--home", home, "--force"]).catch(() => {});
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -265,7 +265,7 @@ test("starts, reports, and stops a background server", async () => {
     assert.equal(stopped.managed, false);
   } finally {
     await execFileAsync(process.execPath, ["src/cli.js", "stop", "--home", home]).catch(() => {});
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -295,7 +295,7 @@ test("imports media files as base64 artifacts", async () => {
     assert.equal(imported.version.metadata.mimeType, "image/png");
     assert.equal(imported.version.metadata.encoding, "base64");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -341,7 +341,7 @@ test("lists paginated artifacts and checks store integrity from the CLI", async 
     assert.equal(integrity.ok, true);
     assert.equal(integrity.artifactCount, 3);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -404,7 +404,7 @@ test("filters, groups, and saves views from the CLI", async () => {
     ])).stdout);
     assert.equal(afterDelete.views.length, 0);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -457,7 +457,7 @@ test("links, unlinks, and lists artifact relations from the CLI", async () => {
       /Unsupported relation/
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -505,7 +505,7 @@ test("comments, resolve-comment, and review-status from the CLI", async () => {
       /--body/
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -574,7 +574,7 @@ test("diff compares versions, defaulting from/to and supporting --structured/--j
       /diff requires an artifact id/
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -634,7 +634,7 @@ test("update --expected-version enforces optimistic concurrency and reports conf
     assert.equal(conflictBody.code, "version_conflict");
     assert.equal(conflictBody.latestVersion, 2);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -674,7 +674,7 @@ test("rebuilds the search index from the CLI when FTS5 is available", async () =
       assert.match(result.message, /FTS5 is unavailable/);
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -692,7 +692,7 @@ test("list --mode falls back to keyword without a provider and reports search.mo
     assert.equal(result.search.mode, "keyword");
     assert.equal(result.search.fallback, true);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -719,7 +719,7 @@ test("list --mode uses a configured embedding provider for semantic ranking", as
     assert.equal(result.search.mode, "semantic");
     assert.equal(result.artifacts.length, 1);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -746,7 +746,7 @@ test("index rebuild --embeddings re-embeds artifacts and reports configured: fal
     assert.equal(withProvider.embeddings.configured, true);
     assert.equal(withProvider.embeddings.indexed, 1);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -784,7 +784,7 @@ test("server entrypoint can generate and enforce a startup API token", async () 
     assert.equal(authorized.status, 200);
   } finally {
     await stopProcess(child);
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

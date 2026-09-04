@@ -78,7 +78,7 @@ test("personal API token scopes gate /api/* routes by read/write/admin", async (
     assert.ok(audit.events.some((event) => event.action === "token-scope-denied"));
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -106,7 +106,7 @@ test("429 rate_limited responses carry Retry-After and code, forced on via ARTIF
     assert.equal(body.code, "rate_limited");
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     delete process.env.ARTIFACTY_RATE_LIMIT;
     delete process.env.ARTIFACTY_RATE_WRITE_PER_MIN;
   }
@@ -127,7 +127,7 @@ test("rate limiting is disabled by default on a loopback bind", async () => {
     }
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     delete process.env.ARTIFACTY_RATE_WRITE_PER_MIN;
   }
 });
@@ -162,6 +162,6 @@ test("account page renders scope checkboxes on token creation and lists each tok
     assert.match(tokenPage, /<td>read<\/td>/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

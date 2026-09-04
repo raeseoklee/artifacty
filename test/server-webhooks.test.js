@@ -36,7 +36,7 @@ test("GET/POST/DELETE /api/webhooks round trip, and the secret is only ever retu
   } finally {
     delete process.env.ARTIFACTY_WEBHOOK_ALLOW_PRIVATE;
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -54,7 +54,7 @@ test("POST /api/webhooks rejects an SSRF-suspect target", async () => {
     assert.equal(body.code, "INVALID_WEBHOOK_URL");
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -95,7 +95,7 @@ test("POST /api/webhooks/:id/test delivers a signed synthetic event to a real re
     delete process.env.ARTIFACTY_WEBHOOK_ALLOW_PRIVATE;
     await app.close();
     await new Promise((resolve) => receiver.close(resolve));
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -118,6 +118,6 @@ test("webhook routes require admin once user accounts exist", async () => {
     assert.equal(unauthenticated.status, 401);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

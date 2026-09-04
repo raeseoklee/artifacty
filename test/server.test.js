@@ -609,7 +609,7 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.match(pagedDashboard, /offset=2/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -704,7 +704,7 @@ test("requires API token when configured and blocks secrets", async () => {
     assert.equal(authedExport.status, 200);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -767,7 +767,7 @@ test("supports token-protected admin backup API", async () => {
     assert.deepEqual((await listArtifacts(store)).map((artifact) => artifact.id), [kept.id]);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1021,7 +1021,7 @@ test("supports login, user token management, and admin users", async () => {
     assert.match(loginUserResponse.headers.get("set-cookie"), /artifacty_session=/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1118,7 +1118,7 @@ test("lets admins download and restore artifact backups from the browser", async
     assert.equal(integrity.ok, true);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1181,7 +1181,7 @@ test("full-scope backup and restore round trip through the admin API", async () 
     assert.deepEqual(users.map((user) => user.email), ["admin@example.com"]);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1197,7 +1197,7 @@ test("serves token-protected MCP over HTTP when enabled", async () => {
     assert.equal(disabledResponse.status, 404);
   } finally {
     await disabledApp.close();
-    await rm(disabledHome, { recursive: true, force: true });
+    await rm(disabledHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-mcp-"));
@@ -1274,7 +1274,7 @@ test("serves token-protected MCP over HTTP when enabled", async () => {
     assert.equal(info.structuredContent.url, app.url);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1290,7 +1290,7 @@ test("rejects non-local host without explicit share mode and token", async () =>
       /Non-local host requires ARTIFACTY_SHARE_MODE/
     );
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1323,8 +1323,8 @@ test("keeps explicit port failures but supports intentional fallback", async () 
       await fallback.close();
     }
     await blocker.close();
-    await rm(blockerHome, { recursive: true, force: true });
-    await rm(fallbackHome, { recursive: true, force: true });
+    await rm(blockerHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(fallbackHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1357,7 +1357,7 @@ test("allows null-origin CORS only for vendored JS assets, not sensitive routes"
     assert.equal(api.headers["access-control-allow-origin"], undefined);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1407,7 +1407,7 @@ test("allows same-origin browser writes from central hosts and rejects cross-ori
     assert.match(crossOrigin.body, /NON_LOCAL_ORIGIN/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1435,7 +1435,7 @@ test("serves the OpenAPI document and HTML API reference with no auth required",
     assert.match(html, /openapi\.json/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1521,7 +1521,7 @@ test("enforces optimistic concurrency on the API and browser edit form", async (
     assert.equal(afterFailedEdit.latestVersion, 2);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1602,7 +1602,7 @@ test("exposes artifact relations over the HTTP API", async () => {
     assert.match(viewerPage, /relations/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1676,7 +1676,7 @@ test("exposes comments and review status over the HTTP API, and escapes comment 
     assert.ok(secondComment.id);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1738,7 +1738,7 @@ test("renders a structured diff page with escaping and serves the diff API as JS
     assert.ok(Array.isArray(apiLines.diffRows));
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1777,7 +1777,7 @@ test("filters /api/artifacts by artifactType, publisher, date range, and reviewS
     assert.equal(byReviewStatus.artifacts.length, 2);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1803,7 +1803,7 @@ test("/api/artifacts supports mode=keyword|semantic|hybrid and falls back withou
     assert.equal(invalidMode.status, 400);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1834,7 +1834,7 @@ test("/api/artifacts mode=semantic and mode=hybrid use a configured embedding pr
     assert.equal(defaultMode.search.mode, "hybrid");
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     if (previousCommand === undefined) {
       delete process.env.ARTIFACTY_EMBEDDINGS_COMMAND;
     } else {
@@ -1902,7 +1902,7 @@ test("saved views: create, list, delete over /api/views, and ?view= expansion wi
     assert.equal(afterDelete.views.length, 0);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1939,7 +1939,7 @@ test("dashboard renders groupBy section headers and the saved-views sidebar", as
     assert.match(dashboardPage, /dashboard-sidebar/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1979,7 +1979,7 @@ test("dashboard passes relatedTo/relation filters through to the artifact list, 
     assert.match(filteredPage, /name="relation" value="derived-from"/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -2061,7 +2061,7 @@ test("serves bundle document files at /raw?file= with type-appropriate headers, 
     assert.match(viewerHtml, /bundle-file-link" href="[^"]*raw\?version=1&amp;file=notes\.docx"/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -2115,7 +2115,7 @@ test("denies bundle raw file access to non-owners of a private bundle", async ()
     assert.equal(otherRawResponse.status, 404);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -2176,7 +2176,7 @@ test("renders Markdown embedded fenced code, mermaid cap, and task lists; keeps 
     assert.match(mermaidPage, /<noscript><pre><code class="language-mermaid">flowchart TD/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -2212,7 +2212,7 @@ test("caps inline Mermaid diagrams per document via ARTIFACTY_MAX_INLINE_DIAGRAM
     assert.match(page, /<pre><code class="language-mermaid">flowchart TD\n {2}C --&gt; D<\/code><\/pre>/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     if (previousCap === undefined) {
       delete process.env.ARTIFACTY_MAX_INLINE_DIAGRAMS;
     } else {
@@ -2291,7 +2291,7 @@ test("renders Jupyter notebook cells in order with an output MIME allowlist, ove
     assert.equal(raw, notebookContent);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -2325,7 +2325,7 @@ test("bounds notebook rendering to the first 500 cells and fails closed to forma
     assert.match(malformedPage, /<pre class="artifact-code"><code>\{not valid json<\/code><\/pre>/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

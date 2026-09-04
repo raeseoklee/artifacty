@@ -48,7 +48,7 @@ test("installs JSON-based project MCP config files", async () => {
     const cursorJson = JSON.parse(await readFile(path.join(projectDir, ".cursor", "mcp.json"), "utf8"));
     assert.equal(cursorJson.mcpServers.artifacty.command, "node");
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -126,7 +126,7 @@ test("JSON installers preserve other servers and replace only artifacty", async 
     assert.equal(cursorJson.mcpServers.artifacty.command, "node");
     assert.equal(cursorJson.mcpServers.artifacty.env.OLD, undefined);
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -160,7 +160,7 @@ test("JSON installers reject invalid config shapes instead of corrupting files",
       /expected a JSON object/
     );
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -181,7 +181,7 @@ test("installs all supported MCP client targets", async () => {
       "cursor"
     ]);
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -224,7 +224,7 @@ test("applies install timeout where agent configs support it", async () => {
     const claudeJson = JSON.parse(await readFile(path.join(projectDir, ".mcp.json"), "utf8"));
     assert.equal("timeout" in claudeJson.mcpServers.artifacty, false);
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -250,7 +250,7 @@ test("installs Codex MCP config block without duplicating it", async () => {
     assert.match(content, /startup_timeout_sec = 30\.0/);
     assert.match(content, /ARTIFACTY_HOME/);
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -293,7 +293,7 @@ test("repairs legacy Codex nested env tables without duplicate env keys", async 
     assert.match(content, /\[mcp_servers\.artifacty_extra\]/);
     assert.match(content, /\[features\]/);
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -346,8 +346,8 @@ test("uses packageDir for MCP server path when installing from another project",
     const config = createMcpServerConfig({ projectDir, packageDir });
     assert.equal(config.args[0], path.join(packageDir, "src", "mcp-server.js"));
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
-    await rm(packageDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(packageDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -370,7 +370,7 @@ test("does not pin ARTIFACTY_URL unless explicitly configured", async () => {
     } else {
       process.env.ARTIFACTY_URL = originalUrl;
     }
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -410,6 +410,6 @@ test("installs central MCP bridge configuration", async () => {
     assert.equal(claudeConfig.mcpServers.artifacty.env.ARTIFACTY_MCP_URL, "http://10.0.0.50:8787/mcp");
     assert.equal(claudeConfig.mcpServers.artifacty.env.ARTIFACTY_API_TOKEN, "team-token");
   } finally {
-    await rm(projectDir, { recursive: true, force: true });
+    await rm(projectDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

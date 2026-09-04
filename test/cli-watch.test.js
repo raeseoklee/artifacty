@@ -72,7 +72,7 @@ test("artifacty watch --once --json prints the first matching event and exits 0"
     assert.equal(event.artifactId, artifact.id);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -127,6 +127,6 @@ test("artifacty watch --exec runs the command with event JSON on stdin and ARTIF
     assert.equal(stdinEvent.artifactId, artifact.id);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

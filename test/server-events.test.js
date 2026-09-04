@@ -62,7 +62,7 @@ test("GET /api/events with Accept: text/event-stream streams an event published 
   } finally {
     controller.abort();
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -105,7 +105,7 @@ test("GET /api/events replays from Last-Event-ID and supports the JSON polling m
   } finally {
     controller.abort();
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -136,7 +136,7 @@ test("GET /api/events returns 503 once ARTIFACTY_SSE_MAX_CLIENTS is exceeded", a
       process.env.ARTIFACTY_SSE_MAX_CLIENTS = originalMax;
     }
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -153,7 +153,7 @@ test("GET /api/events requires a token when ARTIFACTY_API_TOKEN is configured", 
     assert.equal(authorized.status, 200);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -196,6 +196,6 @@ test("an event written by a different process sharing the same store (e.g. the C
       process.env.ARTIFACTY_EVENT_POLL_MS = originalPollMs;
     }
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

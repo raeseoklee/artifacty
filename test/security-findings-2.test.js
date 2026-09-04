@@ -38,7 +38,7 @@ async function withTempStore(prefix, fn) {
   try {
     await fn(createStore({ home }));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
@@ -214,7 +214,7 @@ test("M2: command provider parses argv without a shell and excludes secrets from
 
     assert.equal(existsSync(markerFile), false, "the ; touch ... payload must never execute");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

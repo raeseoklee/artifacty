@@ -61,7 +61,7 @@ test("tools/list omits mutating tools for a read-only token over the HTTP transp
     assert.equal(allowedRead.result.isError, false);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -74,7 +74,7 @@ test("a stdio (non-HTTP) MCP context has full scopes regardless of any configure
     const listed = await handler({ method: "tools/list" });
     assert.ok(listed.tools.some((tool) => tool.name === "artifacty_create"));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -98,7 +98,7 @@ test("mutating MCP tool calls over HTTP are rate-limited and return an isError r
     assert.equal(second.result.structuredContent.code, "rate_limited");
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     delete process.env.ARTIFACTY_RATE_LIMIT;
     delete process.env.ARTIFACTY_RATE_WRITE_PER_MIN;
   }

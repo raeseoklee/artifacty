@@ -21,7 +21,7 @@ async function withStore(fn) {
   try {
     await fn(createStore({ home }));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
@@ -188,7 +188,7 @@ test("H3: audit log hides private artifact events for a non-owner over HTTP and 
     assert.ok(!mcpAudit.structuredContent.events.some((event) => event.artifactId === created.id));
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -260,7 +260,7 @@ test("H4: SSE stream, ?since= polling, and artifacty_wait hide private artifact 
     assert.equal(waitResult.structuredContent.timedOut, true, "wait must time out rather than resolve with a private event");
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

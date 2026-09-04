@@ -32,6 +32,6 @@ test("checks MCP tool discovery", async () => {
       assert.ok(result.prompts.includes(prompt), `${prompt} should be discovered`);
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

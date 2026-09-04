@@ -48,8 +48,8 @@ test("exports and imports a complete store backup", async () => {
     assert.equal(artifacts[0].id, created.id);
     assert.equal((await getArtifact(targetStore, created.id)).content, "# Backup");
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -84,8 +84,8 @@ test("store restore replaces artifact files without leaving orphans", async () =
     assert.equal(integrity.ok, true);
     assert.equal(integrity.orphanFiles.length, 0);
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -130,7 +130,7 @@ test("store restore rejects unsafe backup version paths", async () => {
       );
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -175,7 +175,7 @@ test("store restore normalizes portable backup paths across operating systems", 
     assert.equal(restored.version.path, "artifacts/portable/v1.txt");
     assert.equal((await checkStoreIntegrity(store)).ok, true);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -253,8 +253,8 @@ test("full-scope backup bundle round trips users, tokens, audit log, relations, 
     assert.equal(importRow.metadata.scope, "full");
     assert.equal(importRow.metadata.counts.users, 2);
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -298,7 +298,7 @@ test("v1 backup bundles (no bundleVersion/scope) still import as artifacts-only"
     assert.equal(result.artifactCount, 1);
     assert.equal((await getArtifact(store, "legacy")).content, "hello");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -321,10 +321,10 @@ test("full-scope restore refuses without confirm: replace-all", async () => {
         }
       );
     } finally {
-      await rm(targetHome, { recursive: true, force: true });
+      await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -354,8 +354,8 @@ test("full-scope restore refuses when target already has users unless forceUsers
     const users = await listUsers(targetStore);
     assert.deepEqual(users.map((item) => item.email).sort(), ["admin@example.com", "member@example.com"]);
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -395,8 +395,8 @@ test("full-scope restore is atomic: a malformed bundle.full is rejected before a
     const users = await listUsers(targetStore);
     assert.deepEqual(users.map((item) => item.id), [existingUser.id]);
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -431,8 +431,8 @@ test("artifacts-scope restore refuses when the target has comments/relations, an
     const restored = await listArtifacts(targetStore);
     assert.deepEqual(restored.map((item) => item.id), [sourceArtifact.id]);
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -470,8 +470,8 @@ test("full-scope backup bundle round trips embeddings", async () => {
     assert.equal(restoredEmbeddings[0].artifactId, artifact.id);
     assert.deepEqual(Array.from(restoredEmbeddings[0].vector).map((n) => Math.round(n * 10) / 10), [0.1, 0.2, 0.3]);
   } finally {
-    await rm(sourceHome, { recursive: true, force: true });
-    await rm(targetHome, { recursive: true, force: true });
+    await rm(sourceHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(targetHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -491,7 +491,7 @@ test("full-scope backup file is written with 0600 permissions", { skip: process.
     const artifactsOnlyStats = await stat(artifactsOnlyFile);
     assert.notEqual(artifactsOnlyStats.mode & 0o777, 0o600, "artifacts-only export should not be force-restricted");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -520,7 +520,7 @@ test("builds LaunchAgent service definitions without writing in dry run", async 
     assert.match(result.content, /ProgramArguments/);
     assert.ok(defaultBackupPath(createStore({ home })).startsWith(path.join(home, "backups")));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -557,7 +557,7 @@ test("builds Linux systemd user service definitions", async () => {
     assert.ok(result.nextSteps.some((step) => step.includes("systemctl --user enable --now")));
     assert.ok(result.nextSteps.some((step) => step.includes("loginctl enable-linger")));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -591,6 +591,6 @@ test("builds Windows scheduled task installer scripts", async () => {
     assert.match(result.content, /New-ScheduledTaskAction/);
     assert.ok(result.nextSteps.some((step) => step.includes("powershell")));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

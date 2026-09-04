@@ -90,7 +90,7 @@ test("M6: artifacty_wait is capped by ARTIFACTY_MAX_WAITS and returns too_many_w
     } else {
       process.env.ARTIFACTY_MAX_WAITS = previous;
     }
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -123,6 +123,6 @@ test("M6: artifacty_wait over HTTP is rate-limited on the search bucket", async 
     assert.equal(response.result.structuredContent.retryAfterSeconds, 7);
     assert.ok(calls > 0, "expected enforceRateLimit to be consulted for artifacty_wait");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

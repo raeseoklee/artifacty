@@ -50,7 +50,7 @@ test("createWebhook/listWebhooks/deleteWebhook round trip and hide the raw secre
       delete process.env.ARTIFACTY_WEBHOOK_ALLOW_PRIVATE;
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -129,7 +129,7 @@ test("registerWebhookDispatcher delivers matching events to a real local HTTP re
       delete process.env.ARTIFACTY_WEBHOOK_ALLOW_PRIVATE;
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -165,7 +165,7 @@ test("registerWebhookDispatcher disables a webhook and records an audit row afte
       delete process.env.ARTIFACTY_WEBHOOK_ALLOW_PRIVATE;
     }
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

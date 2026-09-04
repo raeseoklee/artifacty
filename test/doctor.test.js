@@ -28,7 +28,7 @@ test("doctor reports local runtime, storage, service, and skipped MCP checks", a
     assert.equal(result.checks.find((check) => check.name === "service").status, "pass");
     assert.equal(result.checks.find((check) => check.name === "mcp").status, "skip");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -46,7 +46,7 @@ test("doctor fails unsafe non-local exposure settings", async () => {
     assert.ok(result.failures.some((failure) => failure.name === "security"));
     assert.equal(result.checks.find((check) => check.name === "security").status, "fail");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -58,7 +58,7 @@ test("doctor reports no embedding provider configured by default", async () => {
     assert.equal(check.status, "pass");
     assert.equal(check.data.configured, false);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -94,7 +94,7 @@ test("doctor reports the openai-compatible provider with the API key redacted", 
         process.env[key] = value;
       }
     }
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -114,7 +114,7 @@ test("doctor reports the command provider without an API key field", async () =>
     } else {
       process.env.ARTIFACTY_EMBEDDINGS_COMMAND = previous;
     }
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -134,6 +134,6 @@ test("doctor command prints JSON and exits successfully for warnings only", asyn
     assert.equal(result.home, home);
     assert.ok(result.warnings.some((warning) => warning.name === "server"));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

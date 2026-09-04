@@ -44,7 +44,7 @@ test("artifacty retention show returns the default (inert) policy", async () => 
     assert.equal(policy.purgeArchivedAfterDays, null);
     assert.deepEqual(policy.keepTags, []);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -89,7 +89,7 @@ test("artifacty retention set persists archive/purge windows, per-type overrides
     ])).stdout);
     assert.deepEqual(reShown, saved);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -131,7 +131,7 @@ test("artifacty retention run defaults to a dry run that makes no changes", asyn
     assert.equal(report.archived.length, 0);
     assert.ok(report.archive.some((item) => item.id === published.id));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -212,6 +212,6 @@ test("artifacty retention run --allow-purge purges an eligible archived artifact
     assert.deepEqual(applied.purged, [published.id]);
     assert.equal(existsSync(artifactDir), false);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

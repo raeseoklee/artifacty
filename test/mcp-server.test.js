@@ -32,7 +32,7 @@ test("initialize negotiates the protocol version for old and unrecognized client
     // falls back to our newest supported version rather than erroring.
     assert.equal(withNewerVersion.protocolVersion, "2025-06-18");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -119,7 +119,7 @@ test("artifacty_link, artifacty_unlink, relations on get/list, and the graph res
     assert.equal(invalidRelation.isError, true);
     assert.equal(invalidRelation.structuredContent.code, "INVALID_RELATION");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -189,7 +189,7 @@ test("artifacty_comment, artifacty_resolve_comment, artifacty_set_review_status,
     assert.equal(missingParent.isError, true);
     assert.equal(missingParent.structuredContent.code, "COMMENT_NOT_FOUND");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -249,7 +249,7 @@ test("artifacty_list accepts the new dashboard filters and expands a saved view 
     });
     assert.equal(unknownView.structuredContent.artifacts.length, 2, "an unresolvable view name falls back to no extra filters");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -304,7 +304,7 @@ test("artifacty_list mode and artifacty_info embeddings reflect a configured emb
     } else {
       process.env.ARTIFACTY_EMBEDDINGS_COMMAND = previousCommand;
     }
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -496,7 +496,7 @@ test("mcp server initializes and exposes artifact tools", async () => {
     assert.ok(audit.structuredContent.events.some((event) => event.action === "read"));
   } finally {
     child.kill("SIGTERM");
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -541,7 +541,7 @@ test("artifacty_update input schema documents expectedVersion and returns a vers
     assert.equal(conflict.structuredContent.code, "version_conflict");
     assert.equal(conflict.structuredContent.latestVersion, 2);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -603,7 +603,7 @@ test("artifacty_diff returns unified text and structured content, defaulting to 
     assert.equal(explicitLines.structuredContent.view, "lines");
     assert.equal(explicitLines.structuredContent.structuredDiff.kind, "lines");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -673,8 +673,8 @@ test("stdio MCP bridge forwards calls to a central HTTP MCP endpoint", async () 
   } finally {
     child.kill("SIGTERM");
     await app.close();
-    await rm(centralHome, { recursive: true, force: true });
-    await rm(bridgeHome, { recursive: true, force: true });
+    await rm(centralHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(bridgeHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

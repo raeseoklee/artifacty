@@ -35,7 +35,7 @@ async function withStore(fn) {
   try {
     await fn(createStore({ home }));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
@@ -443,7 +443,7 @@ test("migration backfills owner_user_id from publisher_user_id for legacy rows",
     const reread = await getArtifact(store, artifact.id);
     assert.equal(reread.ownerUserId, user.id);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -478,7 +478,7 @@ test("CLI: publish/update accept --visibility, and the visibility command change
     const changed = JSON.parse(visibilityStdout);
     assert.equal(changed.visibility, "private");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -547,7 +547,7 @@ test("HTTP API: private artifacts 404 for non-owners, and the visibility/owner e
     assert.equal(reowned.ownerUserId, other.id);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -610,7 +610,7 @@ test("MCP: artifacty_get and artifacty_set_visibility respect access, and denial
     });
     assert.equal(nowVisible.isError, false);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -643,6 +643,6 @@ test("browser: dashboard shows a private badge and the account page lists owned 
     assert.match(accountHtml, /Browser Private/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

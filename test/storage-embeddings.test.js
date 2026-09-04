@@ -54,7 +54,7 @@ async function withTempStore(prefix, fn) {
     await fn(createStore({ home }));
   } finally {
     resetEmbeddingProvider();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

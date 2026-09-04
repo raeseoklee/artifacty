@@ -51,7 +51,7 @@ test("resources/subscribe on artifacty://artifacts/{id} delivers notifications/r
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(notifications.filter((n) => n.method === "notifications/resources/updated").length, 1, "no further notifications after unsubscribe");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -70,7 +70,7 @@ test("resources/subscribe on artifacty://recent delivers notifications for any a
     assert.equal(updates.length, 1);
     assert.equal(updates[0].params.uri, "artifacty://recent");
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -91,7 +91,7 @@ test("artifacty_wait returns the first matching event", async () => {
     assert.equal(response.result.structuredContent.event.type, "artifact.updated");
     assert.equal(response.result.structuredContent.event.artifactId, artifact.id);
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -103,6 +103,6 @@ test("artifacty_wait returns { timedOut: true } when nothing matches within time
     const response = await callTool(handler, "artifacty_wait", { artifactId: "nonexistent", timeoutMs: 100 }, 1);
     assert.deepEqual(response.result.structuredContent, { timedOut: true });
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

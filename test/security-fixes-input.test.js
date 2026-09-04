@@ -58,7 +58,7 @@ test("M5: POST /api/artifacts ignores an attacker-supplied ownerUserId and audit
     assert.equal(read.archivedAt, null);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -91,7 +91,7 @@ test("M5: POST /api/artifacts/:id (update) ignores an attacker-supplied auditAct
     assert.ok(audit.events.some((event) => event.action === "update"));
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -120,6 +120,6 @@ test("M5: POST /api/import ignores an attacker-supplied ownerUserId", async () =
     assert.notEqual(created.ownerUserId, victim.id);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

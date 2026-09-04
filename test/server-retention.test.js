@@ -51,7 +51,7 @@ test("GET/PUT /api/admin/retention and POST /api/admin/retention/run round trip 
     assert.deepEqual(report.archived, []);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -63,7 +63,7 @@ test("/api/admin/retention requires admin auth: rejected without a token when on
     assert.equal(response.status, 401);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -94,7 +94,7 @@ test("GET /admin/retention renders the policy form and last-sweep summary for an
     assert.match(html, /archiveAfterDaysDefault/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -135,7 +135,7 @@ test("POST /admin/retention saves the policy and POST /admin/retention/run rende
     assert.match(html, /Dry-run report|미리보기 결과/);
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -164,6 +164,6 @@ test("background retention sweep timer starts and stops cleanly with server star
     }
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

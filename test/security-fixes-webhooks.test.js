@@ -105,6 +105,6 @@ test("M4: creating a webhook via the browser never puts the raw secret in the re
     assert.doesNotMatch(secondHtml, /whsec_/, "revisiting the redirect URL must not re-reveal the secret");
   } finally {
     await app.close();
-    await rm(home, { recursive: true, force: true });
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
