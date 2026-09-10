@@ -775,8 +775,12 @@ async function watchOnce({ baseUrl, token, filter, lastEventId, options }) {
         const event = JSON.parse(parsed.data);
         await emitWatchEvent(event, options);
         if (options.once) {
-          await reader.cancel().catch(() => {});
+          // Abort first and do not await the cancel: cancelling a live SSE
+          // body can sit unresolved while the server is still writing, which
+          // left `watch --once` hanging after it had already printed its
+          // event. Aborting the request tears the socket down directly.
           controller.abort();
+          reader.cancel().catch(() => {});
           return { stop: true };
         }
       }
@@ -788,11 +792,18 @@ async function watchOnce({ baseUrl, token, filter, lastEventId, options }) {
 }
 
 // Resolves once buffered stdout/stderr have drained, so an explicit exit
-// cannot truncate output that a caller is reading from a pipe.
-function flushStdio() {
-  return Promise.all([
-    new Promise((resolve) => process.stdout.write("", resolve)),
-    new Promise((resolve) => process.stderr.write("", resolve))
+// cannot truncate output that a caller is reading from a pipe. Bounded so a
+// stuck pipe delays the exit rather than preventing it.
+function flushStdio(timeoutMs = 1000) {
+  return Promise.race([
+    Promise.all([
+      new Promise((resolve) => process.stdout.write("", resolve)),
+      new Promise((resolve) => process.stderr.write("", resolve))
+    ]),
+    new Promise((resolve) => {
+      const timer = setTimeout(resolve, timeoutMs);
+      timer.unref?.();
+    })
   ]);
 }
 
