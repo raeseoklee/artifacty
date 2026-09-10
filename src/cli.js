@@ -699,7 +699,12 @@ async function runWatchCommand(store, options) {
   for (;;) {
     const matched = await watchOnce({ baseUrl, token, filter, lastEventId, options });
     if (matched.stop) {
-      return;
+      // --once has delivered its event and run any --exec command, so the
+      // command is complete. Flush and exit rather than waiting for every
+      // handle to close on its own: a socket the runtime keeps pooled would
+      // otherwise leave the process running with nothing left to do.
+      await flushStdio();
+      process.exit(0);
     }
     if (matched.lastEventId) {
       lastEventId = matched.lastEventId;
@@ -721,9 +726,13 @@ async function watchOnce({ baseUrl, token, filter, lastEventId, options }) {
     headers["last-event-id"] = String(lastEventId);
   }
 
+  // An SSE response is a long-lived socket. Cancelling the reader alone left
+  // it in the connection pool on some platforms, so `watch --once` could
+  // finish its work and still not exit; abort the request instead.
+  const controller = new AbortController();
   let response;
   try {
-    response = await fetch(url, { headers });
+    response = await fetch(url, { headers, signal: controller.signal });
   } catch (error) {
     process.stderr.write(`artifacty watch: connection failed: ${error.message}\n`);
     return {};
@@ -767,6 +776,7 @@ async function watchOnce({ baseUrl, token, filter, lastEventId, options }) {
         await emitWatchEvent(event, options);
         if (options.once) {
           await reader.cancel().catch(() => {});
+          controller.abort();
           return { stop: true };
         }
       }
@@ -775,6 +785,15 @@ async function watchOnce({ baseUrl, token, filter, lastEventId, options }) {
     process.stderr.write(`artifacty watch: stream error: ${error.message}\n`);
   }
   return { lastEventId: seenLastEventId };
+}
+
+// Resolves once buffered stdout/stderr have drained, so an explicit exit
+// cannot truncate output that a caller is reading from a pipe.
+function flushStdio() {
+  return Promise.all([
+    new Promise((resolve) => process.stdout.write("", resolve)),
+    new Promise((resolve) => process.stderr.write("", resolve))
+  ]);
 }
 
 function printWatchReady(options) {
