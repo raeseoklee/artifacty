@@ -31,7 +31,33 @@ function runCli(args, env) {
 // SSE subscription is actually live (after the server's ": connected"
 // frame), so tests can wait for that instead of sleeping and hoping the
 // subscription beat the publish below.
-function waitForReady(run, { json = false, timeoutMs = 5000 } = {}) {
+//
+// The deadlines below are liveness guards, not performance assertions: every
+// step here waits on a real spawned process, and on a loaded Windows runner a
+// Node boot alone can take seconds. They are generous on purpose so a genuine
+// hang still fails loudly while ordinary scheduling jitter does not.
+const READY_TIMEOUT_MS = 20000;
+const EXIT_TIMEOUT_MS = 30000;
+const EXEC_OUTPUT_TIMEOUT_MS = 15000;
+
+// Races `promise` against a deadline, then clears the timer. Without the
+// clear, the pending setTimeout keeps the event loop alive and every test
+// file here runs for the full deadline even after its assertions pass.
+async function withDeadline(promise, timeoutMs, describe) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(describe())), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function waitForReady(run, { json = false, timeoutMs = READY_TIMEOUT_MS } = {}) {
   const marker = json ? "\"ready\":true" : "# connected";
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
@@ -59,10 +85,11 @@ test("artifacty watch --once --json prints the first matching event and exits 0"
     await waitForReady(run, { json: true });
     const artifact = await createArtifact(app.store, { title: "Watched", content: "hello", sourceAgent: "test" });
 
-    const result = await Promise.race([
+    const result = await withDeadline(
       run.waitForExit(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`watch did not exit. stdout:\n${run.stdout()}\nstderr:\n${run.stderr()}`)), 8000))
-    ]);
+      EXIT_TIMEOUT_MS,
+      () => `watch did not exit. stdout:\n${run.stdout()}\nstderr:\n${run.stderr()}`
+    );
 
     assert.equal(result.code, 0);
     const lines = result.stdout().trim().split("\n").filter(Boolean);
@@ -102,15 +129,16 @@ test("artifacty watch --exec runs the command with event JSON on stdin and ARTIF
     await waitForReady(run);
     const artifact = await createArtifact(app.store, { title: "Exec Demo", content: "hi", sourceAgent: "test" });
 
-    await Promise.race([
+    await withDeadline(
       run.waitForExit(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`watch did not exit. stdout:\n${run.stdout()}\nstderr:\n${run.stderr()}`)), 8000))
-    ]);
+      EXIT_TIMEOUT_MS,
+      () => `watch did not exit. stdout:\n${run.stdout()}\nstderr:\n${run.stderr()}`
+    );
 
     // The child process writes its file asynchronously relative to the
     // parent watch process exiting; poll briefly for it.
     let recorded = null;
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + EXEC_OUTPUT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
         recorded = JSON.parse(await readFile(outFile, "utf8"));

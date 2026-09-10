@@ -10,16 +10,23 @@ import { createArtifact, createStore } from "../src/lib/storage.js";
 // Reads chunks from `reader` sequentially (never more than one outstanding
 // read() at a time) until `predicate(buffer)` is true or `timeoutMs`
 // elapses.
-async function readUntil(reader, predicate, timeoutMs = 5000) {
+// The deadline is a liveness guard, not a performance assertion. Each race
+// timer is cleared once the read settles: an uncleared timer keeps the event
+// loop alive, which made this suite run for the full timeout even after its
+// assertions passed.
+async function readUntil(reader, predicate, timeoutMs = 15000) {
   let buffer = "";
   const decoder = new TextDecoder();
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const remaining = deadline - Date.now();
+    const remaining = Math.max(deadline - Date.now(), 0);
+    let timer;
     const { value, done } = await Promise.race([
       reader.read(),
-      new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), Math.max(remaining, 0)))
-    ]);
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve({ timedOut: true }), remaining);
+      })
+    ]).finally(() => clearTimeout(timer));
     if (value) {
       buffer += decoder.decode(value, { stream: true });
     }

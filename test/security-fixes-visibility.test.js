@@ -25,16 +25,23 @@ async function withStore(fn) {
   }
 }
 
+// Returns whatever arrived rather than throwing: callers use it both to read
+// an expected frame and to prove a quiet window, so running out the budget is
+// a valid outcome here. Each race timer is still cleared once the read
+// settles, so an early return leaves nothing holding the event loop open.
 async function readUntil(reader, predicate, timeoutMs = 5000) {
   let buffer = "";
   const decoder = new TextDecoder();
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const remaining = deadline - Date.now();
+    const remaining = Math.max(deadline - Date.now(), 0);
+    let timer;
     const { value, done } = await Promise.race([
       reader.read(),
-      new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), Math.max(remaining, 0)))
-    ]);
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve({ timedOut: true }), remaining);
+      })
+    ]).finally(() => clearTimeout(timer));
     if (value) {
       buffer += decoder.decode(value, { stream: true });
     }
