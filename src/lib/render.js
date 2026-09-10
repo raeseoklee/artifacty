@@ -1748,9 +1748,13 @@ export function renderReactFramePage({ title, content }) {
     try {
       const source = JSON.parse(document.getElementById("artifacty-react-source").textContent);
       const transformed = Babel.transform(source, {
-        filename: "artifact.jsx",
+        // The .tsx filename is what selects TSX parsing. Babel 8 removed the
+        // preset-typescript allExtensions/isTSX options that used to force it,
+        // and rejects them outright, so deriving the mode from the extension
+        // keeps this transform working on both Babel 7 and Babel 8.
+        filename: "artifact.tsx",
         presets: [
-          ["typescript", { allExtensions: true, isTSX: true }],
+          ["typescript", {}],
           ["react", { runtime: "classic" }]
         ],
         plugins: ["transform-modules-commonjs"]

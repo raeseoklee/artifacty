@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import http from "node:http";
 import test from "node:test";
 import { startServer } from "../src/server.js";
@@ -378,6 +379,27 @@ test("serves HTTP API and browser artifact pages", async () => {
       assert.match(reactFrameHtml, /\/vendor\/npm\/react\/umd\/react\.production\.min\.js/);
       assert.match(reactFrameHtml, /\/vendor\/npm\/react-dom\/umd\/react-dom\.production\.min\.js/);
       assert.match(reactFrameHtml, /\/vendor\/npm\/@babel\/standalone\/babel\.min\.js/);
+
+      // The frame's transform options must stay valid for the Babel build we
+      // actually vendor. Babel 8 removed preset-typescript's allExtensions and
+      // isTSX options and rejects them, so run the served options through the
+      // real babel.min.js instead of only asserting on the HTML.
+      const optionsSource = /Babel\.transform\(source, (\{[\s\S]*?\})\)\.code;/.exec(reactFrameHtml);
+      assert.ok(optionsSource, "expected the frame to embed Babel.transform options");
+      const transformOptions = new Function(`return ${optionsSource[1]};`)();
+      assert.equal(transformOptions.filename, "artifact.tsx");
+      const babelModule = await import(
+        pathToFileURL(path.join(process.cwd(), "node_modules", "@babel", "standalone", "babel.min.js")).href
+      );
+      const vendoredBabel = babelModule.default ?? babelModule;
+      const transformedSample = vendoredBabel.transform(
+        "interface P { label: string }\n" +
+          "const Hello = ({ label }: P) => <span>{label}</span>;\n" +
+          "export default function App() { return <Hello label=\"hi\" />; }",
+        transformOptions
+      ).code;
+      assert.match(transformedSample, /React\.createElement/);
+      assert.match(transformedSample, /exports\.default/);
       assert.doesNotMatch(reactFrameHtml, /allow-same-origin/);
     } finally {
       if (previousReactFlag === undefined) {
