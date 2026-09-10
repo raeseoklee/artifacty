@@ -5,7 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createArtifact, createStore, createWebhook, deleteWebhook, listWebhooks, recordWebhookDelivery } from "../src/lib/storage.js";
+import { createStore, createWebhook, deleteWebhook, listWebhooks, recordWebhookDelivery } from "../src/lib/storage.js";
 import { assertPublicWebhookUrl, deliverWebhook, registerWebhookDispatcher, signPayload } from "../src/lib/webhooks.js";
 import { publish } from "../src/lib/events.js";
 
@@ -141,23 +141,53 @@ test("registerWebhookDispatcher disables a webhook and records an audit row afte
     try {
       const created = await createWebhook(store, { url: "http://127.0.0.1:1/hook", eventTypes: [] });
       const audits = [];
+      // Wait on the dispatcher's own write instead of polling the store: each
+      // poll opened a SQLite handle, and on a slow runner twenty rounds of that
+      // outran the poll budget even though delivery was progressing.
+      const deliveries = [];
+      let signalDelivery = null;
+      // The dispatcher writes the audit row after recordWebhookDelivery
+      // resolves, so the delivery signal alone would race it. Arm this before
+      // any event is published and await it once the loop finishes.
+      let signalAudit = null;
+      const auditRecorded = nextDelivery((resolve) => {
+        signalAudit = resolve;
+      });
       const unsubscribe = registerWebhookDispatcher(store, {
         listWebhooks,
-        recordWebhookDelivery,
-        insertWebhookFailureAudit: async (_store, webhook, event, result) => audits.push({ webhook, event, result }),
+        recordWebhookDelivery: async (deliveryStore, webhookId, update) => {
+          await recordWebhookDelivery(deliveryStore, webhookId, update);
+          deliveries.push(update);
+          const notify = signalDelivery;
+          signalDelivery = null;
+          notify?.();
+        },
+        insertWebhookFailureAudit: async (_store, webhook, event, result) => {
+          audits.push({ webhook, event, result });
+          signalAudit?.();
+        },
         deliver: async () => ({ ok: false, status: 0, attempts: 1 }),
         delaysMs: []
       });
       try {
         for (let i = 0; i < 20; i += 1) {
+          const delivered = nextDelivery((resolve) => {
+            signalDelivery = resolve;
+          });
           publish({ id: `evt_${randomUUID()}`, type: "artifact.updated", artifactId: "a1", tags: [], createdAt: new Date().toISOString() });
-          await waitFor(async () => (await listWebhooks(store)).find((w) => w.id === created.id)?.failureCount === i + 1);
+          await delivered;
+          assert.equal(deliveries.length, i + 1);
         }
-        const webhook = (await listWebhooks(store, { enabledOnly: false }))[0] ?? (await (async () => {
-          const all = await listWebhooksIncludingDisabled(store);
-          return all[0];
-        })());
+        assert.equal(deliveries.at(-1).disable, true, "the twentieth consecutive failure must disable the webhook");
+        assert.ok(deliveries.slice(0, -1).every((update) => update.disable === false));
+        await auditRecorded;
         assert.equal(audits.length, 1);
+
+        const enabled = await listWebhooks(store, { enabledOnly: true });
+        assert.equal(enabled.find((w) => w.id === created.id), undefined, "a disabled webhook must stop receiving deliveries");
+        const stored = (await listWebhooks(store)).find((w) => w.id === created.id);
+        assert.equal(stored.failureCount, 20);
+        assert.ok(stored.disabledAt, "the webhook row records when it was disabled");
       } finally {
         unsubscribe();
       }
@@ -169,11 +199,20 @@ test("registerWebhookDispatcher disables a webhook and records an audit row afte
   }
 });
 
-async function listWebhooksIncludingDisabled(store) {
-  return listWebhooks(store, { enabledOnly: false });
+// Resolves when `register`'s callback fires, with a safety deadline so a
+// dispatcher that never records a delivery fails loudly instead of hanging.
+function nextDelivery(register, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timed out waiting for a webhook delivery")), timeoutMs);
+    timer.unref?.();
+    register(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
-async function waitFor(predicate, timeoutMs = 2000) {
+async function waitFor(predicate, timeoutMs = 15000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (await predicate()) {
