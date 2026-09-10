@@ -17,11 +17,16 @@ function runCli(args, env) {
   let stderr = "";
   child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
   child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+  // Subscribe to exit here rather than inside waitForExit(). Callers only call
+  // waitForExit() after awaiting other work, and `exit` is emitted once: a
+  // listener attached after the child has already exited never fires, so the
+  // wait would hang even though the command finished correctly.
+  const exited = new Promise((resolve) => {
+    child.on("exit", (code) => resolve({ code, stdout: () => stdout, stderr: () => stderr }));
+  });
   return {
     child,
-    waitForExit: () => new Promise((resolve) => {
-      child.on("exit", (code) => resolve({ code, stdout: () => stdout, stderr: () => stderr }));
-    }),
+    waitForExit: () => exited,
     stdout: () => stdout,
     stderr: () => stderr
   };
