@@ -31,36 +31,38 @@ encryptedTest("encrypted metadata, comments, FTS and WAL contain no plaintext ca
   const { file, key } = fixture(t);
   const originalKey = Buffer.from(key);
   const db = openEncryptedDatabase(file, { key });
-  t.after(() => db.close());
-  assert.deepEqual(key, originalKey, "The caller owns its key buffer");
-  db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE metadata(id INTEGER PRIMARY KEY, value TEXT); CREATE TABLE comments(id INTEGER PRIMARY KEY, body TEXT); CREATE VIRTUAL TABLE artifact_search USING fts5(content);");
-  const canaries = ["metadata_canary_73c32a", "comment_canary_d47d59", "searchcanary9f4a"];
-  assert.equal(db.prepare("INSERT INTO metadata(value) VALUES (?)").run(canaries[0]).changes, 1);
-  db.prepare("INSERT INTO comments(body) VALUES (?)").run(canaries[1]);
-  db.prepare("INSERT INTO artifact_search(content) VALUES (?)").run(canaries[2]);
-  assert.equal(db.prepare("SELECT value FROM metadata").get().value, canaries[0]);
-  assert.deepEqual(db.prepare("SELECT body FROM comments").all(), [{ body: canaries[1] }]);
-  assert.equal(db.prepare("SELECT content FROM artifact_search WHERE artifact_search MATCH ?").get(canaries[2]).content, canaries[2]);
-  assert.ok(existsSync(`${file}-wal`));
-  assert.ok(readFileSync(`${file}-wal`).length > 32);
-  for (const candidate of [file, `${file}-wal`, `${file}-shm`]) {
-    if (!existsSync(candidate)) continue;
-    const bytes = readFileSync(candidate);
-    for (const canary of canaries) assert.equal(bytes.includes(Buffer.from(canary)), false, `${path.basename(candidate)} exposes a canary`);
-  }
-  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-  assert.notEqual(readFileSync(file).subarray(0, 16).toString(), "SQLite format 3\0");
-  const plain = new DatabaseSync(file, { readOnly: true });
-  try { assert.throws(() => plain.prepare("SELECT name FROM sqlite_schema").all()); }
-  finally { plain.close(); }
+  try {
+    assert.deepEqual(key, originalKey, "The caller owns its key buffer");
+    db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE metadata(id INTEGER PRIMARY KEY, value TEXT); CREATE TABLE comments(id INTEGER PRIMARY KEY, body TEXT); CREATE VIRTUAL TABLE artifact_search USING fts5(content);");
+    const canaries = ["metadata_canary_73c32a", "comment_canary_d47d59", "searchcanary9f4a"];
+    assert.equal(db.prepare("INSERT INTO metadata(value) VALUES (?)").run(canaries[0]).changes, 1);
+    db.prepare("INSERT INTO comments(body) VALUES (?)").run(canaries[1]);
+    db.prepare("INSERT INTO artifact_search(content) VALUES (?)").run(canaries[2]);
+    assert.equal(db.prepare("SELECT value FROM metadata").get().value, canaries[0]);
+    assert.deepEqual(db.prepare("SELECT body FROM comments").all(), [{ body: canaries[1] }]);
+    assert.equal(db.prepare("SELECT content FROM artifact_search WHERE artifact_search MATCH ?").get(canaries[2]).content, canaries[2]);
+    assert.ok(existsSync(`${file}-wal`));
+    assert.ok(readFileSync(`${file}-wal`).length > 32);
+    for (const candidate of [file, `${file}-wal`, `${file}-shm`]) {
+      if (!existsSync(candidate)) continue;
+      const bytes = readFileSync(candidate);
+      for (const canary of canaries) assert.equal(bytes.includes(Buffer.from(canary)), false, `${path.basename(candidate)} exposes a canary`);
+    }
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    assert.notEqual(readFileSync(file).subarray(0, 16).toString(), "SQLite format 3\0");
+    const plain = new DatabaseSync(file, { readOnly: true });
+    try { assert.throws(() => plain.prepare("SELECT name FROM sqlite_schema").all()); }
+    finally { plain.close(); }
+  } finally { db.close(); }
 });
 
 encryptedTest("correct keys reopen read-only with memory temp storage and enforced constraints", (t) => {
   const { file, key } = fixture(t);
   let db = openEncryptedDatabase(file, { key });
-  db.exec("CREATE TABLE parent(id INTEGER PRIMARY KEY); CREATE TABLE child(parent_id INTEGER REFERENCES parent(id)); INSERT INTO parent VALUES (1)");
-  assert.throws(() => db.prepare("INSERT INTO child VALUES (?)").run(99), { code: "SQLITE_CONSTRAINT_FOREIGNKEY" });
-  db.close();
+  try {
+    db.exec("CREATE TABLE parent(id INTEGER PRIMARY KEY); CREATE TABLE child(parent_id INTEGER REFERENCES parent(id)); INSERT INTO parent VALUES (1)");
+    assert.throws(() => db.prepare("INSERT INTO child VALUES (?)").run(99), { code: "SQLITE_CONSTRAINT_FOREIGNKEY" });
+  } finally { db.close(); }
   db = openEncryptedDatabase(file, { key, readOnly: true });
   try {
     assert.equal(db.prepare("PRAGMA temp_store").get().temp_store, 2);
@@ -74,8 +76,8 @@ encryptedTest("correct keys reopen read-only with memory temp storage and enforc
 encryptedTest("wrong keys, plaintext input, and authenticated-page tampering fail closed", (t) => {
   const { file, key, directory } = fixture(t);
   const db = openEncryptedDatabase(file, { key });
-  db.exec("CREATE TABLE data(value TEXT); INSERT INTO data VALUES ('authenticated-data')");
-  db.close();
+  try { db.exec("CREATE TABLE data(value TEXT); INSERT INTO data VALUES ('authenticated-data')"); }
+  finally { db.close(); }
   const before = readFileSync(file);
   const wrong = Buffer.alloc(32, 0x7f);
   assert.throws(() => openEncryptedDatabase(file, { key: wrong }), (error) => {
@@ -88,7 +90,8 @@ encryptedTest("wrong keys, plaintext input, and authenticated-page tampering fai
   assert.deepEqual(readFileSync(file), before);
   const plaintext = path.join(directory, "plain.sqlite");
   const plain = new DatabaseSync(plaintext);
-  plain.exec("CREATE TABLE data(value TEXT)"); plain.close();
+  try { plain.exec("CREATE TABLE data(value TEXT)"); }
+  finally { plain.close(); }
   const originalPlaintext = readFileSync(plaintext);
   assert.throws(() => openEncryptedDatabase(plaintext, { key }), { code: "ENCRYPTED_DATABASE_OPEN_FAILED" });
   assert.deepEqual(readFileSync(plaintext), originalPlaintext);
