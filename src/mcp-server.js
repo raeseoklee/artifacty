@@ -10,6 +10,7 @@ import {
   ARTIFACT_TYPES,
   archiveArtifact,
   authenticateApiToken,
+  canReadArtifactEvent,
   createArtifact,
   createStore,
   getArtifact,
@@ -34,7 +35,7 @@ import {
 import { convertAgentArtifact } from "./lib/converters.js";
 import { createStructuredDiff, diffFormatFor, renderUnifiedDiffText, resolveDiffView } from "./lib/diff.js";
 import { createEmbeddingProvider } from "./lib/embeddings.js";
-import { EVENT_TYPES, eventVisibleTo, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
+import { EVENT_TYPES, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
 import { inlineSchema } from "./lib/schemas.js";
 import { effectiveScopes, requireScope } from "./lib/security.js";
 import { resolvePublicBaseUrl } from "./lib/server-state.js";
@@ -896,6 +897,7 @@ async function callTool(context, name, args) {
       ...converted,
       allowSecrets: args.allowSecrets,
       auditAction: "import",
+      access: await mcpAccessContext(context),
       audit: mcpAuditContext(context)
     });
     return toolResult({
@@ -1081,6 +1083,7 @@ async function callTool(context, name, args) {
     activeWaits += 1;
     try {
       return toolResult(await waitForEvent({
+        store: context.store,
         artifactId: args.artifactId,
         tag: args.tag,
         type: args.type,
@@ -1294,6 +1297,7 @@ async function createNativeArtifact(context, args) {
     allowSecrets: args.allowSecrets,
     visibility: args.visibility,
     relations: args.relations,
+    access: await mcpAccessContext(context),
     audit: mcpAuditContext(context)
   });
 }
@@ -1468,7 +1472,7 @@ function parseArtifactResourceUri(uri) {
 // (stdio or one streamable-HTTP request) because it never outlives the
 // single tool call: it subscribes, waits, and always unsubscribes before
 // returning, regardless of whether a match arrived.
-function waitForEvent({ artifactId, tag, type, timeoutMs, access } = {}) {
+function waitForEvent({ store, artifactId, tag, type, timeoutMs, access } = {}) {
   const filter = {};
   if (artifactId) filter.artifactId = artifactId;
   if (tag) filter.tag = tag;
@@ -1489,9 +1493,14 @@ function waitForEvent({ artifactId, tag, type, timeoutMs, access } = {}) {
     // A matching event for a private artifact the caller cannot see must
     // not resolve or leak the wait: keep waiting (silently) until a visible
     // match arrives or the timeout fires.
-    const unsubscribe = subscribe(filter, (event) => {
+    const unsubscribe = subscribe(filter, async (event) => {
       if (settled) return;
-      if (!eventVisibleTo(event, access)) return;
+      try {
+        if (!await canReadArtifactEvent(store, event, access)) return;
+      } catch {
+        return;
+      }
+      if (settled) return;
       settled = true;
       clearTimeout(timer);
       unsubscribe();
@@ -1529,10 +1538,13 @@ async function subscribeResource(context, uri) {
   }
   if (!context.subscriptions.has(uri)) {
     const access = await mcpAccessContext(context);
-    const unsubscribe = subscribe(filter, (event) => {
-      if (!eventVisibleTo(event, access)) {
+    const unsubscribe = subscribe(filter, async (event) => {
+      try {
+        if (!await canReadArtifactEvent(context.store, event, access)) return;
+      } catch {
         return;
       }
+      if (!context.subscriptions.has(uri)) return;
       context.notify({
         jsonrpc: "2.0",
         method: "notifications/resources/updated",

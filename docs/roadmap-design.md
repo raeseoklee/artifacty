@@ -1,18 +1,23 @@
 # Artifacty Enhancement Roadmap Design
 
 This document specifies the design for the next set of Artifacty capabilities.
-Each feature is written so it can be implemented and tested independently, but
-the features are grouped by theme and ordered by recommended priority. Every
-feature follows the existing architecture rules: shared behavior lives in
-`src/lib/*`, the HTTP, CLI, and MCP surfaces stay thin adapters, versions stay
-append-only, artifact content stays untrusted, and no new runtime dependency is
-added unless the section says so explicitly.
+Each feature can be implemented and tested independently. Features are grouped
+by theme and listed in the recommended priority order.
 
-Implementation status: all sections below are implemented as of 2026-09-04; `STORE_VERSION` is now `8`. The original planning text follows.
+Every feature follows these architecture rules:
 
-Store schema changes bump `STORE_VERSION` (originally `4`) and use the existing
-`ensureColumn` / `CREATE TABLE IF NOT EXISTS` migration path so older stores
-upgrade on first access.
+- Put shared behavior in `src/lib/*`.
+- Keep the HTTP, CLI, and MCP interfaces as thin adapters.
+- Keep versions append-only.
+- Treat artifact content as untrusted.
+- Add no runtime dependency unless the section explicitly permits it.
+
+Status recorded on 2026-09-04: all sections below were implemented, and
+`STORE_VERSION` was `8`. The original planning text follows.
+
+Store schema changes increase `STORE_VERSION` (originally `4`). They use the
+existing `ensureColumn` / `CREATE TABLE IF NOT EXISTS` migration path. Older
+stores upgrade on first access.
 
 ## Contents
 
@@ -78,15 +83,15 @@ MCP tools map the same `code` into `isError: true` results with the code in
 
 ### 1.4 Feature flags
 
-New behavior that changes defaults for existing installs is gated by an
-environment variable listed in each section, and every flag is reported by
-`artifacty doctor` and `artifacty_info`.
+If new behavior changes an existing installation's defaults, control it with an
+environment variable. Each section lists its variable. `artifacty doctor` and
+`artifacty_info` report every flag.
 
 ### 1.5 Testing
 
-Each feature adds tests to the matching suite (`storage.test.js`,
-`server.test.js`, `mcp-server.test.js`, `cli.test.js`, `converters.test.js`) and,
-where behavior is externally visible, a smoke assertion in `npm run smoke`.
+Add tests for each feature to the matching suite: `storage.test.js`,
+`server.test.js`, `mcp-server.test.js`, `cli.test.js`, or `converters.test.js`.
+If the behavior is externally visible, add a smoke assertion in `npm run smoke`.
 
 ---
 
@@ -94,9 +99,8 @@ where behavior is externally visible, a smoke assertion in `npm run smoke`.
 
 ### Problem
 
-Artifacts are linked only through shared tags. A handoff, its review, and the
-resulting release notes cannot be discovered from one another without knowing
-the tag scheme used by the publishing agent.
+Artifacts are linked only through shared tags. To find a handoff, its review,
+and its release notes, users must know the publishing agent's tag scheme.
 
 ### Goals
 
@@ -148,10 +152,10 @@ listRelations(store, id, { direction: "out" | "in" | "both", relation })
 ```
 
 `createArtifact` and `updateArtifact` accept an optional `relations` array
-(`[{ toId, relation }]`) so an agent can link in one call. `getArtifact`
-returns `relations: { outgoing: [...], incoming: [...] }` with each entry
-carrying `toArtifactSummary` of the other side plus `missing: true` when the
-target row no longer exists.
+(`[{ toId, relation }]`). This lets an agent add links in the same call.
+`getArtifact` returns `relations: { outgoing: [...], incoming: [...] }`. Each
+entry includes `toArtifactSummary` for the related artifact. If the target row
+no longer exists, the entry includes `missing: true`.
 
 ### Surfaces
 
@@ -165,8 +169,8 @@ target row no longer exists.
 ### Handoff prompt integration
 
 The `artifacty_handoff` and `artifacty_review` prompt templates instruct the
-agent to pass `relations: [{ toId: <source>, relation: "derived-from" }]` so the
-graph is populated without user intervention.
+agent to pass `relations: [{ toId: <source>, relation: "derived-from" }]`. The
+agent can then add the graph links without user intervention.
 
 ### Tests
 
@@ -217,10 +221,10 @@ Event types: `artifact.created`, `artifact.updated`, `artifact.archived`,
 `artifact.restored`, `artifact.relation.added`, `artifact.comment.added`,
 `artifact.version.repaired`, `artifact.version.deleted`.
 
-Events are derived from audit rows. `insertAuditRecord` becomes the single
-publish point: after the transaction commits, the storage layer calls
-`events.publish(eventFromAudit(row))`. Events are never published for
-uncommitted transactions.
+The storage layer derives events from audit rows. `insertAuditRecord` becomes
+the single place that starts event publication. After the transaction commits,
+the storage layer calls `events.publish(eventFromAudit(row))`. It must not
+publish events for uncommitted transactions.
 
 ### Persistence
 
@@ -245,11 +249,13 @@ prune on insert.
 
 `GET /api/events` with `Accept: text/event-stream`.
 
-Query filters: `type`, `tag`, `artifactId`, `sourceAgent`. Auth uses the same
-token rules as other API routes. Heartbeat comment every 25 seconds. On
-connect with `Last-Event-ID`, replay from that sequence. Max concurrent
-connections per server: `ARTIFACTY_SSE_MAX_CLIENTS` (default 64); excess
-connections get `503`.
+Query filters are `type`, `tag`, `artifactId`, and `sourceAgent`. Authentication
+uses the same token rules as other API routes. The server sends a heartbeat
+comment every 25 seconds. If a client connects with `Last-Event-ID`, the server
+replays events from that sequence.
+
+`ARTIFACTY_SSE_MAX_CLIENTS` limits concurrent connections per server (default
+64). The server returns `503` for connections above this limit.
 
 ### Webhooks
 
@@ -272,8 +278,9 @@ CREATE TABLE IF NOT EXISTS webhooks (
 - Delivery: `POST` JSON body, headers `X-Artifacty-Event`,
   `X-Artifacty-Delivery`, `X-Artifacty-Signature: sha256=<hmac>` over the raw
   body using the secret shown once at creation.
-- Retry: 3 attempts with 2s, 10s, 60s backoff. After 20 consecutive failures the
-  webhook is disabled and a `webhook-deliver-failed` audit row is written.
+- Retry: 3 attempts with delays of 2s, 10s, and 60s. After 20 consecutive
+  failures, the server disables the webhook. It writes a
+  `webhook-deliver-failed` audit row.
 - SSRF guard: the target URL must be `http` or `https`; loopback, link-local,
   and private ranges are rejected unless `ARTIFACTY_WEBHOOK_ALLOW_PRIVATE=true`.
   Redirects are not followed.
@@ -290,10 +297,10 @@ Routes: `GET/POST /api/webhooks`, `DELETE /api/webhooks/:id`,
   `notifications/resources/updated` with the URI.
 - The stdio bridge forwards notifications received from the remote `/mcp`
   stream to the local client.
-- New tool `artifacty_wait` with `{ artifactId?, tag?, type?, timeoutMs }`
-  blocks up to `timeoutMs` (max 120000) and returns the first matching event or
-  `{ timedOut: true }`. This gives clients without subscription support a
-  long-poll primitive.
+- New tool `artifacty_wait` accepts `{ artifactId?, tag?, type?, timeoutMs }`.
+  It waits up to `timeoutMs` (max 120000). It returns the first matching event
+  or `{ timedOut: true }`. Clients without subscription support can use this
+  tool for long polling.
 
 ### CLI
 
@@ -311,17 +318,17 @@ MCP subscribe round trip through the HTTP transport, `artifacty_wait` timeout.
 
 ### Problem
 
-Two agents that both read version 3 and both call `artifacty_update` produce
-versions 4 and 5. The second write silently discards the first agent's work
-from the "latest" view.
+If two agents read version 3 and both call `artifacty_update`, they produce
+versions 4 and 5. The latest version then omits the first agent's work without
+reporting a conflict.
 
 ### Design
 
 - Every artifact response exposes `latestVersion` (already present) and an
   `etag` string equal to `"<id>:<latestVersion>"`.
-- `updateArtifact` accepts `expectedVersion` (number). Inside the existing
-  transaction, if `artifact.latestVersion !== expectedVersion`, throw
-  `VersionConflictError` carrying `latestVersion`, and write an
+- `updateArtifact` accepts `expectedVersion` (number). In the existing
+  transaction, check whether `artifact.latestVersion !== expectedVersion`.
+  If the versions differ, throw `VersionConflictError` with `latestVersion`. Write an
   `update-conflict` audit row.
 - HTTP: `POST /api/artifacts/:id/versions` (and the browser edit form) accept
   `If-Match: "<etag>"` or body `expectedVersion`. Conflict returns `409` with
@@ -332,9 +339,9 @@ from the "latest" view.
   `artifacty_get` output already carries `latestVersion`; the tool description
   tells agents to pass it back.
 - CLI: `artifacty update --expected-version N`.
-- Browser editor: hidden field with the version being edited; on `409` the
-  editor shows a banner with a link to the diff between the edited base and the
-  new latest version, and keeps the unsaved text.
+- Browser editor: use a hidden field for the version being edited. On `409`,
+  keep the unsaved text and show a banner. The banner links to a diff between
+  the edited base version and the new latest version.
 
 `expectedVersion` is optional so existing clients keep working. A future
 `ARTIFACTY_REQUIRE_EXPECTED_VERSION=true` flag can make it mandatory for API
@@ -352,8 +359,8 @@ with matching version, `If-Match` header parsing including weak validators,
 
 ### Problem
 
-Feedback on an artifact today requires publishing a whole new version or a
-separate review artifact. Lightweight, version-anchored notes are missing.
+Feedback on an artifact requires a new version or a separate review artifact.
+Users cannot add a short note to a specific version.
 
 ### Data model
 
@@ -382,18 +389,18 @@ CREATE INDEX IF NOT EXISTS idx_comments_artifact ON artifact_comments(artifact_i
   formats, `{ "path": "$.runs[0].results[3]" }` for JSON/SARIF, `{ "row": 7 }`
   for CSV. Anchors are hints for rendering and are not validated against
   content.
-- `body` is Markdown, rendered through the same sanitized Markdown pipeline as
-  artifact content and size-capped at 16 KB.
+- `body` is Markdown with a 16 KB size limit. The renderer uses the same
+  sanitized Markdown pipeline as artifact content.
 - Comments are soft-deleted; the audit log keeps the action.
 - Threads are one level deep (`parent_id` points to a root comment).
 
 ### Review state
 
-An artifact-level `reviewStatus` column (`none`, `pending`, `changes-requested`,
-`approved`) is added to `artifacts`. It is set explicitly via
-`POST /api/artifacts/:id/review-status` and reset to `pending` automatically
-when a new version is appended after an approval, which is recorded in the
-audit metadata. This is deliberately minimal: no multi-approver rules.
+Add a `reviewStatus` column to `artifacts`. Its values are `none`, `pending`,
+`changes-requested`, and `approved`. Set it explicitly through
+`POST /api/artifacts/:id/review-status`. If a new version is appended after an
+approval, reset the status to `pending` and record the reset in audit metadata.
+This design does not include rules for multiple approvers.
 
 ### Surfaces
 
@@ -420,18 +427,19 @@ sanitization of comment bodies.
 
 ### Problem
 
-FTS5 handles keyword queries. Natural-language questions such as "the analysis
-of last week's failed deploy" miss when the wording differs.
+FTS5 handles keyword queries. A natural-language question can miss relevant
+results if it uses different words. For example: "the analysis of last week's
+failed deploy".
 
 ### Design principles
 
-- No mandatory dependency and no bundled model. Embeddings come from a
-  pluggable provider.
-- Semantic search is additive: when disabled or unavailable, behavior is
-  unchanged.
-- Vectors are stored in SQLite as BLOBs; similarity is computed in JavaScript.
-  This is adequate for the expected store size (tens of thousands of artifacts)
-  and avoids a native vector extension.
+- No mandatory dependency and no bundled model. A configurable provider
+  supplies embeddings.
+- If semantic search is disabled or unavailable, keep the existing search
+  behavior.
+- Store vectors in SQLite as BLOBs. Compute similarity in JavaScript. This
+  supports the expected store size of tens of thousands of artifacts without
+  a native vector extension.
 
 ### Provider interface (`src/lib/embeddings.js`)
 
@@ -472,17 +480,18 @@ The embedded text is `title + tags + metadata summary + first
 ARTIFACTY_EMBEDDINGS_MAX_CHARS (default 8000) characters of the latest version`.
 Binary formats (`image`, `video`) embed metadata only.
 
-Indexing runs through the existing background module (`src/lib/background.js`)
-after each create/update so writes never wait on a network call. Failures are
-logged and retried by `artifacty index rebuild --embeddings`.
+Run indexing through the existing background module (`src/lib/background.js`)
+after each create or update. Writes must not wait for a network call. Log
+failures. Use `artifacty index rebuild --embeddings` to retry indexing.
 
 ### Query
 
 `GET /api/artifacts?q=...&mode=semantic|keyword|hybrid`.
 
 - `keyword`: current FTS5 path.
-- `semantic`: embed the query, cosine similarity over all vectors for the
-  configured provider/model, top `limit` after `offset`.
+- `semantic`: embed the query. Calculate cosine similarity across all vectors
+  for the configured provider and model. Return the top `limit` results after
+  `offset`.
 - `hybrid` (default when a provider is configured): reciprocal rank fusion of
   keyword and semantic rankings, `k = 60`.
 
@@ -504,11 +513,11 @@ Completes the "Future Extensions" list in `docs/sarif-csv-artifact-plan.md`.
 
 ### Design
 
-- Rendering stays server-side and bounded; interactivity is progressive
-  enhancement in `src/client/viewer.js` using data already in the table.
-- SARIF viewer: level filter chips (`error`, `warning`, `note`), rule id text
-  filter, sort by level, rule, or location. Filtering operates on the bounded
-  set already rendered; a notice states when results were truncated.
+- The server renders a limited set of results. `src/client/viewer.js` adds
+  browser controls that use the data already in the table.
+- SARIF viewer: add level filter chips (`error`, `warning`, `note`) and a rule
+  id text filter. Allow sorting by level, rule, or location. Filter only the
+  rendered results. Show a notice if the result set was truncated.
 - CSV viewer: click column header to sort; per-column contains filter; row
   count shown.
 - Download: `GET /artifacts/:id/export?format=csv&filter=...&sort=...` for CSV,
@@ -529,10 +538,10 @@ byte cap, viewer script has no inline event handlers (CSP compatibility).
 
 ### Design
 
-- List filters extend to `artifactType`, `publisher`, `createdAfter`,
-  `createdBefore`, `reviewStatus`, `relatedTo`, and `mode` (search). All are
-  query-string driven so URLs remain shareable and the CLI/MCP list surfaces
-  reuse the same `listArtifactsPage` filters.
+- Add list filters for `artifactType`, `publisher`, `createdAfter`,
+  `createdBefore`, `reviewStatus`, `relatedTo`, and `mode` (search). Put the
+  filters in query strings so users can share URLs. The CLI and MCP list
+  interfaces reuse the same `listArtifactsPage` filters.
 - Saved views:
 
 ```sql
@@ -547,8 +556,9 @@ CREATE TABLE IF NOT EXISTS saved_views (
 );
 ```
 
-In single-user mode (no users table rows) views are global; in team mode they
-belong to a user and can be marked `shared` so they appear for everyone.
+In single-user mode (no users table rows), views are global. In team mode,
+each view belongs to a user. Mark a view as `shared` to make it appear for
+everyone.
 
 - Routes: `GET/POST /api/views`, `DELETE /api/views/:id`; browser sidebar
   lists views and a "Save current filters" action.
@@ -572,12 +582,12 @@ Artifacts, audit rows, and (after section 3) events grow without bound.
 
 ### Design
 
-Policies are declarative and evaluated by a background sweep in
-`src/lib/background.js` every `ARTIFACTY_RETENTION_INTERVAL` (default 1h) and
-on demand via `artifacty retention run`.
+Define retention rules in a policy. A background sweep in
+`src/lib/background.js` evaluates the policy every `ARTIFACTY_RETENTION_INTERVAL`
+(default 1h). Run `artifacty retention run` to evaluate it on demand.
 
-Configuration lives in the `meta` table as JSON under key `retention_policy`
-and is edited through `/admin/retention` or `artifacty retention set`:
+Store the configuration as JSON in the `meta` table under `retention_policy`.
+Edit it through `/admin/retention` or `artifacty retention set`:
 
 ```json
 {
@@ -603,8 +613,8 @@ Semantics:
 - `auditRetentionDays`: audit rows older than the window are deleted, except
   `version-repair`, `version-delete`, `retention-purge`, and
   `owner-change` which are kept indefinitely.
-- Every sweep writes a summary row (`retention-sweep`) so operators can see
-  when it ran and what it touched.
+- Every sweep writes a summary row (`retention-sweep`). The row shows when
+  the sweep ran and what it changed.
 
 `artifacty integrity` gains a check that no orphaned files remain after a
 purge.
@@ -631,9 +641,9 @@ New columns on `artifacts`:
 - `visibility TEXT NOT NULL DEFAULT 'team'` with values `private`, `team`.
 - `owner_user_id TEXT` backfilled from `publisher_user_id` on migration.
 
-Optional teams are out of scope for v1; `team` means "all authenticated users
-of this server". A later version can add a `groups` table without changing
-the API shape.
+Optional teams are outside the v1 scope. In this design, `team` means "all
+authenticated users of this server". A later version can add a `groups` table
+without changing the API shape.
 
 ### Rules
 
@@ -657,8 +667,9 @@ the API shape.
 
 ### Browser
 
-Viewer shows a visibility badge; the edit form offers the toggle to owners and
-admins; the account page lists "My private artifacts".
+The viewer shows a visibility badge. The edit form gives owners and
+administrators a visibility toggle. The account page lists "My private
+artifacts".
 
 ### Tests
 
@@ -682,11 +693,11 @@ Scopes:
 | `write` | create, import, update, link, comment, archive/restore of own artifacts |
 | `admin` | everything the user role allows; only available to admin users |
 
-- `authenticateApiToken` returns `scopes`; a new `requireScope(auth, scope)`
-  helper in `src/lib/security.js` is called by each HTTP route and MCP tool
-  handler. Denials return `403` with `code: "scope_denied"` and write a
-  `token-scope-denied` audit row (rate-limited to one per token per minute to
-  avoid log flooding).
+- `authenticateApiToken` returns `scopes`. Each HTTP route and MCP tool handler
+  calls a new `requireScope(auth, scope)` helper in `src/lib/security.js`.
+  A denial returns `403` with `code: "scope_denied"` and writes a
+  `token-scope-denied` audit row. Limit these audit rows to one per token per
+  minute to prevent excessive logging.
 - MCP `tools/list` filters out mutating tools when the authenticated token
   lacks `write`, so read-only agents never see tools they cannot call.
 - `/account` token creation form adds scope checkboxes; `artifacty token`
@@ -704,8 +715,8 @@ admin role, default for legacy tokens.
 
 ### Design
 
-A fixed-window counter in memory keyed by `(principal, bucket)` where principal
-is the token id, user id, or remote address, in that order of preference.
+Use a fixed-window counter in memory, keyed by `(principal, bucket)`. Select
+the principal in this order: token id, user id, then remote address.
 
 | Bucket | Default limit | Env |
 | --- | --- | --- |
@@ -731,8 +742,8 @@ header.
 
 ### Problem
 
-The current bundle excludes users, sessions, tokens, and audit logs, so a
-server move needs manual steps.
+The current bundle excludes users, sessions, tokens, and audit logs. Moving
+the store to another server therefore requires manual steps.
 
 ### Design
 
@@ -762,11 +773,11 @@ sessions absent, file mode.
 
 ### Design
 
-- Fenced code blocks in Markdown artifacts get syntax highlighting using the
-  already-vendored CodeMirror language packages in read-only mode, applied
-  client-side by `viewer.js` to `<pre><code class="language-x">` elements.
-  Server output remains plain escaped HTML so no-JS and CSP-strict contexts
-  still work.
+- Use the bundled CodeMirror language packages in read-only mode to highlight
+  fenced code blocks in Markdown artifacts. In the browser, `viewer.js` applies
+  highlighting to `<pre><code class="language-x">` elements. The server returns
+  plain escaped HTML. Rendering must still work without JavaScript and with
+  strict CSP settings.
 - ```` ```mermaid ```` fences render through the existing sandboxed Mermaid
   iframe path, one iframe per diagram, lazily created when scrolled into view.
   A per-document cap (`ARTIFACTY_MAX_INLINE_DIAGRAMS`, default 20) prevents
@@ -789,14 +800,14 @@ sanitization unchanged for inline HTML in Markdown.
 - New format `notebook` (`.ipynb`, `application/x-ipynb+json`), default
   artifact type `analysis-report`.
 - Import detection: JSON object with `nbformat` and `cells[]`.
-- Converter produces a normalized structure for rendering only; the stored
-  content is the original notebook JSON.
-- Viewer renders cells in order: Markdown cells through the Markdown pipeline,
-  code cells as highlighted source, outputs limited to `text/plain`,
-  `text/markdown`, `image/png`, `image/jpeg`, `image/svg+xml` (sanitized, in
-  the scriptless SVG iframe). `text/html` outputs render inside the sandboxed
-  HTML iframe like HTML artifacts. Other MIME types show a placeholder with
-  the type name.
+- The converter produces a normalized structure only for rendering. Store
+  the original notebook JSON.
+- The viewer renders cells in order. Render Markdown cells through the
+  Markdown pipeline and code cells as highlighted source. Allow these output
+  types: `text/plain`, `text/markdown`, `image/png`, `image/jpeg`, and
+  `image/svg+xml`. Sanitize SVG output and render it in the scriptless SVG
+  iframe. Render `text/html` output in the sandboxed HTML iframe, as for HTML
+  artifacts. For other MIME types, show a placeholder with the type name.
 - Size guard: outputs larger than 2 MB are replaced with a "truncated" notice.
 - `artifacty import --agent generic --file notebook.ipynb` and the browser
   import page detect it automatically.
@@ -820,8 +831,8 @@ createStructuredDiff(before, after, { format })
 
 | Format | Strategy |
 | --- | --- |
-| `json`, `sarif`, `notebook` | Recursive object diff producing `added`, `removed`, `changed` entries keyed by JSON path; arrays of objects with an `id`, `ruleId`, or `path` key are matched by that key, otherwise by index. |
-| `csv` | Header-aware row diff: rows matched by the first column when it is unique, otherwise by position; reports added, removed, changed cells. |
+| `json`, `sarif`, `notebook` | Compare objects recursively. Produce `added`, `removed`, and `changed` entries keyed by JSON path. Match array objects by `id`, `ruleId`, or `path` when available. Otherwise, match by index. |
+| `csv` | Compare rows using their headers. If the first column is unique, match rows by that column. Otherwise, match by position. Report added, removed, and changed cells. |
 | `markdown`, `text`, `code`, `html` | Existing line diff plus word-level highlighting inside changed lines. |
 | `bundle` | Per-file diff using the strategy of each file's format. |
 
@@ -873,10 +884,10 @@ artifacty watch --artifact release-handoff-abc12345 --exec "./on-change.sh"
 ```
 
 - Connects to `/api/events` using the URL from `server.json` or
-  `ARTIFACTY_URL`, reconnects with `Last-Event-ID` on drop.
+  `ARTIFACTY_URL`. If the connection drops, reconnects with `Last-Event-ID`.
 - Prints one JSON line per event with `--json`, or a human line otherwise.
-- `--exec` runs the command with the event JSON on stdin and `ARTIFACTY_EVENT_*`
-  environment variables; failures are printed but do not stop the watch.
+- `--exec` runs the command with event JSON on stdin and `ARTIFACTY_EVENT_*`
+  environment variables. It prints failures and continues watching.
 - `--once` exits after the first match (a shell-friendly `artifacty_wait`).
 
 ### `artifacty diff`
@@ -904,8 +915,9 @@ code, `--exec` environment injection.
 ### Design
 
 - `src/lib/openapi.js` builds an OpenAPI 3.1 document from a single route
-  table that `server.js` also uses for dispatch, so the spec cannot drift
-  from the implementation. The route table entry shape:
+  table. `server.js` uses the same table to dispatch requests. This keeps the
+  specification consistent with the implementation. Each route entry has this
+  shape:
 
 ```js
 { method: "POST", path: "/api/artifacts", handler, auth: "write", summary, requestSchema, responseSchema }
@@ -926,16 +938,16 @@ code, `--exec` environment injection.
 
 ### Design
 
-- Re-verify the hand-rolled implementation against the newest MCP
-  specification before implementing sections 3 and 5. The checklist:
+- Before implementing sections 3 and 5, check the custom implementation
+  against the newest MCP specification. Use this checklist:
   - Negotiate the newest protocol version while continuing to accept
     `2025-06-18` from older clients.
   - `tools/list` `outputSchema` for every tool that returns
     `structuredContent`, generated from the same schema table as section 19.
   - `resources/subscribe`, `listChanged` notifications (section 3).
-  - Elicitation: if the client advertises `elicitation`, `artifacty_update`
-    without `expectedVersion` on a conflict may ask the user whether to rebase;
-    otherwise return the conflict error.
+  - Elicitation: if a conflict occurs and the client advertises `elicitation`,
+    `artifacty_update` without `expectedVersion` may ask the user whether to
+    rebase. Otherwise, return the conflict error.
   - Pagination cursors on `tools/list`, `resources/list`, and
     `prompts/list` when result counts exceed 50.
   - Streamable HTTP session resumption on `/mcp` (`Mcp-Session-Id`, event
@@ -961,10 +973,10 @@ subscribe flow, cursor pagination, session resume through the HTTP transport.
 | 4 | 5 Comments, 8 Filters and views, 9 Retention | 8 | Day-to-day usability and long-running store health. |
 | 5 | 6 Semantic search, 14 Markdown rendering, 15 Notebook, 7 SARIF/CSV, 17 Document assets | 8 (no bump; new tables are created idempotently) | Content and discovery improvements that build on everything above. |
 
-Each phase ends with `npm run release:check`, an update to `README.md`,
-`docs/mcp-public-api.md`, `docs/threat-model.md`, and `docs/artifact-schema-v1.md`
-(or a `v2` schema document when the artifact envelope changes), and a
-`STORE_VERSION` bump only when a table or column was added in that phase.
+At the end of each phase, run `npm run release:check`. Update `README.md`,
+`docs/mcp-public-api.md`, `docs/threat-model.md`, and `docs/artifact-schema-v1.md`.
+If the artifact envelope changes, use a `v2` schema document. Increase
+`STORE_VERSION` only if the phase added a table or column.
 
 ### Compatibility guarantees across all phases
 

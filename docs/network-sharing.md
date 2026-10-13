@@ -1,6 +1,6 @@
 # Network Sharing
 
-Artifacty is local-first. The default server binds to `127.0.0.1` and is intended for a single machine. Binding to a non-local address is supported for short, intentional sharing sessions, but it increases the exposed surface area.
+Artifacty stores artifacts locally. By default, the server binds to `127.0.0.1` for use on one machine. You can bind to a non-local address for a short sharing session. This exposes the server to other machines.
 
 ## Recommended Defaults
 
@@ -10,7 +10,7 @@ Use the local server for normal work:
 artifacty serve
 ```
 
-If another device on a trusted LAN or private VPN needs read access, prefer binding to a specific interface address instead of every interface:
+If another device on a trusted LAN or private VPN needs read access, bind to a specific interface address. Avoid listening on every interface:
 
 ```bash
 artifacty serve --host 192.168.1.20 --share-mode lan --generate-token
@@ -34,23 +34,23 @@ artifacty serve --host 0.0.0.0 --share-mode lan --generate-token
 
 ## Required Safeguards
 
-Non-local hosts require both `ARTIFACTY_SHARE_MODE=lan|team` and an API token. This prevents accidentally exposing an unauthenticated Artifacty server.
+Before binding to a non-local address, set both `ARTIFACTY_SHARE_MODE=lan|team` and an API token. Artifacty rejects startup without these settings.
 
-The generated token protects HTTP API routes and browser write forms. Prefer the `x-artifacty-token` or `Authorization: Bearer <token>` header for scripts. URLs with `?token=...` are convenient for local foreground sessions, but can be stored in browser history, shell history, reverse-proxy logs, or referrers.
+The generated token protects HTTP API routes and browser write forms. For scripts, use the `x-artifacty-token` or `Authorization: Bearer <token>` header. Local foreground sessions can use `?token=...` URLs. These URLs can expose tokens in browser history, shell history, reverse-proxy logs, or referrers.
 
 Artifacty does not terminate TLS. Do not expose it directly on the public internet. If a shared instance must cross an untrusted network, put it behind a TLS reverse proxy or a private VPN.
 
-When Artifacty binds outside loopback, startup output includes a warning that the server is reachable beyond the local machine and that TLS is not provided by Artifacty. Background `serve` returns this warning in JSON; foreground `serve` and `src/server.js` also write it to stderr.
+If Artifacty binds outside loopback, startup output warns that other machines can reach the server. The warning also states that Artifacty does not provide TLS. Background `serve` returns the warning in JSON. Foreground `serve` and `src/server.js` also write it to stderr.
 
 ## Browser Write Behavior
 
-Remote browsers can read shared pages and can submit browser forms when the request is same-origin with the Artifacty host, for example `Origin: http://10.0.0.50:8787` with `Host: 10.0.0.50:8787`. Mutating browser routes reject cross-origin requests to reduce CSRF risk. For scripts and agents, prefer API or MCP writes with an explicit token header.
+Remote browsers can read pages allowed by the current access mode and artifact permissions. To submit a browser form, the request origin must match the Artifacty host. For example, `Origin: http://10.0.0.50:8787` matches `Host: 10.0.0.50:8787`. Routes that change data reject cross-origin browser requests to reduce CSRF risk. For scripts and agents, use API or MCP writes with an explicit token header.
 
-Do not disable the origin check just to make remote browser writes easier. Same-origin central dashboard writes should pass; writes initiated from another website should fail with `NON_LOCAL_ORIGIN`.
+Keep the origin check enabled. A write from the central dashboard should pass when its origin matches the server. A write from another website should fail with `NON_LOCAL_ORIGIN`.
 
 ## Renderer Guidance
 
-Artifact content is untrusted. HTML, SVG, Mermaid, and React artifacts are rendered with sandboxing and CSP controls, but shared viewing still means content reaches another user's browser. Keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled for LAN sessions unless every viewer trusts the artifact source.
+Treat artifact content as untrusted. Artifacty uses sandboxing and CSP controls to render HTML, SVG, Mermaid, and React. Shared content still reaches each viewer's browser. Keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled for LAN sessions unless every viewer trusts the artifact source.
 
 See [threat-model.md](threat-model.md) for the full trust-boundary summary.
 

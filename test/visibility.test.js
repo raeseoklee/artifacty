@@ -39,9 +39,9 @@ async function withStore(fn) {
   }
 }
 
-test("VISIBILITY_VALUES and STORE_VERSION reflect Section 10", () => {
+test("VISIBILITY_VALUES remain compatible and STORE_VERSION includes access policies", () => {
   assert.deepEqual(VISIBILITY_VALUES, ["private", "team"]);
-  assert.equal(STORE_VERSION, 8);
+  assert.equal(STORE_VERSION, 10);
 });
 
 test("createArtifact validates visibility and defaults to team", async () => {

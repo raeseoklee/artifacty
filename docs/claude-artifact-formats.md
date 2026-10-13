@@ -1,26 +1,34 @@
 # Supporting Claude Formats and Codex Continuation Artifacts
 
-Status: Implemented. Phases 0-6 are complete; v10 records the Mermaid CORS hotfix and browser smoke evidence.
+Status: Implemented. Phases 0-6 are complete. The v10 section records the
+Mermaid CORS fix and browser smoke-test evidence.
 
-This document records how Artifacty ingests, stores, and renders Claude artifact
-formats, plus the Codex continuation artifacts implemented alongside that work,
-while preserving the project's invariants:
-the shared-library funnel, append-only immutable versions, local-only assets, and
-the "treat artifact content as untrusted" security model.
+This document records how Artifacty imports, stores, and renders Claude formats
+and Codex continuation artifacts. The implementation preserves four rules:
+
+- Route shared behavior through the shared library.
+- Append immutable versions.
+- Serve assets locally.
+- Treat artifact content as untrusted.
+
+The starting model, gap analysis, design, and phased plan describe the original
+proposal. Dated implementation sections record the work completed at each stage.
 
 ## Goal
 
-A Claude artifact of any kind can be imported into Artifacty (via MCP
-`artifacty_import`, the CLI `import`, or `POST /api/import`), stored faithfully,
-listed/searched, and rendered in the browser viewer with local-only assets and
-without weakening the sandbox around untrusted content. Codex continuation
-artifacts can also be imported conservatively as handoffs, bundles, reviews,
-diff walkthroughs, and verification reports.
+Users can import Claude artifacts through MCP `artifacty_import`, CLI `import`,
+or `POST /api/import`. Artifacty preserves their source and makes them available
+for listing, search, and browser viewing. The viewer uses local assets and keeps
+untrusted content inside the existing sandbox.
+
+Artifacty also imports Codex continuation artifacts as handoffs, bundles, reviews,
+diff walkthroughs, and verification reports. Converters avoid unsupported
+assumptions about the source.
 
 ## Background: Claude artifact types
 
-Claude emits a small, fixed set of artifact types. Each carries a `type`
-identifier (MIME-like), and code artifacts additionally carry a `language`.
+Claude emits a small set of artifact types. Each has a MIME-like `type`
+identifier. Code artifacts also have a `language` field.
 
 | Claude type        | Identifier                       | Extra fields | What it is |
 |--------------------|----------------------------------|--------------|------------|
@@ -31,28 +39,27 @@ identifier (MIME-like), and code artifacts additionally carry a `language`.
 | Mermaid diagram    | `application/vnd.ant.mermaid`    | —            | Diagram described in Mermaid source |
 | React component    | `application/vnd.ant.react`      | —            | Interactive JSX component |
 
-> These identifiers are an external product detail. Verify them against current
-> Claude documentation before implementing the converter mapping; treat the table
-> as the intended mapping, not a frozen contract.
+> These identifiers depend on an external product. Before implementing converter
+> mappings, verify the identifiers against current Claude documentation. This
+> table describes the intended mapping, not a fixed external contract.
 
 Two import shapes matter:
 
-1. **Structured payload** (preferred) — the caller passes the artifact `type`,
-   `language`, and raw source. This is lossless and is the path MCP/CLI callers
-   should use.
-2. **Browser-saved HTML** — "Save page as…" wraps the artifact in claude.ai chrome
-   and an inner `frame.claudeusercontent.com` iframe (see how the existing imported
-   artifacts were produced). The original `type` is **lost** here; only HTML/SVG
-   survive as raw markup. Detection must fall back to content sniffing.
+1. **Structured payload** (preferred): the caller supplies the artifact `type`,
+   `language`, and raw source. This preserves the source without loss. MCP and
+   CLI callers should use this format.
+2. **Browser-saved HTML**: "Save page as…" includes the claude.ai interface and
+   an inner `frame.claudeusercontent.com` iframe. Existing imported artifacts
+   used this method. It loses the original `type`; only HTML and SVG remain as
+   raw markup. Detection must fall back to content inspection.
 
 ## Codex artifact categories
 
-Codex does not currently map cleanly to a small fixed MIME-like artifact taxonomy
-in the same way Claude artifacts do. For Artifacty, treat Codex output as
-workflow artifacts produced while changing a repository: source files, diffs,
-handoff notes, reviews, verification evidence, and local previews. The
-`sourceAgent` should be `codex`, while `artifactType` describes the job the
-artifact performs for the next agent.
+Codex output does not use the same small MIME-like taxonomy as Claude artifacts.
+For Artifacty, treat Codex output as work products from repository changes. These
+include source files, diffs, handoffs, reviews, verification evidence, and local
+previews. Set `sourceAgent` to `codex`. Use `artifactType` to describe how the next
+agent will use the artifact.
 
 | Codex output | Recommended Artifacty type | Format | What to preserve |
 |--------------|----------------------------|--------|------------------|
@@ -65,12 +72,13 @@ artifact performs for the next agent.
 | HTML/dashboard preview | `html-page` or `dashboard` | `html` | Self-contained local preview rendered in the existing sandboxed iframe |
 | Logs / terminal transcript | `document` | `text` | Relevant command output, stack traces, and reproduction notes |
 
-Codex continuation artifacts mostly map to existing Markdown, JSON, text, and HTML renderers. They do not require a separate renderer runtime unless the payload itself contains source that should use the `code`, `svg`, `mermaid`, or `react` formats.
+Most Codex continuation artifacts use the existing Markdown, JSON, text, or HTML
+renderer. A separate renderer is needed only when the payload contains source
+for the `code`, `svg`, `mermaid`, or `react` formats.
 
-The highest-value Codex support should prioritize **`handoff`**, **`bundle`**,
-**`diff-walkthrough`**, **`code-review`**, and **`test-report`**. Together these
-cover the common agent-to-agent continuation path: what changed, why it changed,
-how to verify it, and what another agent should do next.
+Prioritize **`handoff`**, **`bundle`**, **`diff-walkthrough`**, **`code-review`**,
+and **`test-report`** for Codex support. These types explain what changed, why it
+changed, how to verify it, and what the next agent should do.
 
 Practical import shapes for Codex:
 
@@ -86,11 +94,10 @@ Practical import shapes for Codex:
    Artifacty stores it as `diff-walkthrough` unless full files are included, in
    which case use `bundle`.
 
-Codex-specific conversion should remain conservative: do not infer that every
-Markdown note is a handoff, every diff is safe to apply, or every HTML preview is
-trusted. Preserve the source faithfully, add provenance under
-`metadata.artifactyImport`, and let the viewer continue treating the content as
-untrusted.
+Codex conversion should not assume that every Markdown note is a handoff. It
+should not assume that a diff is safe to apply or an HTML preview is trusted.
+Preserve the source. Record its origin under `metadata.artifactyImport`. The
+viewer must continue to treat the content as untrusted.
 
 ## Starting Artifacty model (before Phase 0)
 
@@ -130,15 +137,16 @@ untrusted.
 | Mermaid     | `text` (source only) | New `mermaid` format, rendered to SVG by a vendored Mermaid runtime in a sandboxed iframe |
 | React       | `text` (source only) | New `react` format, compiled + run in a sandboxed iframe with vendored React/ReactDOM + a JSX transform |
 
-By v10, Phases 0-6 close the listed storage, conversion, and viewer gaps. React execution remains opt-in by design.
+By v10, Phases 0-6 had closed these storage, conversion, and viewer gaps. React
+execution remains opt-in.
 
 ## Design
 
 ### 1. Format taxonomy
 
-Extend the normalized format set from 4 to the renderer-relevant set. Each new
-format is a change in `storage.js` **plus** every surface and a regression test —
-this is the shared-library funnel from `CLAUDE.md`, applied per format:
+Extend the four normalized formats to include the formats that need distinct
+renderers. For each new format, update `storage.js` and every public interface.
+Add a regression test. Apply the shared-library rule from `CLAUDE.md`:
 
 - `storage.js`: add to `FORMAT_TO_EXTENSION`, `FORMAT_TO_CONTENT_TYPE`,
   `normalizeFormat` (and any alias, e.g. `jsx → react`, `svg+xml → svg`).
@@ -153,10 +161,10 @@ this is the shared-library funnel from `CLAUDE.md`, applied per format:
 Proposed new formats: **`code`, `svg`, `mermaid`, `react`**. Keep `language`
 (for `code`) in the version record `metadata`, not as a new column.
 
-Alternative considered: keep 4 formats and push the renderer choice into
-`artifactType` + `metadata.renderer`. Rejected — `format` is already the field that
-selects a renderer in `renderContent`, and the MCP/CLI/editor all key off it.
-Splitting renderer selection across two fields would blur that contract.
+Rejected alternative: keep four formats and select the renderer through
+`artifactType` + `metadata.renderer`. The existing `format` field already selects
+the renderer in `renderContent`. MCP, CLI, and the editor also use it. A second
+selection field would make the contract ambiguous.
 
 ### 2. Detection / conversion (`converters.js`)
 
@@ -179,17 +187,17 @@ Priority order in `convertAgentArtifact` → `detectFormat`:
    - contains JSX/`export default`/`import React` signals → `react`
    - existing html/markdown/json/text rules otherwise.
 
-Record provenance under `metadata.artifactyImport` as today (originalAgent, the
-Claude `type`, `language`), so the mapping is auditable.
+Record the original agent, Claude `type`, and `language` under
+`metadata.artifactyImport`. This makes the mapping auditable.
 
 ### 3. Rendering pipeline (`render.js renderContent`)
 
-Source of truth is always the **artifact source** (jsx/mermaid/svg/code text).
-Rendering is derived at view time — never store compiled output. `/raw` keeps
-returning the original bytes; immutable version files stay faithful.
+The **artifact source** is the source of truth: JSX, Mermaid, SVG, or code text.
+Render it when the user opens the viewer. Never store compiled output. `/raw`
+returns the original bytes, and immutable version files preserve the source.
 
-Per-format rendering, all inside the existing sandboxed-iframe pattern so the
-height auto-resizes and untrusted code stays contained:
+Use the existing sandboxed iframe pattern for executable or graphical content.
+It resizes the frame and contains untrusted code. Inert code text needs no frame:
 
 - **`code`** → render read-only highlighted source. Reuse the vendored CodeMirror
   language modes (`@codemirror/lang-*`) in a read-only EditorView, or a lighter
@@ -207,13 +215,13 @@ height auto-resizes and untrusted code stays contained:
   source at runtime, and mounts it. Same height reporter. This is the most
   security-sensitive and heaviest path (see Security).
 
-The parent listener (`frameResizeScript`) and reporter injection already exist for
-HTML and are reused unchanged for the SVG/Mermaid/React iframes.
+Reuse the existing HTML parent listener (`frameResizeScript`) and reporter
+injection for SVG, Mermaid, and React frames.
 
 ### 4. Vendored client assets (`editor-assets.js`)
 
-New runtimes are added to the same allowlist-and-route mechanism that serves
-CodeMirror, so everything stays same-origin and CSP-clean:
+Add new runtimes to the allowlist and route mechanism that serves CodeMirror.
+This keeps assets on the same origin and within the CSP:
 
 - Mermaid: `mermaid` (note: this is a **large** ESM bundle).
 - React: `react`, `react-dom`, plus a JSX transform. Prefer a small standalone JSX
@@ -221,9 +229,9 @@ CodeMirror, so everything stays same-origin and CSP-clean:
 - Add each to `EDITOR_VENDOR_PACKAGES` (or a parallel `RENDER_VENDOR_PACKAGES`) and,
   if their entry point differs, to `EDITOR_VENDOR_ENTRY_OVERRIDES`.
 
-These become real `dependencies` in `package.json`. That is a deliberate departure
-from the original "zero runtime dependencies" stance, which CodeMirror already
-began; the doc's phasing keeps the heavy additions opt-in.
+These packages become `dependencies` in `package.json`. CodeMirror had already
+changed the original zero-runtime-dependency policy. The phased proposal keeps
+the larger additions opt-in.
 
 ### 5. Storage & schema
 
@@ -236,7 +244,7 @@ began; the doc's phasing keeps the heavy additions opt-in.
 
 ## Security considerations
 
-The viewer renders **untrusted** content. The non-negotiables:
+The viewer renders **untrusted** content. Apply these security requirements:
 
 - Keep CSP local-only. Vendored libs are served from `/vendor/npm/*` (same origin);
   no CDN, no `unsafe-eval` unless a renderer strictly requires it (a JSX transform
@@ -256,10 +264,9 @@ The viewer renders **untrusted** content. The non-negotiables:
 
 ## Phased plan
 
-The implementation should move from durable contracts to progressively riskier
-renderers. Each phase must be independently shippable, include regression tests,
-and preserve the invariant that artifact source is stored faithfully while rendered
-output is derived at view time.
+Start with stable contracts. Then add renderers in order of increasing risk.
+Each phase must be independently shippable and include regression tests. Each
+phase must preserve the source and derive rendered output at view time.
 
 ### Phase 0 — Contract lock and fixtures
 
@@ -274,8 +281,8 @@ output is derived at view time.
 - Decide the taxonomy additions before implementation: either reuse existing
   `artifactType` values or add `diagram`, `component`, and `snippet`.
 
-**Exit criteria:** tests describe all target formats and current behavior gaps are
-visible without changing production behavior.
+**Exit criteria:** tests describe all target formats. They expose the current
+gaps without changing production behavior.
 
 ### Phase 1 — Schema, storage, and surface plumbing
 
@@ -334,8 +341,9 @@ viewer dependencies.
 - Add tests proving Codex Markdown is not over-inferred: only structured or
   explicit payloads become handoffs/reports.
 
-**Exit criteria:** another agent can list a Codex artifact, understand what changed,
-read the original source, and continue the work without copy-pasting chat context.
+**Exit criteria:** another agent can find the Codex artifact and read its source.
+The artifact explains the changes well enough to continue without copying chat
+context.
 
 ### Phase 2 implementation status (2026-06-24)
 
@@ -378,8 +386,8 @@ dependencies or executing artifact code.
 - Add tests for iframe sandbox flags, raw source fidelity, metadata display, and
   sanitizer behavior.
 
-**Exit criteria:** Claude code and SVG artifacts render safely, while malicious SVG
-handlers do not execute and `/raw` still returns the original source.
+**Exit criteria:** the viewer displays Claude code and SVG artifacts. Malicious
+SVG handlers do not execute. `/raw` returns the original source.
 
 ### Phase 3 implementation status (2026-06-24)
 
@@ -420,8 +428,8 @@ Remaining for later phases:
 - Add viewer error states for invalid diagrams and tests for sandbox flags, local
   asset loading, and invalid-source handling.
 
-**Exit criteria:** Mermaid artifacts render to SVG offline/local-only and failure
-states are readable without breaking the artifact page.
+**Exit criteria:** Mermaid artifacts render to SVG with local assets. Invalid
+diagrams show readable errors without breaking the artifact page.
 
 ### Phase 4 implementation status (2026-06-24)
 
@@ -465,8 +473,8 @@ default behavior.
 - Add tests proving the parent origin remains isolated and `allow-same-origin` is
   never present on scripted artifact iframes.
 
-**Exit criteria:** React artifacts are usable for operators who opt in, while the
-default installation remains conservative and local-first.
+**Exit criteria:** operators who enable React can use React artifacts. The
+default installation keeps execution disabled and remains local-first.
 
 ### Phase 5 implementation status (2026-06-24)
 
@@ -506,8 +514,9 @@ agents.
 - Record known limitations: React opt-in risk, large Mermaid bundle size, and any
   unsupported Claude payload shape.
 
-**Exit criteria:** the feature can be released as a documented minor version with
-clear security posture and reproducible verification evidence.
+**Exit criteria:** the feature is ready for a documented minor release. The
+documentation explains its security boundaries and gives reproducible
+verification evidence.
 
 ## Testing
 
@@ -557,7 +566,9 @@ Verification:
 - `npm run release:check`: passed with 28 Node tests and the local smoke test.
 - `npm pack --dry-run`: passed; package contains 28 files, excludes `docs/claude-artifact-formats.md`, and reports about 1.3 MB packed size.
 - Restarted the local server on `http://127.0.0.1:8787`.
-- HTTP route checks passed for `/assets/viewer.js`, Mermaid, React, and Babel vendor assets. v10 adds browser smoke evidence because route status alone did not prove Mermaid rendered inside the sandboxed iframe.
+- HTTP route checks passed for `/assets/viewer.js`, Mermaid, React, and Babel
+  vendor assets. Route status did not prove that Mermaid rendered in its
+  sandboxed iframe. The v10 section adds browser smoke-test evidence.
 - Default app CSP was checked and does not include `unsafe-eval`; eval permission is limited to the gated React frame response.
 
 Known limitations:
@@ -575,7 +586,9 @@ Status: Complete.
 Implemented:
 
 - Added conditional `Access-Control-Allow-Origin: null` for `Origin: null` JavaScript asset requests served by `sendJavaScriptFile`.
-- Kept Mermaid iframes sandboxed with `allow-scripts` and without `allow-same-origin`; the fix enables opaque-origin ESM imports without weakening iframe isolation.
+- Kept Mermaid frames sandboxed with `allow-scripts` and without
+  `allow-same-origin`. The fix permits opaque-origin ESM imports and preserves
+  iframe isolation.
 - Added regression tests for ACAO headers on `/assets/editor.js`, `/assets/viewer.js`, and the Mermaid vendor ESM route.
 - Corrected this document's status, scope, historical model heading, and Phase 6 verification wording.
 
@@ -588,7 +601,9 @@ Verification:
 
 Residual risk:
 
-- The automated Node suite now guards the CORS header, but actual renderer painting still needs browser smoke before release when changing sandbox flags, CSP, or vendor asset routing.
+- The Node suite checks the CORS header. Before release, changes to sandbox
+  flags, CSP, or vendor asset routes still need a browser smoke test to verify
+  rendering.
 
 
 ---
@@ -624,7 +639,9 @@ Implemented:
 - Centralized the 30 second MCP timeout default used by Artifacty installers.
 - Codex config generation now supports custom `--timeout <ms>` by converting it to `startup_timeout_sec`.
 - Gemini config generation uses the same default and supports custom `--timeout <ms>`.
-- Claude installer intentionally does not write a per-server `timeout` field because Claude Code startup timeout is controlled by the parent `MCP_TIMEOUT` environment variable; the per-server field is for tool execution timeout.
+- The Claude installer does not write a per-server `timeout` field. Claude Code
+  reads its startup timeout from the parent `MCP_TIMEOUT` environment variable.
+  The per-server field controls tool execution timeout.
 - Updated CLI help, README, and integration docs with timeout guidance.
 
 Verification:
