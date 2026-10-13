@@ -30,11 +30,13 @@
     "test": "node --test",
     "lint": "node scripts/lint.mjs",
     "build:ui": "node scripts/build-ui.mjs",
+    "verify:encryption-install": "node scripts/check-encryption-install.mjs",
     "smoke": "bash scripts/smoke.sh",
     "release:check": "npm run lint && npm test && npm run smoke"
   },
   "files": [
     "src",
+    "vendor/encrypted-sqlite",
     "docs/artifact-schema-v1.md",
     "docs/assets/artifacty.png",
     "docs/central-team-deployment-design.md",
@@ -67,6 +69,9 @@
   "engines": {
     "node": ">=22.12"
   },
+  "bundleDependencies": [
+    "better-sqlite3-multiple-ciphers"
+  ],
   "license": "MIT",
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
@@ -78,7 +83,7 @@
   },
   "optionalDependencies": {
     "@babel/standalone": "^8.0.4",
-    "better-sqlite3-multiple-ciphers": "13.0.3",
+    "better-sqlite3-multiple-ciphers": "file:vendor/encrypted-sqlite/better-sqlite3-multiple-ciphers-13.0.3.tgz",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

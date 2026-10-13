@@ -27,3 +27,5 @@ jobs:
       - name: Require the native encryption driver
         run: node -e "require('better-sqlite3-multiple-ciphers')"
       - run: node --test test/encrypted-database.test.js test/encrypted-content.test.js
+      - name: Verify published-package and updater installation paths
+        run: npm run verify:encryption-install

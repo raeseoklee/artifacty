@@ -166,6 +166,15 @@ matches [npm CLI issue 9837](https://github.com/npm/cli/issues/9837). Do not hid
 the failure by upgrading only the CI installer. A durable package-level fix or
 an explicitly supported installation strategy must also work for consumers.
 
+Packaging fix under verification: vendor the exact 13.0.3 tarball with only an
+explicit no-op install script added. This prevents implicit rebuild inference
+without downgrading SQLite or changing cryptographic code. Original integrity,
+per-file comparisons, and reproduction instructions are retained in
+`vendor/encrypted-sqlite/`. Bundle the driver in the Artifacty package because
+consumer installs cannot reliably resolve a nested local tarball dependency.
+Verify both normal installation and the updater's `--ignore-scripts` path from
+an actual packed Artifacty archive, with the platform's default npm version.
+
 The earlier Windows Node 24 fixture cleanup failure was fixed by closing SQLite
 handles before removing temporary directories; that platform now passes.
 

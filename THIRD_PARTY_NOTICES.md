@@ -7,6 +7,20 @@ Artifacty includes CodeMirror 6 packages for the browser editor.
 
 The installed package metadata and license files are retained through npm dependency installation.
 
+## better-sqlite3-multiple-ciphers 13.0.3
+
+The optional encrypted SQLite driver is included as a local package under
+`vendor/encrypted-sqlite/`. Its upstream MIT license is reproduced verbatim in
+`vendor/encrypted-sqlite/LICENSE.upstream` and inside the archive. The original
+package also retains its bundled third-party source and license notices.
+
+Source: https://github.com/m4heshd/better-sqlite3-multiple-ciphers
+
+Only `package.json` is changed to add an explicit no-op install command, avoiding
+an npm 10 implicit-build issue. No implementation or native binary is changed.
+The pinned original checksum, patched checksum, per-file comparisons, and
+reproduction instructions are in `vendor/encrypted-sqlite/`.
+
 ## Bootstrap 5.3.8
 
 Artifacty includes selected generated assets from this package.
