@@ -19,7 +19,7 @@ async function fixture(t) {
     accounts[name] = { user, cookie: `artifacty_session=${session.token}`, token: token.token, access: { userId: user.id, role: user.role } };
   }
   const get = (route, who) => fetch(`${app.url}${route}`, { redirect: "manual", headers: who ? { cookie: accounts[who].cookie } : {} });
-  const post = (route, who, body = {}, extraHeaders = {}) => fetch(`${app.url}${route}`, { method: "POST", redirect: "manual", headers: { cookie: accounts[who].cookie, "content-type": "application/x-www-form-urlencoded", ...extraHeaders }, body: new URLSearchParams(body) });
+  const post = (route, who, body = {}, extraHeaders = {}) => fetch(`${app.url}${route}`, { method: "POST", redirect: "manual", headers: { cookie: accounts[who].cookie, origin: app.url, "content-type": "application/x-www-form-urlencoded", ...extraHeaders }, body: new URLSearchParams(body) });
   const api = (route, who, body) => fetch(`${app.url}${route}`, { method: "POST", headers: { authorization: `Bearer ${accounts[who].token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
   return { app, accounts, get, post, api };
 }
@@ -30,7 +30,9 @@ test("mode preview, permission forms, effective report, and personal inbox enfor
   const root = `/artifacts/${artifact.id}`;
   const preview = await post("/admin/access/preview", "admin", { mode: "private" });
   assert.equal(preview.status, 200);
-  assert.match(await preview.text(), /action="\/admin\/access"/);
+  const previewPage = await preview.text();
+  assert.match(previewPage, /href="\/admin\/access\?mode=private"/);
+  assert.doesNotMatch(previewPage, /<form\b/);
   assert.equal(await getAccessMode(app.store), "public");
   assert.equal((await post("/admin/access", "admin", { mode: "private" })).status, 303);
   const fields = [];

@@ -503,7 +503,7 @@ async function main() {
     const id = options._[0];
     const visibility = options._[1];
     if (!id || !visibility) {
-      throw new Error("visibility requires an artifact id and a value: private or team");
+      throw new Error("visibility requires an artifact id and a value: private, team, or public");
     }
     const artifact = await setArtifactVisibility(store, id, visibility, { audit: cliAuditContext() });
     printJson(await withUrls(store, artifact));
@@ -1006,17 +1006,17 @@ Usage:
   artifacty status [--home ~/.artifacty]
   artifacty stop [--home ~/.artifacty] [--timeout 30000] [--force]
   artifacty doctor [--home ~/.artifacty] [--skip-mcp] [--timeout 5000]
-  artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react|notebook] [--source agent] [--tag tag] [--visibility private|team]
+  artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react|notebook] [--source agent] [--tag tag] [--visibility private|team|public]
   artifacty import --agent claude|codex|gemini|copilot|cursor|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react|notebook] [--tag tag]
   artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--mcp-url http://127.0.0.1:8787/mcp] [--api-token token] [--transport local|bridge] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
   artifacty update [--check] [--target-version <version>] [--home <path>]
   artifacty upgrade [--check] [--target-version <version>] [--home <path>]
-  artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react|notebook] [--expected-version N] [--visibility private|team]
+  artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react|notebook] [--expected-version N] [--visibility private|team|public]
   artifacty samples install|remove
   artifacty archive <id>
   artifacty restore <id>
-  artifacty visibility <id> private|team
+  artifacty visibility <id> private|team|public
   artifacty audit [--artifact <id>] [--limit 100]
   artifacty index rebuild [--embeddings]
   artifacty integrity

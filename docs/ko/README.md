@@ -4,11 +4,17 @@
 
 설치 방법, 전체 기능, CLI 명령과 환경 변수는 [한국어 README](../../README.ko.md)에서 확인하세요.
 
+## 브라우저 화면 언어
+
+관리자는 `/admin/languages`에서 설치된 언어를 활성화하고 기본 언어를 선택합니다. 활성화된 URL 선택, 브라우저 쿠키, 저장한 기본값 순으로 적용합니다. 설정을 저장하기 전에는 `ARTIFACTY_LOCALE` 또는 영어가 초기 기본값입니다. 비활성화된 선택과 `Accept-Language`는 무시합니다. 가져오기와 대체 언어 규칙은 [언어 팩](language-packs.md)을 참고하세요. UI 번역은 명령어, API·MCP 식별자, 저장된 아티팩트 내용을 번역하지 않습니다.
+
 ## 사용자·운영자 안내
 
 | 문서 | 한국어 | English |
 | --- | --- | --- |
 | 설치와 기능 참조 | [README](../../README.ko.md) | [README](../../README.md) |
+| 언어 팩 | [안내](language-packs.md) | [Guide](../language-packs.md) |
+| SMTP와 비밀번호 재설정 | [안내](smtp.md) | [Guide](../smtp.md) |
 | 에이전트 연동 | [연동 안내](integrations.md) | [Guide](../integrations.md) |
 | 네트워크 공유 | [안내](network-sharing.md) | [Guide](../network-sharing.md) |
 | 업데이트 백업과 복구 | [안내](upgrade-backups.md) | [Guide](../upgrade-backups.md) |

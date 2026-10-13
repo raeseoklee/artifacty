@@ -1,0 +1,50 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { startServer } from "../src/server.js";
+import { createUser, createSession, createArtifact, getAccessMode, setAccessMode } from "../src/lib/storage.js";
+import { createI18n } from "../src/lib/i18n.js";
+
+test("mode preview simulates the anonymous dashboard without changing the live mode", async (t) => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-access-preview-"));
+  const app = await startServer({ home, port: 0 });
+  t.after(async () => { await app.close(); await rm(home, { recursive: true, force: true }); });
+  const admin = await createUser(app.store, { email: "admin@example.com", name: "Admin", password: "password-123", role: "admin" });
+  const member = await createUser(app.store, { email: "member@example.com", name: "Member", password: "password-456", role: "user" });
+  const cookie = `artifacty_session=${(await createSession(app.store, admin.id)).token}`;
+  const memberCookie = `artifacty_session=${(await createSession(app.store, member.id)).token}`;
+  await createArtifact(app.store, { title: "Visible preview artifact", content: "Preview bytes", ownerUserId: admin.id, visibility: "public" });
+  await createArtifact(app.store, { title: "Team excluded artifact", content: "Team bytes", ownerUserId: admin.id, visibility: "team" });
+  await createArtifact(app.store, { title: "Private excluded artifact", content: "Secret", ownerUserId: admin.id, visibility: "private" });
+  await setAccessMode(app.store, "private", { access: { userId: admin.id, role: "admin" } });
+  const post = (mode, headers = {}, route = "/admin/access/preview") => fetch(`${app.url}${route}`, { method: "POST", redirect: "manual", headers: { cookie, origin: app.url, "content-type": "application/x-www-form-urlencoded", ...headers }, body: new URLSearchParams({ mode }) });
+  for (const denied of [{ cookie: "" }, { cookie: memberCookie }, { origin: "" }, { origin: "http://localhost:1" }, { origin: "http://127.0.0.1:1" }]) {
+    assert.ok([303, 401, 403].includes((await post("public", denied)).status));
+  }
+  const publicPreview = await post("public");
+  assert.equal(publicPreview.status, 200);
+  const publicPage = await publicPreview.text();
+  assert.match(publicPage, /Visible preview artifact/);
+  assert.doesNotMatch(publicPage, /Private excluded artifact/);
+  assert.doesNotMatch(publicPage, /Team excluded artifact/);
+  assert.doesNotMatch(publicPage, /<form\b|href="\/artifacts\//);
+  assert.match(publicPage, /href="\/admin\/access\?mode=public"/);
+  assert.equal(await getAccessMode(app.store), "private");
+  const settings = await fetch(`${app.url}/admin/access?mode=public`, { headers: { cookie } });
+  assert.equal(settings.status, 200);
+  assert.match(await settings.text(), /action="\/admin\/access"/);
+  assert.equal(await getAccessMode(app.store), "private");
+  assert.equal((await fetch(app.url, { redirect: "manual" })).status, 303);
+  const privatePreview = await post("private");
+  assert.equal(privatePreview.status, 200);
+  const privatePage = await privatePreview.text();
+  assert.ok(privatePage.includes(createI18n("en").t("access.previewSignIn")));
+  assert.doesNotMatch(privatePage, /Visible preview artifact|<form\b/);
+  assert.equal(await getAccessMode(app.store), "private");
+  assert.equal((await post("public", { origin: "http://localhost:1" }, "/admin/access")).status, 403);
+  assert.equal((await post("public", {}, "/admin/access")).status, 303);
+  assert.equal(await getAccessMode(app.store), "public");
+  assert.equal((await fetch(app.url)).status, 200);
+});

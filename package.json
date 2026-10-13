@@ -1,6 +1,6 @@
 {
   "name": "artifacty",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
   "keywords": [
@@ -29,6 +29,7 @@
     "mcp": "node src/mcp-server.js",
     "test": "node --test",
     "lint": "node scripts/lint.mjs",
+    "build:ui": "node scripts/build-ui.mjs",
     "smoke": "bash scripts/smoke.sh",
     "release:check": "npm run lint && npm test && npm run smoke"
   },
@@ -38,15 +39,18 @@
     "docs/assets/artifacty.png",
     "docs/central-team-deployment-design.md",
     "docs/integrations.md",
+    "docs/language-packs.md",
     "docs/mcp-public-api.md",
     "docs/network-sharing.md",
     "docs/release-checklist.md",
     "docs/roadmap-design.md",
     "docs/sarif-csv-artifact-plan.md",
+    "docs/smtp.md",
     "docs/threat-model.md",
     "docs/upgrade-backups.md",
     "docs/writing-style.md",
     "scripts/lint.mjs",
+    "scripts/build-ui.mjs",
     "scripts/smoke.sh",
     "README.md",
     "LICENSE",
@@ -76,5 +80,10 @@
     "@babel/standalone": "^8.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tabler/icons": "^3.49.0",
+    "bootstrap": "^5.3.8",
+    "sass": "^1.105.1"
   }
 }

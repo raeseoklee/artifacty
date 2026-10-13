@@ -40,7 +40,7 @@ async function withStore(fn) {
 }
 
 test("VISIBILITY_VALUES remain compatible and STORE_VERSION includes access policies", () => {
-  assert.deepEqual(VISIBILITY_VALUES, ["private", "team"]);
+  assert.deepEqual(VISIBILITY_VALUES, ["private", "team", "public"]);
   assert.equal(STORE_VERSION, 10);
 });
 
@@ -66,7 +66,7 @@ test("createArtifact validates visibility and defaults to team", async () => {
         title: "Bad Visibility",
         content: "hello",
         format: "text",
-        visibility: "public"
+        visibility: "invalid"
       }),
       /Unsupported visibility/
     );
@@ -253,7 +253,7 @@ test("team artifacts: any authenticated user reads/writes, ARTIFACTY_TEAM_WRITE=
   });
 });
 
-test("anonymous shared-token access sees team only and cannot write when ARTIFACTY_TEAM_WRITE=owner", async () => {
+test("anonymous shared-token access cannot read or write team artifacts", async () => {
   await withStore(async (store) => {
     const owner = await createUser(store, { email: "anon-owner@example.com", name: "Owner", role: "user", password: "password-123" });
     const teamArtifact = await createArtifact(store, {
@@ -274,7 +274,7 @@ test("anonymous shared-token access sees team only and cannot write when ARTIFAC
     const anonAccess = { userId: null, role: null, anonymous: true };
 
     const list = await listArtifactsPage(store, { access: anonAccess });
-    assert.ok(list.artifacts.some((item) => item.id === teamArtifact.id));
+    assert.ok(!list.artifacts.some((item) => item.id === teamArtifact.id));
     assert.ok(!list.artifacts.some((item) => item.id === privateArtifact.id));
 
     await assert.rejects(
@@ -285,12 +285,9 @@ test("anonymous shared-token access sees team only and cannot write when ARTIFAC
       }
     );
 
-    const updated = await updateArtifact(store, teamArtifact.id, {
-      content: "anon wrote this",
-      format: "text",
-      access: anonAccess
-    });
-    assert.equal(updated.latestVersion, 2);
+    await assert.rejects(updateArtifact(store, teamArtifact.id, {
+      content: "anon wrote this", format: "text", access: anonAccess
+    }), { statusCode: 404 });
 
     const previous = process.env.ARTIFACTY_TEAM_WRITE;
     process.env.ARTIFACTY_TEAM_WRITE = "owner";
@@ -298,7 +295,7 @@ test("anonymous shared-token access sees team only and cannot write when ARTIFAC
       await assert.rejects(
         () => updateArtifact(store, teamArtifact.id, { content: "blocked anon", format: "text", access: anonAccess }),
         (error) => {
-          assert.equal(error.statusCode, 403);
+          assert.equal(error.statusCode, 404);
           return true;
         }
       );

@@ -304,7 +304,7 @@ Artifacty stores metadata in `artifacty.sqlite`. Normal create and update operat
 
 Artifacty writes the current browser server URL to `server.json`. MCP tools use this URL to return correct links when the server selects another port. On first access, Artifacty automatically migrates existing `index.json` stores.
 
-Every artifact row carries a `visibility` (`private`/`team`, default `team`) and an `ownerUserId`, backfilled from the artifact's `publisherUserId` on migration. See the Security Model section below for the access rules these enforce.
+Every artifact row carries a `visibility` (`private`/`team`/`public`, default `team`) and an `ownerUserId`, backfilled from the artifact's `publisherUserId` on migration. See the Security Model section below for the access rules these enforce.
 
 Administrators can download and restore backups from `/admin/backup`. The
 default `artifacts` scope contains artifact metadata and version contents,
@@ -390,7 +390,25 @@ artifacty show <artifact-id> --relations
 artifacty unlink <from-id> derived-from <to-id>
 ```
 
+### Automatic application of preferences
+
+Language and page-size selections apply immediately. Advanced dashboard filters apply when a selection changes or an edited field loses focus. Search text still uses Enter or Search. Changes to permissions, server settings, and artifact content retain explicit save actions. If JavaScript is unavailable, the Apply buttons remain available.
+
 ### Comments and review status
+
+Review status is optional. Use it to record whether a team has reviewed an artifact or requested changes. For example, mark an AI-generated release plan as `pending`, use `changes-requested` when it needs revision, and set `approved` after review. Leave personal notes or other material that does not need review at the default, `none`.
+
+| Status | Purpose |
+| --- | --- |
+| `none` | No review status assigned. This is the default. |
+| `pending` | Waiting for review |
+| `changes-requested` | Needs revision |
+| `approved` | Approved after review |
+
+When user accounts exist, only the artifact owner or an administrator can change this status. Use it in dashboard filters and saved views. It does not enforce a sequence of approval steps, change visibility or read/write permissions, or block publication. Resolving comments does not automatically approve an artifact.
+
+Appending a version after approval resets the status to `pending` for another review. The retention policy's **automatic archiving** excludes `approved` artifacts. Approval does not prevent manual deletion or all retention operations.
+
 
 Add feedback to a specific version without publishing a new version or a separate review artifact:
 
@@ -439,6 +457,8 @@ artifacty retention set --archive-after-days 90 --archive-after-days-for test-re
 artifacty retention run --dry-run
 ARTIFACTY_RETENTION_ALLOW_PURGE=true artifacty retention run --allow-purge
 ```
+
+The retention screen groups artifact archive/purge settings, history limits, and protected tags. Review the preview before running cleanup.
 
 ### Dashboard Filters and Saved Views
 
@@ -538,7 +558,9 @@ curl -s http://127.0.0.1:8787/api/import \
   }'
 ```
 
-On desktop, use the navigation rail. On narrower screens, open **Menu**. **Artifacts** and **Inbox** lead to your work; **New** and **Import** create or bring in content. Administrators use **Administration** for Access (`/admin/access`), Users (`/admin/users`), Backup (`/admin/backup`), Retention (`/admin/retention`), Webhooks (`/admin/webhooks`), and Server update (`/admin/update`). **Account** contains Account & API tokens (`/account`), password changes (`/account/password`), and sign-out. API docs and language selection are also in the navigation.
+On desktop, use the navigation rail. Use its collapse button to switch to an icon rail; the browser saves this choice as `artifacty_sidebar`. On narrower screens, open **Menu**. **Artifacts** and **Inbox** lead to your work; **New** and **Import** create or bring in content. Administrators use **Administration** for Access (`/admin/access`), Users (`/admin/users`), Backup (`/admin/backup`), Retention (`/admin/retention`), Webhooks (`/admin/webhooks`), and Server update (`/admin/update`). **Account** contains Account & API tokens (`/account`), password changes (`/account/password`), and sign-out. API docs and language selection are also in the navigation.
+
+The bottom pager offers 10, 25, 50, or 100 items per page; the default is 50. Changing the page size returns to the first page and preserves filters and language.
 
 Browser routes:
 
@@ -553,7 +575,7 @@ Browser routes:
 - `/api/admin/backup?scope=artifacts|full`: administrator-only backup JSON download.
 - `/api/admin/backup/import`: administrator-only backup restore. Accepts the raw bundle or `{ bundle, confirm, forceUsers }`.
 - `/api/audit`: list audit events.
-- `/openapi.json`: machine-readable OpenAPI 3.1 document for every `/api/*` route and `/mcp`; `/docs/api`: server-rendered human-readable reference for the same routes. Both require no authentication.
+- `/openapi.json`: machine-readable OpenAPI 3.1 document for every `/api/*` route and `/mcp`; `/docs/api`: server-rendered human-readable reference for the same routes. Both require no authentication. The API reference groups endpoints in expandable sections, with search, request/response examples, and copyable curl commands generated from OpenAPI. It is read-only and has no live “Try it” execution. It uses the same saved browser theme as the dashboard.
 
 List APIs support pagination with `limit` and `offset`. Responses keep the top-level `artifacts` array and include `pagination` and `search` metadata:
 
@@ -584,9 +606,29 @@ If the artifact's `latestVersion` no longer matches, the update is rejected with
 
 The browser editor sends a hidden `expectedVersion` field. If another agent updated the artifact first, the editor shows a conflict banner with a link to the diff view.
 
+## User administration and email
+
+At `/admin/users`, administrators can change a user's role inline. The last active administrator cannot be demoted. After demotion, existing tokens cannot retain effective administrator access through an old `admin` scope.
+
+Password reset generates a temporary password, forces a change at the next login, and revokes sessions. API tokens remain valid subject to current permissions. Configure optional reset emails at `/admin/email`; see [SMTP and password reset](docs/smtp.md). Back up `secrets/smtp.key` separately: neither JSON backups nor upgrade snapshots include it.
+
+### Artifact visibility
+
+In public server mode, `public` artifacts allow anonymous read-only access. `team` artifacts require authentication, and `private` artifacts remain restricted to the owner and administrators. In private server mode, explicit sharing rules apply; choosing `public` or `team` does not grant anonymous access. The default remains `team`. Existing team artifacts no longer allow anonymous browsing; select `public` explicitly if that is intended.
+
+The Access preview shows anonymous read-only access without saving configuration. Preview results do not change the access policy.
+
 ## Interface Language
 
-The browser UI defaults to English. Add `?lang=ko` to any browser route to use Korean, for example `http://127.0.0.1:8787/new?lang=ko`. Forms and in-app links preserve the selected language. The current product guides are in English. English and Korean documentation follow the [documentation writing guide](docs/writing-style.md). Korean prose should use natural Korean phrasing.
+English and Korean are built in. Administrators can enable installed languages and choose the default at **Administration → Languages** (`/admin/languages`). Import custom JSON packs or download the template there. The selector displays native language names. Partial packs use English for missing messages. See [language packs](docs/language-packs.md) for validation, limits, and backup behavior.
+
+The browser uses enabled choices in this order: explicit `?lang=<locale>`, its one-year language cookie, then the saved administrator default. Disabled choices are ignored. Before settings are saved, `ARTIFACTY_LOCALE=en` or `ko` supplies the initial default; otherwise it is English. `Accept-Language` is ignored. Selecting enabled English explicitly overrides a Korean preference. Clearing the browser-specific cookie returns to the current default.
+
+Translations cover navigation, authentication, accounts, administration, backup, version repair, and CSV/SARIF controls. Commands, API/MCP identifiers, and stored artifact content are unchanged. Guides are available in [English](docs/README.md) and [Korean](docs/ko/README.md).
+
+The monitor, sun, and moon buttons select System, Light, and Dark themes. Each icon has an accessible label. The browser stores the choice as `artifacty_theme`. System follows the operating system preference.
+
+UI controls use selectively compiled Bootstrap 5.3.8 forms, buttons, and button groups, with Tabler 3.49 icons. Assets are served locally without a CDN. Bootstrap, Tabler, and Sass are development dependencies; rebuild the generated assets with `npm run build:ui`. The application keeps its server-rendered UI.
 
 Schema and storage:
 
@@ -611,7 +653,7 @@ upgraded store rather than ignoring its access policy.
 
 Administrators can open **Administration → Access** (`/admin/access`) to change the
 server's access mode without restarting it. Existing installations default to
-**public** mode, preserving anonymous dashboard access to team-visible artifacts;
+**public** mode. Explicitly public artifacts permit anonymous read-only access; team artifacts require authentication;
 artifacts marked private remain restricted to their owner and administrators.
 API authentication and write protection still apply in public mode.
 
@@ -669,8 +711,8 @@ they require confirmation. Restoring a full backup into a private server
 keeps it private even if the backup was public, and an existing network policy
 is preserved.
 
-If you switch back to public mode, anonymous visitors can read team-visible
-artifacts again. Artifacty retains explicit sharing grants for a later return
+If you switch back to public mode, anonymous visitors can read explicitly public
+artifacts. Team artifacts still require authentication. Artifacty retains explicit sharing grants for a later return
 to private mode.
 
 ## Share Links and Inbox
@@ -724,7 +766,7 @@ manuals with the intended users or teams from each artifact's Sharing page.
 - API token checks use timing-safe digest comparison.
 - Personal API tokens support `read`, `write`, and `admin` scopes. The default is `read`+`write`. Select scopes when creating a token at `/account`. Only administrator tokens can receive `admin`. Each `/api/*` route requires the matching token scope. The shared `ARTIFACTY_API_TOKEN` and browser sessions have full scopes.
   If a scope check fails, the server returns `403` with `code: "scope_denied"`. It also writes a rate-limited `token-scope-denied` audit row. For MCP tokens without `write`, `tools/list` omits tools that change data. Calls to those tools return `structuredContent.code: "scope_denied"`.
-- Once any user account exists, every artifact has a `visibility` (`private` or `team`, defaulting to `team`) and an `ownerUserId`. In public access mode, `team` is readable and writable by any authenticated principal (unless `ARTIFACTY_TEAM_WRITE=owner` restricts writes to the owner or an admin). `private` is readable and writable only by its owner or an admin; reads by anyone else 404 instead of 403 so the artifact's existence isn't leaked. Archiving, restoring, and changing visibility or ownership always require the owner or an admin, regardless of visibility. A shared `ARTIFACTY_API_TOKEN` (or any request before the first user account is created) has no personal identity and is treated as an anonymous team principal: it can read and write `team` artifacts but never sees `private` ones. In single-user mode (no user accounts at all) every check is bypassed, matching pre-visibility behavior. Change visibility and ownership with `POST /api/artifacts/:id/visibility` and `POST /api/artifacts/:id/owner`, the `artifacty visibility <id> private|team` CLI command, or the `artifacty_set_visibility` MCP tool.
+- Once any user account exists, artifacts use `visibility` (`public`, `team`, or `private`, default `team`) and `ownerUserId`. In public server mode, `public` allows anonymous read-only access; `team` requires authentication; `private` permits only the owner or administrator. Writes and owner-management operations remain permission-checked. In private mode, explicit sharing controls access. Restricted reads return 404 to avoid disclosing existence. The no-account single-user mode remains a separate local behavior. Change visibility or ownership through `POST /api/artifacts/:id/visibility`, `POST /api/artifacts/:id/owner`, `artifacty visibility <id> private|team|public`, or `artifacty_set_visibility`.
 - HTTP and MCP-over-HTTP requests are rate limited per `(token or user or remote address, bucket)` in fixed one-minute windows: `write` (mutating routes, default 120/min, `ARTIFACTY_RATE_WRITE_PER_MIN`), `auth` (`/login`, default 10/min per address, `ARTIFACTY_RATE_AUTH_PER_MIN`), and `search` (`GET /api/artifacts?q=`, default 300/min, `ARTIFACTY_RATE_SEARCH_PER_MIN`). Rate limiting is disabled on a loopback bind unless `ARTIFACTY_RATE_LIMIT=always`, and always disabled with `ARTIFACTY_RATE_LIMIT=off`. Exceeding a limit returns `429` with a `Retry-After` header, `code: "rate_limited"`, and a rate-limited `rate-limited` audit row.
 - Binding outside localhost requires both `ARTIFACTY_SHARE_MODE=lan` or `team` and `ARTIFACTY_API_TOKEN`.
 - Non-local sharing is intended for trusted LAN or VPN sessions. Prefer a specific interface IP over `0.0.0.0`, keep React rendering disabled, and see [docs/network-sharing.md](docs/network-sharing.md).
@@ -765,7 +807,7 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | `ARTIFACTY_MCP_HTTP` | Set `true` to also expose MCP over HTTP on the running server | `false` |
 | `ARTIFACTY_MCP_TIMEOUT_MS` | Bridge-mode MCP HTTP request timeout | `30000` |
 | `ARTIFACTY_API_TOKEN` | Shared token required for HTTP API and LAN/team sharing | — |
-| `ARTIFACTY_LOCALE` | Default UI locale (e.g. `en`, `ko`) when a request does not specify one | `en` |
+| `ARTIFACTY_LOCALE` | Initial UI default (`en` or `ko`) before administrator language settings are saved | `en` |
 | `ARTIFACTY_EMBEDDINGS_URL` | openai-compatible embeddings endpoint base URL; enables semantic/hybrid search | — |
 | `ARTIFACTY_EMBEDDINGS_MODEL` | Embeddings model name | provider default |
 | `ARTIFACTY_EMBEDDINGS_API_KEY` | API key for the openai-compatible provider; never logged or stored | — |

@@ -7,6 +7,7 @@
 // server.js for its route literals and cross-checks them against this table
 // so the two cannot silently drift apart.
 import { inlineSchema, schemas } from "./schemas.js";
+import { createI18n, availableLanguages, defaultLocale } from "./i18n.js";
 
 const OPENAPI_VERSION = "3.1.0";
 
@@ -104,7 +105,7 @@ export const routeTable = [
     path: "/api/artifacts/{id}/visibility",
     auth: "write",
     summary: "Change an artifact's visibility",
-    description: "Set visibility to 'team' or 'private'. Requires the artifact's owner or an admin.",
+    description: "Set visibility to 'public', 'team', or 'private'. Requires the artifact's owner or an admin. Public permits anonymous reading only in public server mode; private server mode still enforces sharing permissions.",
     parameters: [
       { name: "id", in: "path", required: true, schema: { type: "string" } }
     ],
@@ -391,6 +392,46 @@ export const routeTable = [
   }
 ];
 
+// Request examples describe accepted inputs, independently of response records.
+const requestExamples = {
+  "POST /api/artifacts": { title: "Release notes", content: "# Release notes\nFirst release.", format: "markdown", tags: ["release"], visibility: "private" },
+  "POST /api/import": { agent: "generic", title: "Imported notes", content: "# Notes", format: "markdown" },
+  "POST /api/artifacts/{id}": { content: "# Release notes\nUpdated release.", format: "markdown", expectedVersion: 1 },
+  "POST /api/artifacts/{id}/visibility": { visibility: "private" },
+  "POST /api/artifacts/{id}/owner": { ownerUserId: "user-example" },
+  "POST /api/artifacts/{id}/relations": { toId: "artifact-related", relation: "references" },
+  "POST /api/artifacts/{id}/comments": { body: "Please review this section.", version: 1 },
+  "POST /api/artifacts/{id}/review-status": { status: "approved" },
+  "POST /api/webhooks": { url: "https://example.com/artifacty-webhook", eventTypes: ["artifact.created"] },
+  "POST /api/views": { name: "Release notes", filters: { tag: "release" }, shared: false },
+  "PUT /api/admin/retention": { archiveAfterDays: { default: null, byType: {} }, purgeArchivedAfterDays: null, auditRetentionDays: null, eventRetentionRows: null, keepTags: ["keep"] },
+  "POST /api/admin/retention/run": { dryRun: true },
+  "POST /mcp": { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }
+};
+
+function exampleInputSchema(value) {
+  if (value === null) return { type: ["number", "null"] };
+  if (Array.isArray(value)) return { type: "array", items: value.length ? exampleInputSchema(value[0]) : {} };
+  if (typeof value === "object") return { type: "object", properties: Object.fromEntries(Object.entries(value).map(([key, item]) => [key, exampleInputSchema(item)])) };
+  return { type: typeof value === "number" ? "integer" : typeof value };
+}
+
+export function schemaExample(schema, definitions = schemas, name = "", depth = 0) {
+  if (!schema || depth > 12) return null;
+  if (schema.example !== undefined) return schema.example;
+  if (schema.$ref) return schemaExample(definitions[schema.$ref.split("/").pop()], definitions, name, depth + 1);
+  if (schema.allOf) return Object.assign({}, ...schema.allOf.map((part) => schemaExample(part, definitions, name, depth + 1)));
+  if (schema.enum) return schema.enum[0];
+  const type = Array.isArray(schema.type) ? schema.type.find((item) => item !== "null") : schema.type;
+  if (type === "object" || schema.properties) return Object.fromEntries((schema.required || []).map((key) => [key, schemaExample(schema.properties?.[key] || {}, definitions, key, depth + 1)]));
+  if (type === "array") return [];
+  if (type === "boolean") return false;
+  if (type === "number" || type === "integer") return schema.minimum ?? (/(version|from|to)/i.test(name) ? 1 : 0);
+  if (schema.format === "date-time") return "2026-01-01T00:00:00.000Z";
+  if (schema.format === "uri") return "https://example.com/artifact";
+  return ({ id: "artifact-example", title: "Release notes", sourceAgent: "generic", content: "# Release notes", body: "Please review this section.", authorLabel: "Example user" })[name] || "example";
+}
+
 export function listDocumentedRoutes() {
   return routeTable.map(({ method, path }) => ({ method, path }));
 }
@@ -426,13 +467,17 @@ export function buildOpenApiDocument({ baseUrl = "http://127.0.0.1:8787" } = {})
           description: "Personal or global API token as an `x-artifacty-token` header. A `token` query parameter is also accepted for browser links."
         }
       },
-      schemas
+      schemas: { ...schemas, ArtifactRecord: { allOf: [{ $ref: "#/components/schemas/ArtifactSummary" }, { type: "object", properties: { versions: { type: "array", items: { $ref: "#/components/schemas/ArtifactVersion" } } }, required: ["versions"] }] } }
     },
     paths
   };
 }
 
 function buildOperation(route) {
+  route = { ...route };
+  if (route.method !== "GET" && route.responseSchema === "ArtifactWithContent") route.responseSchema = "ArtifactRecord";
+  if (route.method === "DELETE" && route.path.includes("/relations/")) { route.responseStatus = 200; route.responseSchema = "RelationEntry"; }
+  if (route.path.startsWith("/api/webhooks")) route.auth = "admin";
   const responses = {};
   const successStatus = String(route.responseStatus || 200);
   responses[successStatus] = {
@@ -478,11 +523,14 @@ function buildOperation(route) {
       }
     };
   }
+  const requestExample = requestExamples[`${route.method} ${route.path}`];
+  if (requestExample) operation.requestBody = { required: true, content: { "application/json": { schema: route.requestSchema === "RetentionPolicy" ? { $ref: "#/components/schemas/RetentionPolicy" } : { ...exampleInputSchema(requestExample), description: "Properties used in this request example. This is not an exhaustive list of accepted optional fields." }, example: requestExample } } };
   if (route.auth === "admin") {
     operation.responses = { ...responses, 403: errorResponse("Admin privileges required.") };
   } else {
     operation.responses = responses;
   }
+  operation["x-artifacty-access"] = route.auth || "read";
   return operation;
 }
 
@@ -507,6 +555,9 @@ function operationId(route) {
 }
 
 function tagFor(path) {
+  if (path.startsWith("/api/webhooks")) return "Webhooks";
+  if (path.startsWith("/api/views")) return "Views";
+  if (path.startsWith("/api/events")) return "Events";
   if (path.startsWith("/api/admin")) {
     return "Admin";
   }
@@ -525,81 +576,49 @@ function tagFor(path) {
   return "Artifacts";
 }
 
-export function renderApiDocsHtml({ baseUrl = "" } = {}) {
+export function buildCurlExample({ baseUrl, apiPath, method, operation }) {
+  const quote = (value) => "'" + String(value).replaceAll("'", "'\\''") + "'";
+  let url = (baseUrl || "http://127.0.0.1:8787").replace(/\/$/, "") + apiPath.replace(/\{([^}]+)\}/g, (_, name) => encodeURIComponent(name === "id" ? "artifact-example" : `${name}-example`));
+  const query = (operation.parameters || []).filter((parameter) => parameter.in === "query" && parameter.required).map((parameter) => `${encodeURIComponent(parameter.name)}=${encodeURIComponent(schemaExample(parameter.schema))}`);
+  if (query.length) url += "?" + query.join("&");
+  const lines = [`curl --request ${method.toUpperCase()} ${quote(url)}`, `  --header 'Authorization: Bearer YOUR_API_TOKEN'`];
+  const example = operation.requestBody?.content?.["application/json"]?.example;
+  if (example !== undefined) lines.push("  --header 'Content-Type: application/json'", `  --data-raw ${quote(JSON.stringify(example))}`);
+  if (apiPath === "/api/admin/backup/import") lines.push("  --header 'Content-Type: application/json'", "  --data-binary '@backup.json'");
+  return lines.join(" \\\n");
+}
+
+export function renderApiDocsHtml({ baseUrl = "", locale = defaultLocale(), currentPath = "/docs/api" } = {}) {
   const document = buildOpenApiDocument({ baseUrl });
-  const rows = Object.entries(document.paths)
-    .flatMap(([apiPath, operations]) =>
-      Object.entries(operations).map(([method, operation]) => ({ method, apiPath, operation }))
-    )
-    .sort((left, right) => left.apiPath.localeCompare(right.apiPath) || left.method.localeCompare(right.method));
+  const { t, locale: language } = createI18n(locale);
+  const label = (key) => escapeHtml(t(`apiDocs.${key}`));
+  const current = new URL(currentPath, "http://artifacty.local");
+  const preserved = [...current.searchParams.entries()].filter(([name]) => name !== "lang")
+    .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`).join("");
+  const languageOptions = availableLanguages().filter((item) => item.enabled)
+    .map((item) => `<option value="${escapeHtml(item.locale)}"${item.locale === language ? " selected" : ""}>${escapeHtml(item.nativeName)}</option>`).join("");
+  const languageSelector = `<form class="language-switcher" data-auto-apply="all" method="get" action="${escapeHtml(`${current.pathname}${current.hash}`)}">${preserved}<label>${escapeHtml(t("language.label"))} <select class="form-select" name="lang">${languageOptions}</select></label><button class="btn btn-outline-secondary" type="submit">${escapeHtml(t("language.apply"))}</button></form>`;
 
-  const routeSections = rows
-    .map(({ method, apiPath, operation }) => renderRouteSection(method, apiPath, operation))
-    .join("\n");
-
-  const schemaSections = Object.entries(document.components.schemas)
-    .map(([name, schema]) => renderSchemaSection(name, schema))
-    .join("\n");
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Artifacty API reference</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 2rem; max-width: 960px; color: #1a1a1a; background: #fff; }
-  h1 { margin-bottom: 0.25rem; }
-  .lede { color: #555; margin-top: 0; }
-  .route { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.25rem; margin: 1rem 0; }
-  .route h3 { margin: 0 0 0.25rem; font-family: ui-monospace, monospace; }
-  .method { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: bold; color: #fff; margin-right: 0.5rem; }
-  .method-get { background: #2563eb; }
-  .method-post { background: #16a34a; }
-  .method-delete { background: #dc2626; }
-  .params { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.9rem; }
-  .params th, .params td { text-align: left; border-bottom: 1px solid #eee; padding: 0.25rem 0.5rem; }
-  pre { background: #f6f6f6; padding: 0.75rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; }
-  nav a { margin-right: 0.75rem; }
-  section.schema { margin: 0.75rem 0; }
-</style>
-</head>
-<body>
-<h1>Artifacty API reference</h1>
-<p class="lede">${escapeHtml(document.info.description)} Machine-readable spec: <a href="/openapi.json">/openapi.json</a>.</p>
-<nav><a href="#routes">Routes</a><a href="#schemas">Schemas</a></nav>
-<h2 id="routes">Routes</h2>
-${routeSections}
-<h2 id="schemas">Schemas</h2>
-${schemaSections}
-</body>
-</html>
-`;
-}
-
-function renderRouteSection(method, apiPath, operation) {
-  const paramRows = (operation.parameters || [])
-    .map((param) => `<tr><td>${escapeHtml(param.name)}</td><td>${escapeHtml(param.in)}</td><td>${escapeHtml(param.schema?.type || "string")}</td><td>${param.required ? "yes" : "no"}</td></tr>`)
-    .join("");
-  const paramsTable = paramRows
-    ? `<table class="params"><thead><tr><th>Name</th><th>In</th><th>Type</th><th>Required</th></tr></thead><tbody>${paramRows}</tbody></table>`
-    : "";
-  const description = operation.description ? `<p>${escapeHtml(operation.description)}</p>` : "";
-  const responseCodes = Object.keys(operation.responses || {}).join(", ");
-  return `<article class="route" id="${escapeHtml(`${method.toLowerCase()}-${apiPath}`)}">
-  <h3><span class="method method-${escapeHtml(method.toLowerCase())}">${escapeHtml(method)}</span>${escapeHtml(apiPath)}</h3>
-  <p>${escapeHtml(operation.summary || "")}</p>
-  ${description}
-  ${paramsTable}
-  <p><strong>Responses:</strong> ${escapeHtml(responseCodes)}</p>
-</article>`;
-}
-
-function renderSchemaSection(name, schema) {
-  return `<section class="schema" id="schema-${escapeHtml(name)}">
-  <h3>${escapeHtml(name)}</h3>
-  <pre>${escapeHtml(JSON.stringify(schema, null, 2))}</pre>
-</section>`;
+  const code = (value) => `<pre><code>${escapeHtml(typeof value === "string" ? value : JSON.stringify(value, null, 2))}</code></pre>`;
+  const snippet = (value) => `<div class="snippet"><button class="btn btn-outline-secondary btn-sm" type="button" data-copy hidden>${label("copy")}</button>${code(value)}</div>`;
+  const rows = Object.entries(document.paths).flatMap(([apiPath, operations]) => Object.entries(operations).map(([method, operation]) => ({ apiPath, method, operation })));
+  const tags = [...new Set(rows.map(({ operation }) => operation.tags[0]))];
+  const render = ({ apiPath, method, operation }) => {
+    const request = operation.requestBody?.content?.["application/json"];
+    const parameters = (operation.parameters || []).map((parameter) => `<tr><th scope="row">${escapeHtml(parameter.name)}</th><td>${escapeHtml(parameter.in)}</td><td>${escapeHtml(parameter.schema?.type || "string")}${parameter.required ? ` · ${label("required")}` : ""}</td><td>${escapeHtml(parameter.description || "")}${parameter.schema?.enum ? code(parameter.schema.enum) : ""}</td></tr>`).join("");
+    const responses = Object.entries(operation.responses).map(([status, response]) => {
+      const media = response.content?.["application/json"];
+      const example = media ? media.example ?? schemaExample(media.schema, document.components.schemas) : undefined;
+      return `<details class="response"><summary>${escapeHtml(status)} · ${escapeHtml(response.description)}</summary>${example !== undefined ? `<h4>${label("responseExample")}</h4>${snippet(example)}<details><summary>${label("schema")}</summary>${code(media.schema)}</details>` : `<p>${label("noSchema")}</p>`}</details>`;
+    }).join("");
+    return `<details class="operation" id="${escapeHtml(operation.operationId)}" data-operation data-search="${escapeHtml(`${method} ${apiPath} ${operation.summary} ${operation.tags.join(" ")}`.toLowerCase())}"><summary><span class="method ${method}">${method.toUpperCase()}</span><code class="path">${escapeHtml(apiPath)}</code><span class="summary-text">${escapeHtml(operation.summary)}</span></summary><div class="operation-body"><p>${escapeHtml(operation.description || operation.summary)}</p><p class="muted">${label("access")}: ${escapeHtml(operation["x-artifacty-access"])}</p>${parameters ? `<h3>${label("parameters")}</h3><div class="table-scroll"><table><thead><tr><th>${label("name")}</th><th>${label("location")}</th><th>${label("type")}</th><th>${label("description")}</th></tr></thead><tbody>${parameters}</tbody></table></div>` : ""}${request ? `<h3>${label("requestExample")}</h3>${snippet(request.example ?? schemaExample(request.schema, document.components.schemas))}<details><summary>${label("schema")}</summary>${code(request.schema)}</details>` : ""}<h3>curl</h3>${snippet(buildCurlExample({ baseUrl, apiPath, method, operation }))}<h3>${label("responses")}</h3>${responses}</div></details>`;
+  };
+  return `<!doctype html><html lang="${escapeHtml(language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Artifacty ${label("title")}</title><script src="/assets/theme.js"></script><script type="module" src="/assets/auto-apply.js"></script><style>
+  :root{color-scheme:light;--bg:#f5f6f8;--panel:#fff;--text:#20242b;--muted:#58616e;--line:#dce0e6;--accent:#315ca8;--code:#f0f2f5}
+  :root[data-theme="dark"]{color-scheme:dark;--bg:#15171b;--panel:#1c1f24;--text:#edf0f3;--muted:#adb5c0;--line:#363c45;--accent:#9cbcf5;--code:#15171b}
+  @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#15171b;--panel:#1c1f24;--text:#edf0f3;--muted:#adb5c0;--line:#363c45;--accent:#9cbcf5;--code:#15171b}}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--accent)}header,main{max-width:1200px;margin:auto;padding:24px 32px}header{border-bottom:1px solid var(--line)}h1{font-size:30px;letter-spacing:-.03em;margin:14px 0 4px}h2{font-size:21px;margin-top:32px}h3{font-size:16px;margin:24px 0 8px}h4{margin-bottom:8px}.muted{color:var(--muted)}nav{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.language-switcher{display:flex;align-items:center;gap:8px}.language-switcher label{display:flex;align-items:center;gap:8px}input{display:block;width:100%;padding:12px;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:6px;font:inherit;margin:8px 0 24px}.operation{background:var(--panel);border:1px solid var(--line);border-radius:6px;margin:8px 0;scroll-margin-top:16px}summary{cursor:pointer;padding:12px;overflow-wrap:anywhere}.operation>summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.operation>summary::before{content:"▸";color:var(--muted)}.operation[open]>summary::before{content:"▾"}.method{font-size:12px;font-weight:750;min-width:58px;color:var(--accent)}.delete{color:#bd4545}.path{font-size:13px}.summary-text{color:var(--muted);margin-left:auto}.operation-body{padding:4px 20px 20px;border-top:1px solid var(--line)}pre{background:var(--code);padding:16px;overflow:auto;border-radius:4px;font-size:12px;line-height:1.7;max-height:420px}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}.snippet{position:relative}.snippet button{float:right;margin:8px}.table-scroll{overflow:auto}table{border-collapse:collapse;width:100%;text-align:left;font-size:13px}th,td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}.response{border-top:1px solid var(--line)}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--accent);outline-offset:3px}@media(max-width:650px){header,main{padding:20px 16px}.summary-text{width:100%;margin-left:28px}.operation-body{padding:4px 12px 16px}.path{font-size:12px}h1{font-size:25px}}
+  </style><link rel="stylesheet" href="/assets/ui-controls.css"><script type="module" src="/assets/api-docs.js"></script></head><body data-copy-success="${label("copied")}" data-copy-failure="${label("copyFailed")}"><header><nav><a href="/?lang=${escapeHtml(language)}">Artifacty</a><a class="btn btn-outline-secondary" href="/openapi.json" download="artifacty-openapi.json">${label("download")}</a>${languageSelector}</nav><h1>${label("title")}</h1><p class="muted">${label("intro")}</p><nav>${tags.map((tag) => `<a href="#tag-${tag}">${tag}</a>`).join("")}<a href="#schemas">${label("schemas")}</a></nav></header><main><div data-search-controls hidden><label for="api-search">${label("search")}</label><input class="form-control" id="api-search" type="search" placeholder="${label("searchPlaceholder")}" autocomplete="off"></div><p data-no-results hidden role="status">${label("noResults")}</p><p class="muted">${label("sampleNote")}</p>${tags.map((tag) => `<section data-tag-group id="tag-${tag}"><h2>${tag}</h2>${rows.filter(({ operation }) => operation.tags[0] === tag).map(render).join("")}</section>`).join("")}<section id="schemas"><h2>${label("schemas")}</h2>${Object.entries(document.components.schemas).map(([name, schema]) => `<details class="operation"><summary>${escapeHtml(name)}</summary>${code(schema)}</details>`).join("")}</section><p role="status" aria-live="polite" data-copy-status></p></main></body></html>`;
 }
 
 function escapeHtml(value) {

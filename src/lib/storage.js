@@ -85,7 +85,7 @@ export const ARTIFACT_TYPES = [
 
 export const RELATION_TYPES = ["derived-from", "supersedes", "reviews", "references", "part-of"];
 
-export const VISIBILITY_VALUES = ["private", "team"];
+export const VISIBILITY_VALUES = ["private", "team", "public"];
 
 // Allowlisted filter keys a saved view may capture. Keeps saved views forward
 // compatible with filters that are recognized but not yet acted on (e.g.
@@ -216,13 +216,13 @@ export function visibilityClause(prefix, access) {
   const isAdmin = access.role === "admin" ? 1 : 0;
   return {
     sql: `((COALESCE((SELECT value FROM meta WHERE key = 'access_mode'), 'public') != 'private'
-      AND ${prefix}visibility != 'private')
+      AND (${prefix}visibility = 'public' OR (${prefix}visibility = 'team' AND ? != '')))
       OR (? != '' AND ${prefix}owner_user_id = ?) OR ? = 1
       OR (COALESCE((SELECT value FROM meta WHERE key = 'access_mode'), 'public') = 'private'
         AND ? != '' AND EXISTS (SELECT 1 FROM artifact_shares s
           WHERE s.artifact_id = ${prefix}id AND
           (s.user_id = ? OR s.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?)))))`,
-    params: [userId, userId, isAdmin, userId, userId, userId]
+    params: [userId, userId, userId, isAdmin, userId, userId, userId]
   };
 }
 
@@ -451,9 +451,14 @@ export async function previewAccessMode(store = createStore(), mode, { access } 
   if (!["public", "private"].includes(mode)) throw Object.assign(new Error("Access mode must be public or private"), { statusCode: 400 });
   const db = openDatabase(store);
   try {
-    const count = mode === "private" ? 0 : db.prepare(`SELECT COUNT(*) AS count FROM artifacts
-      WHERE visibility != 'private' OR (SELECT COUNT(*) FROM users) = 0`).get().count;
-    return { mode, anonymousArtifactCount: count };
+    // Simulate anonymous dashboard visibility under the proposed mode without
+    // consulting or changing the currently configured access mode.
+    if (mode === "private") return { mode, anonymousArtifactCount: 0, total: 0, artifacts: [] };
+    const eligibility = "archived_at IS NULL AND (visibility = 'public' OR (SELECT COUNT(*) FROM users) = 0)";
+    const count = db.prepare(`SELECT COUNT(*) AS count FROM artifacts WHERE ${eligibility}`).get().count;
+    const rows = db.prepare(`SELECT ${artifactColumns()} FROM artifacts WHERE ${eligibility}
+      ORDER BY updated_at DESC, created_at DESC, id ASC LIMIT 50`).all();
+    return { mode, anonymousArtifactCount: count, total: count, artifacts: rows.map((row) => toArtifactSummary(artifactFromRow(db, row))) };
   } finally { db.close(); }
 }
 
@@ -482,9 +487,8 @@ function canReadArtifactMeta(db, artifact, access) {
       AND (user_id = ? OR team_id IN (SELECT team_id FROM team_members WHERE user_id = ?)) LIMIT 1`)
       .get(artifact.id, access.userId, access.userId));
   }
-  if (artifactVisibilityOf(artifact) !== "private") {
-    return true;
-  }
+  if (artifactVisibilityOf(artifact) === "public") return true;
+  if (artifactVisibilityOf(artifact) === "team" && access.userId) return true;
   return isOwnerOrAdmin(access, artifact.ownerUserId);
 }
 
@@ -492,12 +496,10 @@ function canWriteArtifactMeta(db, artifact, access) {
   if (!access || isSingleUserMode(db)) {
     return true;
   }
-  if (accessModeInDb(db) === "private" || artifactVisibilityOf(artifact) === "private") {
+  if (accessModeInDb(db) === "private" || artifactVisibilityOf(artifact) !== "team") {
     return isOwnerOrAdmin(access, artifact.ownerUserId);
   }
-  if (access.anonymous) {
-    return !teamWriteRestrictedToOwner();
-  }
+  if (access.anonymous || !access.userId) return access.role === "admin";
   if (teamWriteRestrictedToOwner()) {
     return isOwnerOrAdmin(access, artifact.ownerUserId);
   }
@@ -2526,10 +2528,14 @@ export async function canReadArtifactEvent(store = createStore(), event, access 
   if (!access) return true;
   const db = openDatabase(store);
   try {
-    if (access.userId && !db.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(access.userId)) return false;
+    if (access.userId) {
+      const user = db.prepare("SELECT role FROM users WHERE id = ? AND active = 1").get(access.userId);
+      if (!user) return false;
+      access = { ...access, role: user.role };
+    }
     const row = event.artifactId ? db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(event.artifactId) : null;
     if (row) return canReadArtifactMeta(db, { id: row.id, visibility: row.visibility, ownerUserId: row.owner_user_id }, access);
-    return accessModeInDb(db) !== "private" && eventVisibleTo(event, access);
+    return isSingleUserMode(db) || (accessModeInDb(db) !== "private" && eventVisibleTo(event, access));
   } finally { db.close(); }
 }
 
@@ -2582,7 +2588,7 @@ export async function listEventsSince(store = createStore(), sinceSeq = 0, filte
         ? (row.live_visibility != null
           ? canReadArtifactMeta(db, { id: row.artifact_id, visibility: row.live_visibility, ownerUserId: row.live_owner_user_id }, access)
           : access.role === "admin")
-        : eventVisibleTo(event, access);
+        : (isSingleUserMode(db) || eventVisibleTo(event, access));
       if (matchesFilter(event, filter) && visible) {
         matched.push(event);
         if (matched.length >= limit) {
@@ -3059,6 +3065,30 @@ export async function listUsers(store = createStore()) {
   }
 }
 
+export async function setUserRole(store = createStore(), id, role, { access, audit } = {}) {
+  if (!["admin", "user"].includes(role)) {
+    throw Object.assign(new Error("Role must be admin or user"), { statusCode: 400, code: "INVALID_USER_ROLE" });
+  }
+  const db = openDatabase(store);
+  try {
+    return transaction(db, () => {
+      const actor = db.prepare("SELECT id, email, role, active FROM users WHERE id = ?").get(access?.userId || "");
+      if (!actor?.active || actor.role !== "admin") {
+        throw Object.assign(new Error("An active administrator is required"), { statusCode: 403, code: "ADMIN_REQUIRED" });
+      }
+      const target = db.prepare("SELECT * FROM users WHERE id = ?").get(id);
+      if (!target) throw Object.assign(new Error(`User not found: ${id}`), { statusCode: 404, code: "USER_NOT_FOUND" });
+      if (target.role === role) return userFromRow(target);
+      if (target.active && target.role === "admin" && role === "user" && !db.prepare("SELECT id FROM users WHERE active = 1 AND role = 'admin' AND id != ? LIMIT 1").get(id)) {
+        throw Object.assign(new Error("At least one active administrator must remain"), { statusCode: 409, code: "LAST_ADMIN_REQUIRED" });
+      }
+      db.prepare("UPDATE users SET role = ?, updated_at = ? WHERE id = ?").run(role, new Date().toISOString(), id);
+      insertAuditRow(db, { action: "user-role-change", artifactId: "", audit: { ...audit, actor: actor.email, userId: actor.id }, metadata: { targetUserId: id, fromRole: target.role, toRole: role, actorUserId: actor.id } });
+      return userFromRow(db.prepare("SELECT * FROM users WHERE id = ?").get(id));
+    });
+  } finally { db.close(); }
+}
+
 export async function setUserActive(store = createStore(), id, active) {
   const db = openDatabase(store);
   try {
@@ -3073,6 +3103,28 @@ export async function setUserActive(store = createStore(), id, active) {
   } finally {
     db.close();
   }
+}
+
+export async function resetUserPassword(store = createStore(), id, { access, audit } = {}) {
+  const db = openDatabase(store);
+  try {
+    return transaction(db, () => {
+      const actor = db.prepare("SELECT id, email, role, active FROM users WHERE id = ?").get(access?.userId || "");
+      if (!actor?.active || actor.role !== "admin") {
+        throw Object.assign(new Error("An active administrator is required"), { statusCode: 403, code: "ADMIN_REQUIRED" });
+      }
+      if (!db.prepare("SELECT id FROM users WHERE id = ?").get(id)) {
+        throw Object.assign(new Error(`User not found: ${id}`), { statusCode: 404, code: "USER_NOT_FOUND" });
+      }
+      const temporaryPassword = generateTemporaryPassword();
+      const now = new Date().toISOString();
+      db.prepare("UPDATE users SET password_hash = ?, password_reset_required = 1, updated_at = ? WHERE id = ?")
+        .run(hashPassword(temporaryPassword), now, id);
+      db.prepare("UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL").run(now, id);
+      insertAuditRow(db, { action: "user-password-reset", artifactId: "", audit: { ...audit, actor: actor.email, userId: actor.id }, metadata: { targetUserId: id } });
+      return { user: userFromRow(db.prepare("SELECT * FROM users WHERE id = ?").get(id)), temporaryPassword };
+    });
+  } finally { db.close(); }
 }
 
 export async function changeUserPassword(store = createStore(), userId, input = {}) {
@@ -3258,7 +3310,9 @@ export async function authenticateApiToken(store = createStore(), token) {
       actor: row.email,
       tokenId: row.token_id,
       tokenName: row.token_name,
-      scopes: row.token_scopes_json ? parseJson(row.token_scopes_json, ["read", "write"]) : ["read", "write"],
+      // A stored admin grant must not outlive the owner's current admin role.
+      scopes: (row.token_scopes_json ? parseJson(row.token_scopes_json, ["read", "write"]) : ["read", "write"])
+        .filter((scope) => scope !== "admin" || row.role === "admin"),
       user: userFromRow(row)
     };
   } finally {

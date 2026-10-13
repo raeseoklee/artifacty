@@ -1,6 +1,7 @@
+import { uiIcon } from "./ui-icons.js";
 import { readFileSync } from "node:fs";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
-import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, switchLocaleHref } from "./i18n.js";
+import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, availableLanguages } from "./i18n.js";
 import { ARTIFACT_FORMATS, ARTIFACT_TYPES, REVIEW_STATUSES, SAVED_VIEW_FILTER_KEYS, VISIBILITY_VALUES } from "./storage.js";
 import { normalizeMaxEntries as resolveMaxDiffEntries } from "./diff.js";
 import { parseCsv } from "./csv.js";
@@ -20,7 +21,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
   const total = pagination?.total ?? artifacts.length;
   const start = artifacts.length ? (pagination?.offset ?? 0) + 1 : 0;
   const end = artifacts.length ? (pagination?.offset ?? 0) + artifacts.length : 0;
-  const pager = renderDashboardPager({ pagination, filters, view });
+  const pager = renderDashboardPager({ pagination: pagination || { total, limit: Number(filters.limit) || 50, offset: 0 }, filters, view });
   const rowsHtml = renderArtifactRows(artifacts, filters.groupBy, view);
   const activeFilters = [
     ["tag", "filter.tag"], ["sourceAgent", "filter.source"], ["artifactType", "filter.artifactType"],
@@ -28,7 +29,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
     ["reviewStatus", "filter.reviewStatus"], ["mode", "filter.mode"], ["groupBy", "filter.groupBy"],
     ["relatedTo", "filter.relatedTo"], ["relation", "filter.relation"], ["includeArchived", "filter.archived"]
   ].filter(([key]) => filters[key]);
-  const field = (key, label, type = "text") => `<label class="dashboard-field"><span>${view.text(label)}</span><input type="${type}" name="${key}" value="${escapeAttribute(filters[key] || "")}"></label>`;
+  const field = (key, label, type = "text") => `<label class="dashboard-field"><span>${view.text(label)}</span><input type="${type}" name="${key}" value="${escapeAttribute(filters[key] || "")}" class="form-control"></label>`;
   const selectField = (label, select) => `<label class="dashboard-field"><span>${view.text(label)}</span>${select}</label>`;
 
   return pageShell({
@@ -37,14 +38,14 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
       ${workspaceHeader(user, view)}
       <div class="dashboard-layout">
         <main class="dashboard" id="main-content">
-          <div class="dashboard-heading"><h1>${view.text("nav.artifacts")}</h1><nav><a class="button-link" href="${view.href("/new")}">${view.text("nav.new")}</a><a href="${view.href("/import")}">${view.text("nav.import")}</a></nav></div>
-          <form class="filter-form" method="get" action="/">
+          <div class="dashboard-heading"><h1>${view.text("nav.artifacts")}</h1><nav><a class="button-link btn btn-primary" href="${view.href("/new")}">${view.text("nav.new")}</a><a href="${view.href("/import")}">${view.text("nav.import")}</a></nav></div>
+          <form class="filter-form" data-auto-apply="filters" method="get" action="/">
             ${localeInput(view.locale)}
             ${filters.limit ? `<input type="hidden" name="limit" value="${escapeAttribute(filters.limit)}">` : ""}
             ${!embeddingsAvailable && filters.mode ? `<input type="hidden" name="mode" value="${escapeAttribute(filters.mode)}">` : ""}
             <div class="dashboard-search-row">
-              <label class="dashboard-search"><span class="dashboard-sr-only">${view.text("filter.search")}</span><input type="search" name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("dashboard.searchPlaceholder")}"></label>
-              <button type="submit">${view.text("filter.search")}</button>
+              <label class="dashboard-search"><span class="dashboard-sr-only">${view.text("filter.search")}</span><input type="search" name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("dashboard.searchPlaceholder")}" class="form-control"></label>
+              <button type="submit" class="btn btn-outline-secondary">${view.text("filter.search")}</button>
               <a class="dashboard-clear" href="${view.href("/")}">${view.text("filter.clear")}</a>
             </div>
             <details class="dashboard-advanced">
@@ -58,8 +59,8 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
                 ${embeddingsAvailable ? selectField("filter.mode", filterModeSelect(filters.mode, view)) : ""}
                 ${selectField("filter.groupBy", filterGroupBySelect(filters.groupBy, view))}
                 ${field("relatedTo", "filter.relatedTo")}${field("relation", "filter.relation")}
-                <label class="checkbox-field"><input type="checkbox" name="includeArchived" value="true"${filters.includeArchived ? " checked" : ""}> ${view.text("filter.archived")}</label>
-                <div class="dashboard-filter-actions"><button type="submit">${view.text("filter.submit")}</button></div>
+                <label class="checkbox-field"><input type="checkbox" name="includeArchived" value="true"${filters.includeArchived ? " checked" : ""} class="form-check-input"> ${view.text("filter.archived")}</label>
+                <div class="dashboard-filter-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("filter.submit")}</button></div>
               </div>
             </details>
             ${activeFilters.length ? `<p class="dashboard-active-filters">${activeFilters.map(([key, label]) => `<span>${view.text(label)}${key === "includeArchived" ? "" : `: ${escapeHtml(filters[key])}`}</span>`).join("")}</p>` : ""}
@@ -77,7 +78,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
   });
 }
 
-function renderArtifactRow(artifact, view) {
+function renderArtifactRow(artifact, view, readOnly = false) {
   const tags = artifact.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("");
   const status = artifact.archivedAt ? statusBadge("archived") : "";
   const visibility = visibilityBadge(artifact, view);
@@ -86,7 +87,7 @@ function renderArtifactRow(artifact, view) {
     ? `<span class="row-snippet">${escapeHtml(artifact.searchSnippet)}</span>`
     : "";
   return `
-    <a class="artifact-row" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">
+    <${readOnly ? "div" : "a"} class="artifact-row"${readOnly ? "" : ` href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}"`}>
       <span class="row-main">
         <strong>${escapeHtml(artifact.title)}</strong>
         <span class="dashboard-sr-only">${escapeHtml(artifact.id)}</span>
@@ -95,15 +96,15 @@ function renderArtifactRow(artifact, view) {
       <span class="row-agent"><span>${escapeHtml(artifact.sourceAgent)}</span>${artifact.publisherId || artifact.publisherName ? `<span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>` : ""}</span>
       <span class="row-formats">${typeBadge(artifact.artifactType || "document")}${formatBadge(artifact.format || "text")}<span>v${artifact.latestVersion}</span></span>
       <span class="tags">${status}${visibility}${tags}</span>
-    </a>
+    </${readOnly ? "div" : "a"}>
   `;
 }
 
 // groupBy is purely presentational: it groups the already-fetched, already-
 // sorted page of artifacts into labeled sections without changing the query.
-function renderArtifactRows(artifacts, groupBy, view) {
+function renderArtifactRows(artifacts, groupBy, view, readOnly = false) {
   if (!GROUP_BY_VALUES.includes(groupBy)) {
-    return artifacts.map((artifact) => renderArtifactRow(artifact, view)).join("");
+    return artifacts.map((artifact) => renderArtifactRow(artifact, view, readOnly)).join("");
   }
 
   const groups = new Map();
@@ -119,7 +120,7 @@ function renderArtifactRows(artifacts, groupBy, view) {
     .map(([key, group]) => `
       <section class="artifact-group">
         <h2 class="artifact-group-heading">${escapeHtml(groupHeadingLabel(key, groupBy, view))}</h2>
-        ${group.map((artifact) => renderArtifactRow(artifact, view)).join("")}
+        ${group.map((artifact) => renderArtifactRow(artifact, view, readOnly)).join("")}
       </section>
     `)
     .join("");
@@ -132,21 +133,21 @@ function groupHeadingLabel(key, groupBy, view) {
   return key || view.raw("dashboard.groupUnknown");
 }
 
-// Shared by every <select> whose options are just ARTIFACT_TYPES rendered
+// Shared by every <select class="form-select"> whose options are just ARTIFACT_TYPES rendered
 // as their own value and (escaped) label.
 function artifactTypeOptions(selected) {
   return ARTIFACT_TYPES.map((type) => `<option value="${type}"${type === selected ? " selected" : ""}>${escapeHtml(type)}</option>`).join("");
 }
 
 function filterArtifactTypeSelect(selected, view) {
-  return `<select name="artifactType">
+  return `<select name="artifactType" class="form-select">
     <option value="">${view.text("filter.artifactTypeAny")}</option>
     ${artifactTypeOptions(selected)}
   </select>`;
 }
 
 function filterReviewStatusSelect(selected, view) {
-  return `<select name="reviewStatus">
+  return `<select name="reviewStatus" class="form-select">
     <option value="">${view.text("filter.reviewStatusAny")}</option>
     ${REVIEW_STATUSES.map((status) => `<option value="${status}"${status === selected ? " selected" : ""}>${view.text(`reviewStatus.${status}`)}</option>`).join("")}
   </select>`;
@@ -158,14 +159,14 @@ const SEARCH_MODE_VALUES = ["keyword", "semantic", "hybrid"];
 // configured (roadmap section 6): semantic/hybrid search silently falls
 // back to keyword without one, so the toggle would otherwise mislead.
 function filterModeSelect(selected, view) {
-  return `<select name="mode">
+  return `<select name="mode" class="form-select">
     <option value="">${view.text("filter.modeDefault")}</option>
     ${SEARCH_MODE_VALUES.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${view.text(`filter.mode.${value}`)}</option>`).join("")}
   </select>`;
 }
 
 function filterGroupBySelect(selected, view) {
-  return `<select name="groupBy">
+  return `<select name="groupBy" class="form-select">
     <option value="">${view.text("filter.groupByNone")}</option>
     ${GROUP_BY_VALUES.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${view.text(`filter.groupBy.${value}`)}</option>`).join("")}
   </select>`;
@@ -179,7 +180,7 @@ function renderSavedViewsSidebar({ savedViews, filters, view }) {
           ${savedView.shared ? `<span class="badge saved-view-shared">${view.text("views.shared")}</span>` : ""}
           <form method="post" action="${view.href(`/views/${encodeURIComponent(savedView.id)}/delete`)}" class="saved-view-delete">
             ${localeInput(view.locale)}
-            <button type="submit">${view.text("views.delete")}</button>
+            <button type="submit" class="btn btn-outline-secondary">${view.text("views.delete")}</button>
           </form>
         </li>
       `).join("")
@@ -193,9 +194,9 @@ function renderSavedViewsSidebar({ savedViews, filters, view }) {
       <form method="post" action="${view.href("/views")}" class="saved-view-form">
         ${localeInput(view.locale)}
         ${savedViewFilterHiddenInputs(filters)}
-        <label class="dashboard-field"><span>${view.text("views.namePlaceholder")}</span><input name="name" placeholder="${view.attr("views.namePlaceholder")}" required></label>
-        <label class="checkbox-field"><input type="checkbox" name="shared" value="true"> ${view.text("views.shared")}</label>
-        <button type="submit">${view.text("views.save")}</button>
+        <label class="dashboard-field"><span>${view.text("views.namePlaceholder")}</span><input name="name" placeholder="${view.attr("views.namePlaceholder")}" required class="form-control"></label>
+        <label class="checkbox-field"><input type="checkbox" name="shared" value="true" class="form-check-input"> ${view.text("views.shared")}</label>
+        <button type="submit" class="btn btn-outline-secondary">${view.text("views.save")}</button>
       </form>
       </div>
     </details>
@@ -204,7 +205,7 @@ function renderSavedViewsSidebar({ savedViews, filters, view }) {
 
 // Every SAVED_VIEW_FILTER_KEYS entry as a hidden form field, so a filter
 // added there (e.g. relatedTo/relation) is captured by "save current
-// filters" automatically instead of needing a hand-added <input> here too.
+// filters" automatically instead of needing a hand-added <input class="form-control"> here too.
 function savedViewFilterHiddenInputs(filters) {
   return SAVED_VIEW_FILTER_KEYS.map((key) => {
     if (key === "includeArchived") {
@@ -215,18 +216,42 @@ function savedViewFilterHiddenInputs(filters) {
 }
 
 function renderDashboardPager({ pagination, filters, view }) {
-  if (!pagination || pagination.total <= pagination.limit) {
-    return "";
-  }
-
-  const previous = pagination.previousOffset === null
-    ? `<span class="pager-disabled">${view.text("dashboard.previous")}</span>`
-    : `<a href="${view.href(dashboardPageHref(filters, pagination.previousOffset))}">${view.text("dashboard.previous")}</a>`;
-  const next = pagination.nextOffset === null
-    ? `<span class="pager-disabled">${view.text("dashboard.next")}</span>`
-    : `<a href="${view.href(dashboardPageHref(filters, pagination.nextOffset))}">${view.text("dashboard.next")}</a>`;
-
-  return `<nav class="pager" aria-label="Pagination">${previous}${next}</nav>`;
+  const limit = Math.max(1, Math.min(200, Number(pagination.limit) || 50));
+  const offset = Math.max(0, Number(pagination.offset) || 0);
+  const total = Math.max(0, Number(pagination.total) || 0);
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(pages, Math.floor(offset / limit) + 1);
+  const current = new URL(view.currentPath || "/", "http://artifacty.local");
+  const params = new URLSearchParams(current.search);
+  const resolved = new URL(dashboardPageHref(filters, 0), "http://artifacty.local");
+  for (const [name, value] of resolved.searchParams) if (!params.has(name)) params.append(name, value);
+  params.delete("limit");
+  params.delete("offset");
+  params.set("lang", view.locale);
+  const pageHref = (nextOffset) => {
+    const query = new URLSearchParams(params);
+    query.set("limit", String(limit));
+    query.set("offset", String(nextOffset));
+    return escapeAttribute(`${current.pathname}?${query}${current.hash}`);
+  };
+  const previousOffset = pagination.previousOffset === undefined ? Math.max(0, offset - limit) : pagination.previousOffset;
+  const nextOffset = pagination.nextOffset === undefined ? offset + limit : pagination.nextOffset;
+  const previous = offset === 0 || previousOffset === null
+    ? `<span class="pager-disabled" aria-disabled="true">${view.text("dashboard.previous")}</span>`
+    : `<a rel="prev" href="${pageHref(previousOffset)}">${view.text("dashboard.previous")}</a>`;
+  const next = offset + limit >= total || nextOffset === null
+    ? `<span class="pager-disabled" aria-disabled="true">${view.text("dashboard.next")}</span>`
+    : `<a rel="next" href="${pageHref(nextOffset)}">${view.text("dashboard.next")}</a>`;
+  const sizes = [...new Set([10, 25, 50, 100, limit])].sort((a, b) => a - b);
+  return `<section class="dashboard-pagination">
+    <nav class="pager" aria-label="${view.attr("dashboard.pagination")}">${previous}<span class="pager-position">${view.text("dashboard.pagePosition", { page, pages })}</span>${next}</nav>
+    <form class="page-size-form" data-auto-apply="all" method="get" action="${escapeAttribute(`${current.pathname}${current.hash}`)}">
+      ${[...params].map(([name, value]) => `<input type="hidden" name="${escapeAttribute(name)}" value="${escapeAttribute(value)}">`).join("")}
+      <input type="hidden" name="offset" value="0">
+      <label><span>${view.text("dashboard.pageSize")}</span><select name="limit" class="form-select">${sizes.map((size) => `<option value="${size}"${size === limit ? " selected" : ""}>${size}</option>`).join("")}</select></label>
+      <button type="submit" class="btn btn-outline-secondary">${view.text("language.apply")}</button>
+    </form>
+  </section>`;
 }
 
 function dashboardPageHref(filters, offset) {
@@ -301,7 +326,7 @@ export function renderArtifactFormPage({ user, mode, baseUrl, artifact, version,
           <section class="editor-fields">
             <label class="field">
               <span>${view.text("form.title")}</span>
-              <input name="title" value="${escapeAttribute(artifact?.title || "")}" autocomplete="off" required>
+              <input name="title" value="${escapeAttribute(artifact?.title || "")}" autocomplete="off" required class="form-control">
             </label>
             <label class="field">
               <span>${view.text("form.format")}</span>
@@ -309,7 +334,7 @@ export function renderArtifactFormPage({ user, mode, baseUrl, artifact, version,
             </label>
             <label class="field">
               <span>${view.text("form.source")}</span>
-              <input name="sourceAgent" value="${escapeAttribute(sourceAgent)}" autocomplete="off">
+              <input name="sourceAgent" value="${escapeAttribute(sourceAgent)}" autocomplete="off" class="form-control">
             </label>
             <label class="field">
               <span>${view.text("form.type")}</span>
@@ -317,20 +342,21 @@ export function renderArtifactFormPage({ user, mode, baseUrl, artifact, version,
             </label>
             <label class="field">
               <span>${view.text("form.tags")}</span>
-              <input name="tags" value="${escapeAttribute(tags)}" autocomplete="off">
+              <input name="tags" value="${escapeAttribute(tags)}" autocomplete="off" class="form-control">
             </label>
             ${isEdit ? "" : `<label class="field">
               <span>${view.text("artifact.visibility.label")}</span>
               ${visibilitySelect(artifact?.visibility || "team", view)}
             </label>`}
           </section>
+          <p class="muted">${view.text("artifact.visibility.help")}</p>
           <section class="field content-field">
             <label for="artifact-content">${view.text("form.content")}</label>
-            <textarea id="artifact-content" name="content" data-artifacty-editor data-editor-format="${escapeAttribute(format)}" spellcheck="false" required>${escapeHtml(body)}</textarea>
+            <textarea id="artifact-content" name="content" data-artifacty-editor data-editor-format="${escapeAttribute(format)}" spellcheck="false" required class="form-control">${escapeHtml(body)}</textarea>
           </section>
           <footer class="editor-actions">
             <a href="${view.href(isEdit ? `/artifacts/${encodeURIComponent(artifact.id)}` : "/")}">${view.text("nav.cancel")}</a>
-            <button type="submit">${isEdit ? view.text("form.saveVersion") : view.text("form.create")}</button>
+            <button type="submit" class="btn btn-primary">${isEdit ? view.text("form.saveVersion") : view.text("form.create")}</button>
           </footer>
         </form>
       </main>
@@ -355,14 +381,14 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
       <tr>
         <td><a class="version${active}" href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions?version=${version.version}`)}">v${version.version}</a></td>
         <td>${formatBadge(version.format)}</td>
-        <td>${escapeHtml(version.createdAt)}</td>
+        <td>${renderDateTime(version.createdAt, view)}</td>
         <td><code>${escapeHtml(version.sha256.slice(0, 12))}</code></td>
         <td>${escapeHtml(String(version.sizeBytes))}</td>
         <td>
           <form class="inline-action" method="post" action="/admin/artifacts/${encodeURIComponent(artifact.id)}/versions/${version.version}/delete">
             ${localeInput(view.locale)}
-            <input name="reason" placeholder="Reason">
-            <button type="submit"${deleteDisabled}>Delete</button>
+            <input name="reason" placeholder="${view.text("ui.reason")}" aria-label="${view.text("ui.reason")}" class="form-control">
+            <button type="submit"${deleteDisabled} class="btn btn-outline-danger">${view.text("ui.delete")}</button>
           </form>
         </td>
       </tr>
@@ -370,12 +396,12 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
   }).join("");
 
   return pageShell({
-    title: `Manage versions · ${artifact.title}`,
+    title: `${view.raw("versions.manage")} · ${artifact.title}`,
     body: `
       ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
-          <h1>Manage versions</h1>
+          <h1>${view.text("versions.manage")}</h1>
           <p>${escapeHtml(artifact.title)} · ${escapeHtml(artifact.id)} · ${escapeHtml(baseUrl)}</p>
         </div>
         <nav>
@@ -388,9 +414,9 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
       <main id="main-content" class="artifact-editor">
         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
         <section class="meta-card">
-          <h2>Versions</h2>
+          <h2>${view.text("nav.versions")}</h2>
           <table class="data-table">
-            <thead><tr><th>Version</th><th>Format</th><th>Created</th><th>SHA</th><th>Bytes</th><th>Action</th></tr></thead>
+            <thead><tr><th>${view.text("ui.version")}</th><th>${view.text("form.format")}</th><th>${view.text("ui.created")}</th><th>SHA</th><th>${view.text("ui.bytes")}</th><th>${view.text("ui.action")}</th></tr></thead>
             <tbody>${versionRows}</tbody>
           </table>
         </section>
@@ -402,17 +428,17 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
               ${formatSelect(selectedVersion.format)}
             </label>
             <label class="field">
-              <span>Reason</span>
-              <input name="reason" value="" autocomplete="off">
+              <span>${view.text("ui.reason")}</span>
+              <input name="reason" value="" autocomplete="off" class="form-control">
             </label>
           </section>
           <section class="field content-field">
-            <label for="artifact-content">v${selectedVersion.version} content</label>
-            <textarea id="artifact-content" name="content" data-artifacty-editor data-editor-format="${escapeAttribute(selectedVersion.format)}" spellcheck="false" required>${escapeHtml(content)}</textarea>
+            <label for="artifact-content">${view.text("versions.content", { version: selectedVersion.version })}</label>
+            <textarea id="artifact-content" name="content" data-artifacty-editor data-editor-format="${escapeAttribute(selectedVersion.format)}" spellcheck="false" required class="form-control">${escapeHtml(content)}</textarea>
           </section>
           <footer class="editor-actions">
-            <a href="${view.href(`${artifactPath}?version=${selectedVersion.version}`)}">View version</a>
-            <button type="submit">Repair version</button>
+            <a href="${view.href(`${artifactPath}?version=${selectedVersion.version}`)}">${view.text("versions.view")}</a>
+            <button type="submit" class="btn btn-outline-secondary">${view.text("versions.repair")}</button>
           </footer>
         </form>
       </main>
@@ -444,36 +470,36 @@ export function renderImportArtifactPage({ user, baseUrl, authToken = "", locale
           <section class="editor-fields">
             <label class="field">
               <span>${view.text("form.agent")}</span>
-              <select name="agent">
+              <select name="agent" class="form-select">
                 <option value="auto">${view.text("form.auto")}</option>
                 <option value="claude">Claude</option>
                 <option value="codex">Codex</option>
                 <option value="gemini">Gemini</option>
                 <option value="copilot">GitHub Copilot</option>
                 <option value="cursor">Cursor</option>
-                <option value="generic">Generic</option>
+                <option value="generic">${view.text("import.generic")}</option>
               </select>
             </label>
             <label class="field">
               <span>${view.text("form.title")}</span>
-              <input name="title" autocomplete="off">
+              <input name="title" autocomplete="off" class="form-control">
             </label>
             <label class="field">
               <span>${view.text("form.fileName")}</span>
-              <input name="fileName" autocomplete="off">
+              <input name="fileName" autocomplete="off" class="form-control">
             </label>
             <label class="field">
               <span>${view.text("form.tags")}</span>
-              <input name="tags" autocomplete="off">
+              <input name="tags" autocomplete="off" class="form-control">
             </label>
           </section>
           <section class="field content-field">
             <label for="import-content">${view.text("form.importContent")}</label>
-            <textarea id="import-content" name="content" data-artifacty-editor data-editor-format="auto" spellcheck="false" required></textarea>
+            <textarea id="import-content" name="content" data-artifacty-editor data-editor-format="auto" spellcheck="false" required class="form-control"></textarea>
           </section>
           <footer class="editor-actions">
             <a href="${view.href("/")}">${view.text("nav.cancel")}</a>
-            <button type="submit">${view.text("form.importSubmit")}</button>
+            <button type="submit" class="btn btn-outline-secondary">${view.text("form.importSubmit")}</button>
           </footer>
         </form>
       </main>
@@ -486,7 +512,7 @@ export function renderImportArtifactPage({ user, baseUrl, authToken = "", locale
 
 export function renderLoginPage({ baseUrl, setup = false, error = "", locale = DEFAULT_LOCALE, currentPath = "/login" }) {
   const view = viewContext(locale, currentPath);
-  const title = setup ? "Create admin account" : "Sign in";
+  const title = setup ? view.raw("login.setup") : view.raw("nav.signIn");
   return pageShell({
     title,
     body: `
@@ -500,24 +526,24 @@ export function renderLoginPage({ baseUrl, setup = false, error = "", locale = D
       </header>
       <main id="main-content" class="artifact-editor auth-panel">
         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
-        ${setup ? `<p class="muted">No users exist yet. The first account becomes an administrator.</p>` : ""}
+        ${setup ? `<p class="muted">${view.text("login.setupHelp")}</p>` : ""}
         <form class="editor-form auth-form" method="post" action="/login">
           <section class="editor-fields">
             <label class="field">
-              <span>Email</span>
-              <input type="email" name="email" autocomplete="username" required>
+              <span>${view.text("ui.email")}</span>
+              <input type="email" name="email" autocomplete="username" required class="form-control">
             </label>
             ${setup ? `<label class="field">
-              <span>Name</span>
-              <input name="name" autocomplete="name">
+              <span>${view.text("ui.name")}</span>
+              <input name="name" autocomplete="name" class="form-control">
             </label>` : ""}
             <label class="field">
-              <span>Password</span>
-              <input type="password" name="password" autocomplete="${setup ? "new-password" : "current-password"}" minlength="8" required>
+              <span>${view.text("ui.password")}</span>
+              <input type="password" name="password" autocomplete="${setup ? "new-password" : "current-password"}" minlength="8" required class="form-control">
             </label>
           </section>
           <footer class="editor-actions">
-            <button type="submit">${setup ? "Create admin" : "Sign in"}</button>
+            <button type="submit" class="btn btn-primary">${setup ? view.text("login.create") : view.text("nav.signIn")}</button>
           </footer>
         </form>
       </main>
@@ -532,7 +558,7 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
     <tr>
       <td><a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">${escapeHtml(artifact.title)}</a></td>
       <td>${escapeHtml(artifact.id)}</td>
-      <td>${escapeHtml(artifact.updatedAt)}</td>
+      <td>${renderDateTime(artifact.updatedAt, view)}</td>
       <td>${artifact.archivedAt ? statusBadge(view.text("artifact.archived", { date: artifact.archivedAt })) : ""}</td>
     </tr>
   `).join("");
@@ -540,65 +566,65 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
     <tr>
       <td>${escapeHtml(token.name)}</td>
       <td>${escapeHtml((token.scopes || ["read", "write"]).join(", "))}</td>
-      <td>${escapeHtml(token.createdAt)}</td>
-      <td>${token.lastUsedAt ? escapeHtml(token.lastUsedAt) : "Never"}</td>
-      <td>${token.revokedAt ? escapeHtml(token.revokedAt) : "Active"}</td>
+      <td>${renderDateTime(token.createdAt, view)}</td>
+      <td>${token.lastUsedAt ? renderDateTime(token.lastUsedAt, view) : view.text("ui.never")}</td>
+      <td>${token.revokedAt ? renderDateTime(token.revokedAt, view) : view.text("ui.active")}</td>
       <td>
         ${token.revokedAt ? "" : `<form method="post" action="/account/tokens/${encodeURIComponent(token.id)}/revoke">
-          <button type="submit">Revoke</button>
+          <button type="submit" class="btn btn-outline-danger">${view.text("ui.revoke")}</button>
         </form>`}
       </td>
     </tr>
   `).join("");
 
   return pageShell({
-    title: "Account",
+    title: view.raw("nav.account"),
     body: `
       ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
-          <h1>Account</h1>
-          <p>${escapeHtml(user.email)} · ${escapeHtml(user.role)} · ${escapeHtml(baseUrl)}</p>
+          <h1>${view.text("nav.account")}</h1>
+          <p>${escapeHtml(user.email)} · ${view.text(`ui.role.${user.role}`)} · ${escapeHtml(baseUrl)}</p>
         </div>
 
       </header>
       <main id="main-content" class="settings-page artifact-view">
         ${createdToken ? `<section class="token-once">
-          <h2>New API token</h2>
-          <p>Copy this token now. Artifacty stores only its hash and cannot show it again.</p>
+          <h2>${view.text("account.newToken")}</h2>
+          <p>${view.text("account.copyToken")}</p>
           <pre class="artifact-code"><code>${escapeHtml(createdToken)}</code></pre>
         </section>` : ""}
         <section class="meta-card">
-          <h2>Profile</h2>
+          <h2>${view.text("account.profile")}</h2>
           <p><strong>${escapeHtml(user.name)}</strong></p>
           <p>${escapeHtml(user.email)}</p>
-          <p>Role: ${escapeHtml(user.role)}</p>
+          <p>${view.text("ui.role")}: ${view.text(`ui.role.${user.role}`)}</p>
         </section>
         <section class="meta-card">
           <h2>${view.text("tokens.createTitle")}</h2>
           <form class="inline-action token-create-form" method="post" action="/account/tokens">
-            <input name="name" placeholder="Token name" autocomplete="off" required>
+            <input name="name" placeholder="${view.text("account.tokenName")}" aria-label="${view.text("account.tokenName")}" autocomplete="off" required class="form-control">
             <fieldset class="token-scopes">
               <legend>${view.text("tokens.scopes")}</legend>
-              <label><input type="checkbox" name="scopeRead" checked> ${view.text("tokens.scope.read")}</label>
-              <label><input type="checkbox" name="scopeWrite" checked> ${view.text("tokens.scope.write")}</label>
-              ${user.role === "admin" ? `<label><input type="checkbox" name="scopeAdmin"> ${view.text("tokens.scope.admin")}</label>` : ""}
+              <label><input type="checkbox" name="scopeRead" checked class="form-check-input"> ${view.text("tokens.scope.read")}</label>
+              <label><input type="checkbox" name="scopeWrite" checked class="form-check-input"> ${view.text("tokens.scope.write")}</label>
+              ${user.role === "admin" ? `<label><input type="checkbox" name="scopeAdmin" class="form-check-input"> ${view.text("tokens.scope.admin")}</label>` : ""}
             </fieldset>
-            <button type="submit">Create token</button>
+            <button type="submit" class="btn btn-primary">${view.text("account.createToken")}</button>
           </form>
         </section>
         <section class="meta-card">
-          <h2>API tokens</h2>
+          <h2>${view.text("account.tokens")}</h2>
           <table class="data-table">
-            <thead><tr><th>Name</th><th>${view.text("tokens.scopes")}</th><th>Created</th><th>Last used</th><th>Status</th><th></th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="6">No API tokens.</td></tr>`}</tbody>
+            <thead><tr><th>${view.text("ui.name")}</th><th>${view.text("tokens.scopes")}</th><th>${view.text("ui.created")}</th><th>${view.text("ui.lastUsed")}</th><th>${view.text("ui.status")}</th><th></th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="6">${view.text("account.noTokens")}</td></tr>`}</tbody>
           </table>
         </section>
         <section class="meta-card">
           <h2>${view.text("account.privateArtifacts")}</h2>
           <table class="data-table">
-            <thead><tr><th>Title</th><th>ID</th><th>Updated</th><th>Status</th></tr></thead>
-            <tbody>${privateArtifactRows || `<tr><td colspan="4">None.</td></tr>`}</tbody>
+            <thead><tr><th>${view.text("ui.title")}</th><th>ID</th><th>${view.text("ui.updated")}</th><th>${view.text("ui.status")}</th></tr></thead>
+            <tbody>${privateArtifactRows || `<tr><td colspan="4">${view.text("ui.none")}</td></tr>`}</tbody>
           </table>
         </section>
       </main>
@@ -610,37 +636,37 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
 export function renderPasswordPage({ baseUrl, user, required = false, error = "", success = "", locale = DEFAULT_LOCALE, currentPath = "/account/password" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({
-    title: "Change Password",
+    title: view.raw("password.title"),
     body: `
       ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
-          <h1>Change Password</h1>
+          <h1>${view.text("password.title")}</h1>
           <p>${escapeHtml(user.email)} · ${escapeHtml(baseUrl)}</p>
         </div>
 
       </header>
       <main id="main-content" class="settings-page artifact-editor auth-panel">
-        ${required ? `<p class="auth-warning">Password change is required before continuing.</p>` : ""}
+        ${required ? `<p class="auth-warning">${view.text("password.required")}</p>` : ""}
         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
         ${success ? `<p class="auth-success">${escapeHtml(success)}</p>` : ""}
         <form class="editor-form auth-form" method="post" action="/account/password">
           <section class="editor-fields">
             <label class="field">
-              <span>Current password</span>
-              <input type="password" name="currentPassword" autocomplete="current-password" required>
+              <span>${view.text("password.current")}</span>
+              <input type="password" name="currentPassword" autocomplete="current-password" required class="form-control">
             </label>
             <label class="field">
-              <span>New password</span>
-              <input type="password" name="newPassword" autocomplete="new-password" minlength="8" required>
+              <span>${view.text("password.new")}</span>
+              <input type="password" name="newPassword" autocomplete="new-password" minlength="8" required class="form-control">
             </label>
             <label class="field">
-              <span>Confirm password</span>
-              <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required>
+              <span>${view.text("password.confirm")}</span>
+              <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required class="form-control">
             </label>
           </section>
           <footer class="editor-actions">
-            <button type="submit">Change password</button>
+            <button type="submit" class="btn btn-primary">${view.text("password.submit")}</button>
           </footer>
         </form>
       </main>
@@ -662,57 +688,57 @@ function renderFullImportSummary(tableCounts) {
 export function renderAdminBackupPage({ user, baseUrl, integrity, importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/backup" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({
-    title: "Backup",
+    title: view.raw("nav.backup"),
     body: `
       ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
-          <h1>Backup</h1>
+          <h1>${view.text("nav.backup")}</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
 
       </header>
       <main id="main-content" class="settings-page artifact-view">
-        ${importResult ? `<p class="auth-success">Restore complete. ${escapeHtml(importResult.artifactCount)} artifacts imported${importResult.scope === "full" ? renderFullImportSummary(importResult.tableCounts) : ""}.</p>` : ""}
+        ${importResult ? `<p class="auth-success">${view.text("backup.complete", { count: importResult.artifactCount })}${importResult.scope === "full" ? renderFullImportSummary(importResult.tableCounts) : ""}.</p>` : ""}
         ${importError ? `<p class="auth-error">${escapeHtml(importError)}</p>` : ""}
         <section class="meta-card">
-          <h2>Store status</h2>
+          <h2>${view.text("backup.status")}</h2>
           <table class="data-table">
             <tbody>
-              <tr><th>Home</th><td>${escapeHtml(integrity.store)}</td></tr>
-              <tr><th>Artifacts</th><td>${escapeHtml(integrity.artifactCount)}</td></tr>
-              <tr><th>Versions</th><td>${escapeHtml(integrity.versionCount)}</td></tr>
-              <tr><th>Content bytes</th><td>${escapeHtml(integrity.totalBytes)}</td></tr>
-              <tr><th>Integrity</th><td>${integrity.ok ? "OK" : "Needs attention"}</td></tr>
+              <tr><th>${view.text("backup.home")}</th><td>${escapeHtml(integrity.store)}</td></tr>
+              <tr><th>${view.text("nav.artifacts")}</th><td>${escapeHtml(integrity.artifactCount)}</td></tr>
+              <tr><th>${view.text("nav.versions")}</th><td>${escapeHtml(integrity.versionCount)}</td></tr>
+              <tr><th>${view.text("backup.bytes")}</th><td>${escapeHtml(integrity.totalBytes)}</td></tr>
+              <tr><th>${view.text("backup.integrity")}</th><td>${integrity.ok ? view.text("backup.ok") : view.text("backup.attention")}</td></tr>
             </tbody>
           </table>
-          ${integrity.ok ? "" : `<p class="auth-warning">Run <code>artifacty integrity</code> before migration. Current backup will only include readable referenced version files.</p>`}
+          ${integrity.ok ? "" : `<p class="auth-warning">${view.text("backup.integrityHelp")}</p>`}
         </section>
         <section class="meta-card">
-          <h2>Download backup</h2>
-          <p class="muted">Exports artifact metadata and version contents as one JSON bundle. The full scope also includes users, API tokens, audit history, relations, and webhooks (secrets are never included and must be re-issued after restore).</p>
+          <h2>${view.text("backup.download")}</h2>
+          <p class="muted">${view.text("backup.exportHelp")}</p>
           <form class="editor-form" method="get" action="/admin/backup/export">
             <label class="field">
               <span>${view.text("backup.scopeLabel")}</span>
-              <select name="scope">
+              <select name="scope" class="form-select">
                 <option value="artifacts">${view.text("backup.scopeArtifacts")}</option>
                 <option value="full">${view.text("backup.scopeFull")}</option>
               </select>
             </label>
-            <footer class="editor-actions"><button type="submit">${view.text("backup.downloadButton")}</button></footer>
+            <footer class="editor-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("backup.downloadButton")}</button></footer>
           </form>
         </section>
         <section class="meta-card">
-          <h2>Restore backup</h2>
-          <p class="auth-warning">Restore replaces the target server's artifact records and version files with the backup contents. An artifacts-only bundle leaves users, sessions, API tokens, and audit logs unchanged. A full-scope bundle also replaces users, API tokens, audit history, relations, and webhooks (disabled on import; they must be re-issued) — check both boxes below to proceed, and force-users only if this server already has accounts.</p>
+          <h2>${view.text("backup.restore")}</h2>
+          <p class="auth-warning">${view.text("backup.restoreHelp")}</p>
           <form class="editor-form" method="post" action="/admin/backup/import">
             <label class="field content-field">
-              <span>Backup JSON</span>
-              <textarea class="compact-textarea" name="backup" spellcheck="false" placeholder="{&quot;schemaVersion&quot;:1,&quot;artifacts&quot;:[...]}" required></textarea>
+              <span>${view.text("backup.json")}</span>
+              <textarea class="compact-textarea form-control" name="backup" spellcheck="false" placeholder="{&quot;schemaVersion&quot;:1,&quot;artifacts&quot;:[...]}" required></textarea>
             </label>
-            <label class="checkbox-field"><input type="checkbox" name="confirm" value="replace-all"> ${view.text("backup.confirmLabel")}</label>
-            <label class="checkbox-field"><input type="checkbox" name="forceUsers" value="1"> ${view.text("backup.forceUsersLabel")}</label>
-            <footer class="editor-actions"><button type="submit">Restore backup</button></footer>
+            <label class="checkbox-field"><input type="checkbox" name="confirm" value="replace-all" class="form-check-input"> ${view.text("backup.confirmLabel")}</label>
+            <label class="checkbox-field"><input type="checkbox" name="forceUsers" value="1" class="form-check-input"> ${view.text("backup.forceUsersLabel")}</label>
+            <footer class="editor-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("backup.restore")}</button></footer>
           </form>
         </section>
       </main>
@@ -721,11 +747,77 @@ export function renderAdminBackupPage({ user, baseUrl, integrity, importResult =
   });
 }
 
+export function renderAdminEmailPage({ settings = {}, user, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/admin/email", error = "", success = "" }) {
+  const view = viewContext(locale, currentPath);
+  return pageShell({ title: view.raw("smtp.title"), locale: view.locale,
+    body: `${workspaceHeader(user, view)}
+      <header class="topbar"><div><h1>${view.text("smtp.title")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
+      <main id="main-content" class="settings-page artifact-view">
+        ${error ? `<p class="auth-error" role="alert">${view.text("smtp.saveFailed")}</p>` : ""}
+        ${success ? `<p class="auth-success" role="status">${view.text("smtp.saved")}</p>` : ""}
+        <section class="meta-card"><h2>${view.text("smtp.settings")}</h2>
+          <p>${view.text("smtp.help")}</p><p class="muted">${view.text("smtp.security")}</p>
+          <form class="editor-form smtp-settings-form" method="post" action="/admin/email">${localeInput(view.locale)}
+            <label><input type="checkbox" name="enabled" value="true"${settings.enabled ? " checked" : ""} class="form-check-input"> ${view.text("smtp.enabled")}</label>
+            <div class="smtp-field-grid">
+              <label class="field"><span>${view.text("smtp.host")}</span><input name="host" value="${escapeAttribute(settings.host || "")}" autocomplete="off" class="form-control"></label>
+              <label class="field"><span>${view.text("smtp.port")}</span><input name="port" type="number" min="1" max="65535" value="${escapeAttribute(settings.port || 465)}" class="form-control"></label>
+              <label class="field"><span>${view.text("smtp.tlsMode")}</span><select name="tlsMode" required class="form-select">
+                <option value="tls"${settings.tlsMode !== "starttls" ? " selected" : ""}>${view.text("smtp.tls")}</option>
+                <option value="starttls"${settings.tlsMode === "starttls" ? " selected" : ""}>${view.text("smtp.starttls")}</option>
+              </select></label>
+              <label class="field"><span>${view.text("smtp.from")}</span><input name="from" type="email" value="${escapeAttribute(settings.from || "")}" autocomplete="off" class="form-control"></label>
+              <label class="field"><span>${view.text("smtp.username")}</span><input name="username" value="${escapeAttribute(settings.username || "")}" autocomplete="off" class="form-control"></label>
+              <label class="field"><span>${view.text("smtp.password")}</span><input name="password" type="password" value="" autocomplete="new-password" placeholder="${view.attr(settings.hasPassword ? "smtp.keepPassword" : "smtp.enterPassword")}" class="form-control"></label>
+            </div>
+            <p class="muted">${view.text("smtp.authHelp")}</p>
+            <p class="muted">${view.text("smtp.restoreNote")}</p>
+            <footer class="editor-actions"><button type="submit" class="btn btn-primary">${view.text("smtp.save")}</button></footer>
+          </form>
+        </section>
+      </main>` });
+}
+
+export function renderAdminLanguagesPage({ settings, user, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/admin/languages", error = "", success = "" }) {
+  const view = viewContext(locale, currentPath);
+  const installed = availableLanguages();
+  return pageShell({ title: view.raw("languageAdmin.title"), locale: view.locale,
+    body: `${workspaceHeader(user, view)}
+      <header class="topbar"><div><h1>${view.text("languageAdmin.title")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
+      <main id="main-content" class="settings-page artifact-view">
+        ${error ? `<p class="auth-error" role="alert">${escapeHtml(error)}</p>` : ""}
+        ${success ? `<p class="auth-success" role="status">${escapeHtml(success)}</p>` : ""}
+        <section class="meta-card"><h2>${view.text("languageAdmin.settings")}</h2>
+          <form class="editor-form" method="post" action="/admin/languages">${localeInput(view.locale)}
+            <fieldset><legend>${view.text("languageAdmin.enabled")}</legend>
+              ${installed.map((language) => `<label class="check-field"><input type="checkbox" name="enabledLocales" value="${escapeAttribute(language.locale)}"${settings.enabledLocales.includes(language.locale) ? " checked" : ""} class="form-check-input"> ${escapeHtml(language.nativeName)} (${escapeHtml(language.locale)})</label>`).join("")}
+            </fieldset>
+            <label class="field"><span>${view.text("languageAdmin.default")}</span><select name="defaultLocale" class="form-select">
+              ${installed.map((language) => `<option value="${escapeAttribute(language.locale)}"${settings.defaultLocale === language.locale ? " selected" : ""}>${escapeHtml(language.nativeName)}</option>`).join("")}
+            </select></label>
+            <p class="muted">${view.text("languageAdmin.defaultHelp")}</p>
+            <button type="submit" class="btn btn-primary">${view.text("languageAdmin.save")}</button>
+          </form>
+        </section>
+        <section class="meta-card"><h2>${view.text("languageAdmin.import")}</h2>
+          <p><a href="${view.href("/admin/languages/template")}">${view.text("languageAdmin.template")}</a></p>
+          <p>${view.text("languageAdmin.templateHelp")}</p>
+          <p>${view.text("languageAdmin.importHelp", { count: "{count}" })}</p>
+          <p class="muted">${view.text("languageAdmin.disabledHelp")}</p>
+          <form class="editor-form" method="post" action="/admin/languages/import">${localeInput(view.locale)}
+            <label class="field"><span>${view.text("languageAdmin.pack")}</span><textarea class="compact-textarea form-control" name="pack" maxlength="524288" spellcheck="false" required placeholder="${escapeAttribute('{"locale":"fr","nativeName":"Français","messages":{"language.label":"Langue","language.apply":"Appliquer"}}')}"></textarea></label>
+            <button type="submit" class="btn btn-outline-secondary">${view.text("languageAdmin.import")}</button>
+          </form>
+        </section>
+      </main>` });
+}
+
 export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEFAULT_LOCALE, currentPath = "/admin/update" }) {
   const view = viewContext(locale, currentPath);
   const check = status.check;
   const run = status.run;
   const active = ["queued", "running"].includes(run?.state);
+  const hasUpdate = check?.updateAvailable && check.targetVersion && status.currentVersion !== check.targetVersion;
   const canStart = check?.supported && !check.errorCode && check.targetVersion && check.updateAvailable && check.confirmationId && Date.parse(check.expiresAt) > Date.now() && !active && run?.state !== "interrupted" && status.currentVersion !== check.targetVersion;
   const states = Object.fromEntries(["queued", "running", "succeeded", "failed", "interrupted"].map((state) => [state, view.raw(`update.${state}`)]));
   const messages = { ...states, reconnect: view.raw("update.reconnect"), signIn: view.raw("update.signIn") };
@@ -736,20 +828,19 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
       <main id="main-content" class="settings-page artifact-view">
         <section class="meta-card"><h2>${view.text("update.installed")}</h2><p>Artifacty <strong data-update-version>${escapeHtml(status.currentVersion || APP_VERSION)}</strong></p>
           <p>${view.text("update.help")}</p>
-          <form method="post" action="/admin/update/check">${localeInput(view.locale)}<button type="submit"${active ? " disabled" : ""}>${view.text("update.check")}</button></form>
+          <form method="post" action="/admin/update/check">${localeInput(view.locale)}<button type="submit"${active ? " disabled" : ""} class="btn btn-outline-secondary">${view.text("update.check")}</button></form>
         </section>
-        ${check ? `<section class="meta-card"><h2>${view.text("update.latest")}</h2>
-          <p>${escapeHtml(status.currentVersion || APP_VERSION)} → <strong>${escapeHtml(check.targetVersion || "—")}</strong></p>
-          ${check.targetVersion ? `<p><a href="https://github.com/raeseoklee/artifacty/releases/tag/v${escapeAttribute(encodeURIComponent(check.targetVersion))}" target="_blank" rel="noopener noreferrer">${view.text("update.releaseNotes")}</a></p>` : ""}
-          ${check.errorCode ? `<p role="alert">${view.text("update.checkFailed")}</p>` : !check.supported ? `<p>${view.text("update.unsupported")}</p><p>${view.text("update.manual")}</p>` : !check.updateAvailable && !check.errorCode && check.targetVersion ? `<p>${view.text("update.current")}</p>` : ""}
+        ${check ? `<section class="meta-card">${hasUpdate ? `<h2>${view.text("update.latest")}</h2><p>${escapeHtml(status.currentVersion || APP_VERSION)} → <strong>${escapeHtml(check.targetVersion)}</strong></p>` : ""}
+          ${hasUpdate ? `<p><a href="https://github.com/raeseoklee/artifacty/releases/tag/v${escapeAttribute(encodeURIComponent(check.targetVersion))}" target="_blank" rel="noopener noreferrer">${view.text("update.releaseNotes")}</a></p>` : ""}
+          ${check.errorCode ? `<p role="alert">${view.text("update.checkFailed")}</p>` : !check.supported ? `<p>${view.text("update.unsupported")}</p><p>${view.text("update.manual")}</p>` : !hasUpdate && !check.errorCode && check.targetVersion ? `<p>${view.text("update.current")}</p>` : ""}
           ${check.supported && check.updateAvailable && !canStart && !active && !check.errorCode && status.currentVersion !== check.targetVersion ? `<p>${view.text("update.checkAgain")}</p>` : ""}
           ${canStart ? `<p>${view.text("update.available", { version: check.targetVersion })}</p><p>${view.text("update.backup")}</p>
             <form class="editor-form" method="post" action="/admin/update/start">${localeInput(view.locale)}
               <input type="hidden" name="confirmationId" value="${escapeAttribute(check.confirmationId)}">
               <input type="hidden" name="targetVersion" value="${escapeAttribute(check.targetVersion)}">
-              <label><input type="checkbox" name="confirmUpdate" value="true" required> ${view.text("update.confirm")}</label>
+              <label><input type="checkbox" name="confirmUpdate" value="true" required class="form-check-input"> ${view.text("update.confirm")}</label>
               ${check.expiresAt ? `<p class="muted">${view.text("update.expires")}: ${`<time datetime="${escapeAttribute(check.expiresAt)}" title="${escapeAttribute(check.expiresAt)}">${escapeHtml(new Intl.DateTimeFormat(view.locale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(new Date(check.expiresAt)))} UTC</time>`}</p>` : ""}
-              <button type="submit">${view.text("update.start")}</button>
+              <button type="submit" class="btn btn-primary">${view.text("update.start")}</button>
             </form>` : ""}
         </section>` : ""}
         ${run ? `<section class="meta-card" data-update-status data-active="${active}" data-messages="${escapeAttribute(JSON.stringify(messages))}"><h2>${view.text("update.progress")}</h2>
@@ -763,6 +854,23 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
   });
 }
 
+export function renderAccessModePreviewPage({ user, baseUrl, mode, artifacts = [], anonymousArtifactCount = 0, locale = DEFAULT_LOCALE, currentPath = "/admin/access/preview" }) {
+  const view = viewContext(locale, currentPath);
+  const isPublic = mode === "public";
+  return pageShell({ title: view.raw("access.previewTitle"), locale: view.locale,
+    body: `<header class="topbar"><div><h1>${view.text("access.previewTitle")}</h1><p>${escapeHtml(baseUrl)}</p></div>
+      <nav><a href="${view.href(`/admin/access?mode=${isPublic ? "public" : "private"}`)}">${view.text("access.backToSettings")}</a></nav></header>
+      <main id="main-content" class="dashboard">
+        <section class="meta-card" role="status"><h2>${view.text(isPublic ? "access.public" : "access.private")}</h2>
+          <p>${view.text("access.previewAnonymous")}</p><p>${view.text("access.previewUnsaved")}</p>
+        </section>
+        ${isPublic ? `<div class="dashboard-heading"><h1>${view.text("nav.artifacts")}</h1></div>
+          <p class="muted">${view.text("access.previewListCount", { shown: artifacts.length, total: anonymousArtifactCount })}</p>
+          <section class="artifact-list">${renderArtifactRows(artifacts, "", view, true) || `<div class="empty">${view.text("dashboard.empty")}</div>`}</section>`
+          : `<section class="meta-card"><h2>${view.text("access.previewSignIn")}</h2><p>${view.text("access.previewPrivate")}</p></section>`}
+      </main>` });
+}
+
 export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users = [], networkPolicy = { allowedCidrs: [] }, currentIp = "", preview = null, pendingNetworkPolicy = null, shareLinkPolicy = {}, locale = DEFAULT_LOCALE, currentPath = "/admin/access" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({
@@ -774,40 +882,40 @@ export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users =
       <main id="main-content" class="settings-page artifact-view">
         <section class="meta-card"><h2>${view.text("access.mode")}</h2>
           <form class="editor-form" method="post" action="/admin/access/preview">${localeInput(view.locale)}
-            <label><input type="radio" name="mode" value="public"${mode === "public" ? " checked" : ""}> ${view.text("access.public")}</label>
+            <label><input type="radio" name="mode" value="public"${(preview?.mode || mode) === "public" ? " checked" : ""} class="form-check-input"> ${view.text("access.public")}</label>
             <p class="muted">${view.text("access.publicHelp")}</p>
-            <label><input type="radio" name="mode" value="private"${mode === "private" ? " checked" : ""}> ${view.text("access.private")}</label>
+            <label><input type="radio" name="mode" value="private"${(preview?.mode || mode) === "private" ? " checked" : ""} class="form-check-input"> ${view.text("access.private")}</label>
             <p class="muted">${view.text("access.privateHelp")}</p>
-            <button type="submit">${view.text("access.preview")}</button>
+            <button type="submit" class="btn btn-outline-secondary">${view.text("access.preview")}</button>
           </form>
         </section>
         ${preview ? `<section class="meta-card"><h2>${view.text("access.preview")}</h2><p>${view.text("access.previewCount", { count: preview.anonymousArtifactCount, mode: preview.mode })}</p>
-          <form method="post" action="/admin/access">${localeInput(view.locale)}<input type="hidden" name="mode" value="${escapeAttribute(preview.mode)}"><button type="submit">${view.text("access.save")}</button></form></section>` : ""}
-        <section class="meta-card"><h2>${view.text("sharing.links")}</h2><form method="post" action="/admin/access/share-links">${localeInput(view.locale)}
-          <label><input type="checkbox" name="enabledInPrivate" value="true"${shareLinkPolicy.enabledInPrivate ? " checked" : ""}> ${view.text("sharing.enablePrivate")}</label><button type="submit">${view.text("access.save")}</button></form></section>
+          <form method="post" action="/admin/access">${localeInput(view.locale)}<input type="hidden" name="mode" value="${escapeAttribute(preview.mode)}"><button type="submit" class="btn btn-primary">${view.text("access.save")}</button></form></section>` : ""}
+        <section class="meta-card"><h2>${view.text("sharing.links")}</h2><form class="editor-form" method="post" action="/admin/access/share-links">${localeInput(view.locale)}
+          <label><input type="checkbox" name="enabledInPrivate" value="true"${shareLinkPolicy.enabledInPrivate ? " checked" : ""} class="form-check-input"> ${view.text("sharing.enablePrivate")}</label><footer class="editor-actions"><button type="submit" class="btn btn-primary">${view.text("access.save")}</button></footer></form></section>
         ${pendingNetworkPolicy ? `<section class="meta-card"><h2>${view.text("access.pendingNetwork")}</h2><p>${view.text("access.pendingHelp", { expiresAt: pendingNetworkPolicy.expiresAt })}</p>
-          ${["confirm", "rollback"].map((action) => `<form method="post" action="/admin/access/network/${action}">${localeInput(view.locale)}<input type="hidden" name="id" value="${escapeAttribute(pendingNetworkPolicy.id)}"><button type="submit">${view.text(`access.${action}`)}</button></form>`).join("")}</section>` : ""}
+          ${["confirm", "rollback"].map((action) => `<form method="post" action="/admin/access/network/${action}">${localeInput(view.locale)}<input type="hidden" name="id" value="${escapeAttribute(pendingNetworkPolicy.id)}"><button type="submit" class="btn btn-outline-secondary">${view.text(`access.${action}`)}</button></form>`).join("")}</section>` : ""}
         <section class="meta-card"><h2>${view.text("access.network")}</h2>
           <p class="muted">${view.text("access.networkHelp")}</p>
           <p>${view.text("access.currentIp")}: <code>${escapeHtml(currentIp)}</code></p>
           <form class="editor-form" method="post" action="/admin/access/network">${localeInput(view.locale)}
-            <label class="field"><span>${view.text("access.allowedCidrs")}</span><textarea name="allowedCidrs" rows="5">${escapeHtml((networkPolicy.allowedCidrs || []).join("\n"))}</textarea></label>
-            <button type="submit">${view.text("access.saveNetwork")}</button>
+            <label class="field"><span>${view.text("access.allowedCidrs")}</span><textarea name="allowedCidrs" rows="5" class="form-control">${escapeHtml((networkPolicy.allowedCidrs || []).join("\n"))}</textarea></label>
+            <button type="submit" class="btn btn-primary">${view.text("access.saveNetwork")}</button>
           </form>
         </section>
         <section class="meta-card"><h2>${view.text("access.teams")}</h2>
           <form class="editor-form auth-form" method="post" action="/admin/teams">${localeInput(view.locale)}
-            <label class="field"><span>${view.text("access.teamName")}</span><input name="name" required></label>
-            <button type="submit">${view.text("access.createTeam")}</button>
+            <label class="field"><span>${view.text("access.teamName")}</span><input name="name" required class="form-control"></label>
+            <button type="submit" class="btn btn-primary">${view.text("access.createTeam")}</button>
           </form>
           ${teams.length ? teams.map((team) => `<section><h3>${escapeHtml(team.name)}</h3>
             <form class="editor-form" method="post" action="/admin/teams/${encodeURIComponent(team.id)}/members">${localeInput(view.locale)}
               <fieldset><legend>${view.text("access.members")}</legend>${accessCheckboxes(users, "userIds", team.memberIds || [], view)}</fieldset>
-              <button type="submit">${view.text("access.saveMembers")}</button>
+              <button type="submit" class="btn btn-primary">${view.text("access.saveMembers")}</button>
             </form></section>`).join("") : `<p class="muted">${view.text("access.noTeams")}</p>`}
         </section>
         <section class="meta-card"><h2>${view.text("access.samples")}</h2><p>${view.text("access.samplesHelp")}</p>
-          ${["install", "remove"].map((action) => `<form method="post" action="/admin/samples/${action}">${localeInput(view.locale)}<button type="submit">${view.text(`access.samples.${action}`)}</button></form>`).join("")}</section>
+          ${["install", "remove"].map((action) => `<form method="post" action="/admin/samples/${action}">${localeInput(view.locale)}<button type="submit" class="btn btn-outline-secondary">${view.text(`access.samples.${action}`)}</button></form>`).join("")}</section>
       </main>`
   });
 }
@@ -825,7 +933,7 @@ export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = {
         <form class="editor-form" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/sharing">${localeInput(view.locale)}
           <fieldset><legend>${view.text("sharing.users")}</legend>${accessCheckboxes(users, "userIds", sharing.userIds || [], view, sharing.userPermissions || {})}</fieldset>
           <fieldset><legend>${view.text("sharing.teams")}</legend>${accessCheckboxes(teams, "teamIds", sharing.teamIds || [], view, sharing.teamPermissions || {})}</fieldset>
-          <button type="submit">${view.text("sharing.save")}</button>
+          <button type="submit" class="btn btn-outline-secondary">${view.text("sharing.save")}</button>
         </form>
       </section>
       ${accessReport && (user?.role === "admin" || user?.id === artifact.ownerUserId) ? `<section class="meta-card"><h2>${view.text("sharing.effective")}</h2><p>${view.text("sharing.networkCondition")}: ${escapeHtml(networkPolicy.allowedCidrs?.length ? networkPolicy.allowedCidrs.join(", ") : view.text("sharing.unrestricted"))}</p><p>${view.text("sharing.anonymous")}: ${view.text(accessReport.anonymousRead ? "sharing.allowed" : "sharing.denied")}</p>
@@ -833,17 +941,17 @@ export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = {
       <section class="meta-card"><h2>${view.text("sharing.links")}</h2><p>${view.text("sharing.linksHelp")}</p>
         ${createdShareLink?.token ? `<p>${view.text("sharing.copyNow")}</p><a href="${escapeAttribute(`${baseUrl.replace(/\/$/, "")}/s/${encodeURIComponent(createdShareLink.token)}`)}">${escapeHtml(`${baseUrl.replace(/\/$/, "")}/s/${encodeURIComponent(createdShareLink.token)}`)}</a>` : ""}
         <form class="editor-form" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/share-links">${localeInput(view.locale)}
-          <label class="field"><span>${view.text("sharing.version")}</span><select name="version"><option value="latest">${view.text("sharing.latest")}</option>${(artifact.versions || []).map((item) => `<option value="${Number(item.version)}">v${Number(item.version)}</option>`).join("")}</select></label>
-          <label class="field"><span>${view.text("sharing.days")}</span><input type="number" name="days" min="1" max="365" value="7" required></label><button type="submit">${view.text("sharing.createLink")}</button></form>
-        ${shareLinks.map((link) => `<section><p>${escapeHtml(link.id)} · ${link.version == null ? view.text("sharing.latest") : `v${Number(link.version)}`} · ${view.text("sharing.expires")}: ${escapeHtml(link.expiresAt)}</p>
-          ${link.revokedAt ? `<p>${view.text("sharing.revoked")}</p>` : `<form method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/share-links/${encodeURIComponent(link.id)}/revoke">${localeInput(view.locale)}<button type="submit">${view.text("sharing.revoke")}</button></form>`}</section>`).join("")}
+          <label class="field"><span>${view.text("sharing.version")}</span><select name="version" class="form-select"><option value="latest">${view.text("sharing.latest")}</option>${(artifact.versions || []).map((item) => `<option value="${Number(item.version)}">v${Number(item.version)}</option>`).join("")}</select></label>
+          <label class="field"><span>${view.text("sharing.days")}</span><input type="number" name="days" min="1" max="365" value="7" required class="form-control"></label><button type="submit" class="btn btn-outline-secondary">${view.text("sharing.createLink")}</button></form>
+        ${shareLinks.map((link) => `<section><p>${escapeHtml(link.id)} · ${link.version == null ? view.text("sharing.latest") : `v${Number(link.version)}`} · ${view.text("sharing.expires")}: ${renderDateTime(link.expiresAt, view)}</p>
+          ${link.revokedAt ? `<p>${view.text("sharing.revoked")}</p>` : `<form method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/share-links/${encodeURIComponent(link.id)}/revoke">${localeInput(view.locale)}<button type="submit" class="btn btn-outline-danger">${view.text("sharing.revoke")}</button></form>`}</section>`).join("")}
       </section></main>`
   });
 }
 
 function accessCheckboxes(items, name, selectedIds, view, permissions = null) {
   if (!items.length) return `<p class="muted">${view.text(name === "userIds" ? "access.noUsers" : "access.noTeams")}</p>`;
-  return items.filter((item) => item.active !== false).map((item) => `<label><input type="checkbox" name="${name}" value="${escapeAttribute(item.id)}"${selectedIds.includes(item.id) ? " checked" : ""}> ${escapeHtml(item.name || item.email || item.id)}${item.email && item.name ? ` (${escapeHtml(item.email)})` : ""}</label>${permissions ? `<label>${view.text("sharing.permission")}<select name="${name === "userIds" ? "userPermission" : "teamPermission"}:${escapeAttribute(item.id)}">${["read", "comment", "edit"].map((permission) => `<option value="${permission}"${(permissions[item.id] || "read") === permission ? " selected" : ""}>${view.text(`sharing.permission.${permission}`)}</option>`).join("")}</select></label>` : ""}`).join("");
+  return items.filter((item) => item.active !== false).map((item) => `<label><input type="checkbox" name="${name}" value="${escapeAttribute(item.id)}"${selectedIds.includes(item.id) ? " checked" : ""} class="form-check-input"> ${escapeHtml(item.name || item.email || item.id)}${item.email && item.name ? ` (${escapeHtml(item.email)})` : ""}</label>${permissions ? `<label>${view.text("sharing.permission")}<select name="${name === "userIds" ? "userPermission" : "teamPermission"}:${escapeAttribute(item.id)}" class="form-select">${["read", "comment", "edit"].map((permission) => `<option value="${permission}"${(permissions[item.id] || "read") === permission ? " selected" : ""}>${view.text(`sharing.permission.${permission}`)}</option>`).join("")}</select></label>` : ""}`).join("");
 }
 
 export function renderInboxPage({ baseUrl, user, notifications = [], unreadCount = 0, locale = DEFAULT_LOCALE, currentPath = "/inbox" }) {
@@ -852,9 +960,9 @@ export function renderInboxPage({ baseUrl, user, notifications = [], unreadCount
     body: `${workspaceHeader(user, view)}
       <header class="topbar"><div><h1>${view.text("inbox.title")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
       <main id="main-content" class="artifact-view"><section class="meta-card"><p>${view.text("inbox.unread", { count: unreadCount })}</p>
-        <form method="post" action="/inbox/read-all">${localeInput(view.locale)}<button type="submit">${view.text("inbox.readAll")}</button></form>
-        ${notifications.length ? notifications.map((item) => `<section><h2><a href="${view.href(`/artifacts/${encodeURIComponent(item.artifactId)}`)}">${escapeHtml(item.title)}</a></h2><p>${escapeHtml(item.type)} · ${escapeHtml(item.createdAt)}</p>
-          ${item.readAt ? `<p>${view.text("inbox.read")}</p>` : `<form method="post" action="/inbox/${encodeURIComponent(item.id)}/read">${localeInput(view.locale)}<button type="submit">${view.text("inbox.markRead")}</button></form>`}</section>`).join("") : `<p>${view.text("inbox.empty")}</p>`}
+        <form method="post" action="/inbox/read-all">${localeInput(view.locale)}<button type="submit" class="btn btn-outline-secondary">${view.text("inbox.readAll")}</button></form>
+        ${notifications.length ? notifications.map((item) => `<section><h2><a href="${view.href(`/artifacts/${encodeURIComponent(item.artifactId)}`)}">${escapeHtml(item.title)}</a></h2><p>${["shared-with-me", "comment", "new-version", "review-requested"].includes(item.type) ? view.text(`inbox.type.${item.type}`) : escapeHtml(item.type)} · ${renderDateTime(item.createdAt, view)}</p>
+          ${item.readAt ? `<p>${view.text("inbox.read")}</p>` : `<form method="post" action="/inbox/${encodeURIComponent(item.id)}/read">${localeInput(view.locale)}<button type="submit" class="btn btn-outline-secondary">${view.text("inbox.markRead")}</button></form>`}</section>`).join("") : `<p>${view.text("inbox.empty")}</p>`}
       </section></main>` });
 }
 
@@ -873,31 +981,38 @@ export function renderSharedArtifactPage({ artifact, version, content, locale = 
   return pageShell({ title: artifact.title, locale: view.locale,
     body: `<header class="topbar"><div><h1>${escapeHtml(artifact.title)}</h1><p>${view.text("sharing.readOnly")} · v${Number(version.version)}</p></div></header><main id="main-content" class="artifact-view">${rendered}</main>`,
     head: needsViewer ? editorHead() : "",
-    afterBody: `${frameResizeScript()}${needsViewer ? viewerScript() : ""}` });
+    afterBody: `${frameResizeScript()}${needsViewer ? viewerScript(view.locale) : ""}` });
 }
 
-export function renderAdminUsersPage({ baseUrl, user, users = [], importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/users" }) {
+export function renderAdminUsersPage({ baseUrl, user, users = [], importResult = null, importError = "", roleError = "", resetResult = null, resetError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/users" }) {
   const view = viewContext(locale, currentPath);
   const rows = users.map((item) => `
     <tr>
       <td>${escapeHtml(item.email)}</td>
       <td>${escapeHtml(item.name)}</td>
-      <td>${escapeHtml(item.role)}</td>
-      <td>${item.active ? "Active" : "Disabled"}${item.passwordResetRequired ? " · Reset required" : ""}</td>
-      <td>${escapeHtml(item.createdAt)}</td>
-      <td>
-        ${item.id === user.id ? "" : `<form method="post" action="/admin/users/${encodeURIComponent(item.id)}/${item.active ? "disable" : "enable"}">
-          <button type="submit">${item.active ? "Disable" : "Enable"}</button>
+      <td><form class="user-role-form" method="post" action="/admin/users/${encodeURIComponent(item.id)}/role">${localeInput(view.locale)}
+        <select name="role" aria-label="${view.text("users.roleFor", { email: item.email })}" class="form-select">
+          ${["user", "admin"].map((role) => `<option value="${role}"${item.role === role ? " selected" : ""}>${view.text(`ui.role.${role}`)}</option>`).join("")}
+        </select><button type="submit" aria-label="${view.text("users.saveRoleFor", { email: item.email })}" class="btn btn-outline-secondary">${view.text("users.saveRole")}</button>
+      </form></td>
+      <td>${item.active ? view.text("ui.active") : view.text("ui.disabled")}${item.passwordResetRequired ? ` · ${view.text("users.resetRequired")}` : ""}</td>
+      <td>${renderDateTime(item.createdAt, view)}</td>
+      <td><div class="user-account-actions">
+        <form method="post" action="/admin/users/${encodeURIComponent(item.id)}/reset-password">${localeInput(view.locale)}
+          <button type="submit" aria-label="${view.text("users.resetFor", { email: item.email })}" class="btn btn-ghost">${view.text("users.resetPassword")}</button>
+        </form>
+        ${item.id === user.id ? "" : `<form method="post" action="/admin/users/${encodeURIComponent(item.id)}/${item.active ? "disable" : "enable"}">${localeInput(view.locale)}
+          <button type="submit" class="btn btn-outline-danger">${item.active ? view.text("ui.disable") : view.text("ui.enable")}</button>
         </form>`}
-      </td>
+      </div></td>
     </tr>
   `).join("");
   const createdRows = (importResult?.created || []).map((item) => `
     <tr>
       <td>${escapeHtml(item.user.email)}</td>
-      <td>${escapeHtml(item.user.role)}</td>
-      <td>${item.user.passwordResetRequired ? "Yes" : "No"}</td>
-      <td>${item.passwordGenerated ? `<code>${escapeHtml(item.temporaryPassword)}</code>` : "Provided in CSV"}</td>
+      <td>${view.text(`ui.role.${item.user.role}`)}</td>
+      <td>${item.user.passwordResetRequired ? view.text("ui.yes") : view.text("ui.no")}</td>
+      <td>${item.passwordGenerated ? `<code>${escapeHtml(item.temporaryPassword)}</code>` : view.text("users.provided")}</td>
     </tr>
   `).join("");
   const skippedRows = (importResult?.skipped || []).map((item) => `
@@ -908,67 +1023,76 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
   `).join("");
   const importSummary = importResult ? `
     <section class="meta-card">
-      <h2>Import results</h2>
-      <p class="muted">${importResult.created.length} created, ${importResult.skipped.length} skipped, ${importResult.failed.length} failed.</p>
+      <h2>${view.text("users.importResults")}</h2>
+      <p class="muted">${view.text("users.summary", { created: importResult.created.length, skipped: importResult.skipped.length, failed: importResult.failed.length })}</p>
       ${createdRows ? `<table class="data-table">
-        <thead><tr><th>Email</th><th>Role</th><th>Reset required</th><th>Temporary password</th></tr></thead>
+        <thead><tr><th>${view.text("ui.email")}</th><th>${view.text("ui.role")}</th><th>${view.text("users.resetRequired")}</th><th>${view.text("users.temporaryPassword")}</th></tr></thead>
         <tbody>${createdRows}</tbody>
       </table>` : ""}
-      ${skippedRows ? `<h3>Skipped</h3><table class="data-table">
-        <thead><tr><th>Row</th><th>Email</th><th>Reason</th></tr></thead>
+      ${skippedRows ? `<h3>${view.text("users.skipped")}</h3><table class="data-table">
+        <thead><tr><th>${view.text("ui.row")}</th><th>${view.text("ui.email")}</th><th>${view.text("ui.reason")}</th></tr></thead>
         <tbody>${skippedRows}</tbody>
       </table>` : ""}
-      ${failedRows ? `<h3>Failed</h3><table class="data-table">
-        <thead><tr><th>Row</th><th>Email</th><th>Error</th></tr></thead>
+      ${failedRows ? `<h3>${view.text("users.failed")}</h3><table class="data-table">
+        <thead><tr><th>${view.text("ui.row")}</th><th>${view.text("ui.email")}</th><th>${view.text("ui.error")}</th></tr></thead>
         <tbody>${failedRows}</tbody>
       </table>` : ""}
     </section>
   ` : "";
 
   return pageShell({
-    title: "Users",
+    title: view.raw("nav.users"),
     body: `
       ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
-          <h1>Users</h1>
+          <h1>${view.text("nav.users")}</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
 
       </header>
       <main id="main-content" class="settings-page artifact-view">
+        ${resetError ? `<p class="auth-error" role="alert">${escapeHtml(resetError)}</p>` : ""}
+        ${resetResult ? `<section class="token-once" role="status"><h2>${view.text("users.resetReady")}</h2>
+          <p>${view.text("users.resetAccount", { email: resetResult.user.email })}</p>
+          <pre class="artifact-code"><code>${escapeHtml(resetResult.temporaryPassword)}</code></pre>
+          <p>${view.text("users.resetHelp")}</p>
+          <p>${view.text(`smtp.mailStatus.${["sent", "failed", "not-configured"].includes(resetResult.mailStatus) ? resetResult.mailStatus : "not-configured"}`)}</p>
+        </section>` : ""}
         <section class="meta-card">
-          <h2>Create user</h2>
+          <h2>${view.text("users.create")}</h2>
           <form class="editor-form auth-form" method="post" action="/admin/users">
             <section class="editor-fields">
-              <label class="field"><span>Email</span><input type="email" name="email" required></label>
-              <label class="field"><span>Name</span><input name="name"></label>
-              <label class="field"><span>Role</span><select name="role"><option value="user">user</option><option value="admin">admin</option></select></label>
-              <label class="field"><span>Password</span><input type="password" name="password" minlength="8" required></label>
-              <label class="check-field"><input type="checkbox" name="passwordResetRequired"> Require password change</label>
+              <label class="field"><span>${view.text("ui.email")}</span><input type="email" name="email" required class="form-control"></label>
+              <label class="field"><span>${view.text("ui.name")}</span><input name="name" class="form-control"></label>
+              <label class="field"><span>${view.text("ui.role")}</span><select name="role" class="form-select"><option value="user">${view.text("ui.role.user")}</option><option value="admin">${view.text("ui.role.admin")}</option></select></label>
+              <label class="field"><span>${view.text("ui.password")}</span><input type="password" name="password" minlength="8" required class="form-control"></label>
+              <label class="check-field"><input type="checkbox" name="passwordResetRequired" class="form-check-input"> ${view.text("users.requirePassword")}</label>
             </section>
-            <footer class="editor-actions"><button type="submit">Create user</button></footer>
+            <footer class="editor-actions"><button type="submit" class="btn btn-primary">${view.text("users.create")}</button></footer>
           </form>
         </section>
         <section class="meta-card">
-          <h2>Import users from CSV</h2>
-          <p class="muted">Use headers: email, name, role, password, password_reset_required. Missing passwords are generated and must be changed at first sign-in.</p>
+          <h2>${view.text("users.importTitle")}</h2>
+          <p class="muted">${view.text("users.csvHelp")}</p>
           ${importError ? `<p class="auth-error">${escapeHtml(importError)}</p>` : ""}
           <form class="editor-form" method="post" action="/admin/users/import">
             <label class="field content-field">
               <span>CSV</span>
-              <textarea class="compact-textarea" name="csv" spellcheck="false" placeholder="email,name,role&#10;user@example.com,User,user" required></textarea>
+              <textarea class="compact-textarea form-control" name="csv" spellcheck="false" placeholder="email,name,role&#10;user@example.com,User,user" required></textarea>
             </label>
-            <footer class="editor-actions"><button type="submit">Import users</button></footer>
+            <footer class="editor-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("users.import")}</button></footer>
           </form>
         </section>
         ${importSummary}
         <section class="meta-card">
-          <h2>Existing users</h2>
-          <table class="data-table">
-            <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Status</th><th>Created</th><th></th></tr></thead>
+          <h2>${view.text("users.existing")}</h2>
+          ${roleError ? `<p class="auth-error" role="alert">${escapeHtml(roleError)}</p>` : ""}
+          <p class="muted">${view.text("users.lastAdmin")}</p>
+          <div class="artifact-table-scroll"><table class="data-table">
+            <thead><tr><th>${view.text("ui.email")}</th><th>${view.text("ui.name")}</th><th>${view.text("ui.role")}</th><th>${view.text("ui.status")}</th><th>${view.text("ui.created")}</th><th></th></tr></thead>
             <tbody>${rows}</tbody>
-          </table>
+          </table></div>
         </section>
       </main>
     `,
@@ -987,7 +1111,7 @@ export function renderAdminWebhooksPage({ user, baseUrl, webhooks = [], createdS
       <td>${webhook.failureCount}</td>
       <td>
         <form method="post" action="/admin/webhooks/${encodeURIComponent(webhook.id)}/delete" onsubmit="return confirm('${escapeAttribute(view.text("webhooks.confirmDelete"))}')">
-          <button type="submit">${view.text("webhooks.delete")}</button>
+          <button type="submit" class="btn btn-outline-danger">${view.text("webhooks.delete")}</button>
         </form>
       </td>
     </tr>
@@ -1019,10 +1143,10 @@ export function renderAdminWebhooksPage({ user, baseUrl, webhooks = [], createdS
           <h2>${view.text("webhooks.createTitle")}</h2>
           <form class="editor-form" method="post" action="/admin/webhooks">
             <section class="editor-fields">
-              <label class="field"><span>${view.text("webhooks.url")}</span><input type="url" name="url" placeholder="https://example.com/hooks/artifacty" required></label>
-              <label class="field"><span>${view.text("webhooks.eventTypes")}</span><input name="eventTypes" placeholder="${view.text("webhooks.eventTypesPlaceholder")}"></label>
+              <label class="field"><span>${view.text("webhooks.url")}</span><input type="url" name="url" placeholder="https://example.com/hooks/artifacty" required class="form-control"></label>
+              <label class="field"><span>${view.text("webhooks.eventTypes")}</span><input name="eventTypes" placeholder="${view.text("webhooks.eventTypesPlaceholder")}" class="form-control"></label>
             </section>
-            <footer class="editor-actions"><button type="submit">${view.text("webhooks.create")}</button></footer>
+            <footer class="editor-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("webhooks.create")}</button></footer>
           </form>
         </section>
         <section class="meta-card">
@@ -1049,7 +1173,7 @@ export function renderAdminRetentionPage({ user, baseUrl, policy, lastSweep = nu
       <h2>${view.text("retention.lastSweepTitle")}</h2>
       <table class="data-table">
         <tbody>
-          <tr><th>${view.text("retention.sweepAt")}</th><td>${escapeHtml(lastSweep.createdAt)}</td></tr>
+          <tr><th>${view.text("retention.sweepAt")}</th><td>${renderDateTime(lastSweep.createdAt, view)}</td></tr>
           <tr><th>${view.text("retention.archived")}</th><td>${escapeHtml(lastSweep.metadata?.archived ?? 0)}</td></tr>
           <tr><th>${view.text("retention.purged")}</th><td>${escapeHtml(lastSweep.metadata?.purged ?? 0)}</td></tr>
           <tr><th>${view.text("retention.purgeSkipped")}</th><td>${lastSweep.metadata?.purgeSkipped ? view.text("retention.yes") : view.text("retention.no")}</td></tr>
@@ -1099,16 +1223,24 @@ export function renderAdminRetentionPage({ user, baseUrl, policy, lastSweep = nu
       <main id="main-content" class="settings-page artifact-view">
         <section class="meta-card">
           <h2>${view.text("retention.policyTitle")}</h2>
-          <form class="editor-form" method="post" action="/admin/retention">
-            <section class="editor-fields">
-              <label class="field"><span>${view.text("retention.archiveAfterDaysDefault")}</span><input type="number" min="1" name="archiveAfterDaysDefault" value="${policy.archiveAfterDays.default ?? ""}"></label>
-              <label class="field content-field"><span>${view.text("retention.archiveAfterDaysByType")}</span><textarea class="compact-textarea" name="archiveAfterDaysByType" placeholder="test-report=30">${escapeHtml(byTypeText)}</textarea></label>
-              <label class="field"><span>${view.text("retention.purgeArchivedAfterDays")}</span><input type="number" min="1" name="purgeArchivedAfterDays" value="${policy.purgeArchivedAfterDays ?? ""}"></label>
-              <label class="field"><span>${view.text("retention.auditRetentionDays")}</span><input type="number" min="1" name="auditRetentionDays" value="${policy.auditRetentionDays ?? ""}"></label>
-              <label class="field"><span>${view.text("retention.eventRetentionRows")}</span><input type="number" min="1" name="eventRetentionRows" value="${policy.eventRetentionRows ?? ""}"></label>
-              <label class="field"><span>${view.text("retention.keepTags")}</span><input name="keepTags" value="${escapeAttribute((policy.keepTags || []).join(", "))}" placeholder="pinned, release"></label>
-            </section>
-            <footer class="editor-actions"><button type="submit">${view.text("retention.saveButton")}</button></footer>
+          <form class="editor-form retention-policy-form" method="post" action="/admin/retention">${localeInput(view.locale)}
+            <fieldset class="retention-section"><legend>${view.text("retention.artifactsSection")}</legend>
+              <div class="retention-field-grid">
+                <label class="field"><span>${view.text("retention.archiveAfterDaysDefault")}</span><input type="number" min="1" name="archiveAfterDaysDefault" value="${policy.archiveAfterDays.default ?? ""}" class="form-control"></label>
+                <label class="field"><span>${view.text("retention.purgeArchivedAfterDays")}</span><input type="number" min="1" name="purgeArchivedAfterDays" value="${policy.purgeArchivedAfterDays ?? ""}" class="form-control"></label>
+              </div>
+              <label class="field"><span>${view.text("retention.keepTags")}</span><input name="keepTags" value="${escapeAttribute((policy.keepTags || []).join(", "))}" placeholder="pinned, release" class="form-control"></label>
+            </fieldset>
+            <fieldset class="retention-section"><legend>${view.text("retention.typeRulesSection")}</legend>
+              <label class="field"><span>${view.text("retention.archiveAfterDaysByType")}</span><textarea class="compact-textarea form-control" name="archiveAfterDaysByType" placeholder="test-report=30">${escapeHtml(byTypeText)}</textarea></label>
+            </fieldset>
+            <fieldset class="retention-section"><legend>${view.text("retention.historySection")}</legend>
+              <div class="retention-field-grid">
+                <label class="field"><span>${view.text("retention.auditRetentionDays")}</span><input type="number" min="1" name="auditRetentionDays" value="${policy.auditRetentionDays ?? ""}" class="form-control"></label>
+                <label class="field"><span>${view.text("retention.eventRetentionRows")}</span><input type="number" min="1" name="eventRetentionRows" value="${policy.eventRetentionRows ?? ""}" class="form-control"></label>
+              </div>
+            </fieldset>
+            <footer class="editor-actions"><button type="submit" class="btn btn-primary">${view.text("retention.saveButton")}</button></footer>
           </form>
         </section>
         ${lastSweepSection}
@@ -1116,9 +1248,9 @@ export function renderAdminRetentionPage({ user, baseUrl, policy, lastSweep = nu
           <h2>${view.text("retention.runTitle")}</h2>
           <p class="auth-warning">${view.text("retention.purgeGateNote")}</p>
           <form class="editor-form" method="post" action="/admin/retention/run">
-            <label class="checkbox-field"><input type="checkbox" name="dryRun" value="1" checked> ${view.text("retention.dryRunLabel")}</label>
-            <label class="checkbox-field"><input type="checkbox" name="allowPurge" value="1"> ${view.text("retention.allowPurgeLabel")}</label>
-            <footer class="editor-actions"><button type="submit">${view.text("retention.runButton")}</button></footer>
+            <label class="checkbox-field"><input type="checkbox" name="dryRun" value="1" checked class="form-check-input"> ${view.text("retention.dryRunLabel")}</label>
+            <label class="checkbox-field"><input type="checkbox" name="allowPurge" value="1" class="form-check-input"> ${view.text("retention.allowPurgeLabel")}</label>
+            <footer class="editor-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("retention.runButton")}</button></footer>
           </form>
         </section>
         ${reportSection}
@@ -1174,8 +1306,8 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
           <span>${view.text("artifact.visibility.label")}</span>
           ${visibilitySelect(artifact.visibility || "team", view)}
         </label>
-        <button type="submit">${view.text("artifact.visibility.change")}</button>
-      </form>`
+        <button type="submit" class="btn btn-outline-secondary">${view.text("artifact.visibility.change")}</button>
+      </form><p class="muted">${view.text("artifact.visibility.help")}</p>`
     : "";
 
   return pageShell({
@@ -1208,14 +1340,14 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
             <span>${view.text("artifact.schema", { version: artifact.schemaVersion || 1 })}</span>
             <span title="${escapeAttribute(publisherTitle(artifact, view))}">${view.text("artifact.publisher", { publisher })}</span>
             <span>${view.text("artifact.bytes", { size: version.sizeBytes })}</span>
-            <span>${escapeHtml(version.createdAt)}</span>
+            <span>${renderDateTime(version.createdAt, view)}</span>
             <span>${escapeHtml(version.sha256.slice(0, 12))}</span>
           </div></details>
         </section>
         ${canArchive ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${archiveAction}">
           ${hiddenToken(authToken)}
           ${localeInput(view.locale)}
-          <button type="submit">${archiveLabel}</button>
+          <button type="submit" class="btn btn-outline-secondary">${archiveLabel}</button>
         </form>` : ""}
         ${visibilityForm}
         <section class="version-strip">${versionLinks}</section>
@@ -1225,7 +1357,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
       </main>
     `,
     head: needsViewerScript ? editorHead() : "",
-    afterBody: `${frameResizeScript()}${needsViewerScript ? viewerScript() : ""}`,
+    afterBody: `${frameResizeScript()}${needsViewerScript ? viewerScript(view.locale) : ""}`,
     locale: view.locale
   });
 }
@@ -1314,14 +1446,14 @@ function renderCommentEntry(artifact, comment, view, { authToken, canModerate, c
     ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/comments/${encodeURIComponent(comment.id)}/resolve">
         ${hiddenToken(authToken)}
         ${localeInput(view.locale)}
-        <button type="submit">${view.text("comments.resolve")}</button>
+        <button type="submit" class="btn btn-outline-secondary">${view.text("comments.resolve")}</button>
       </form>`
     : "";
   const deleteForm = canModerate
     ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/comments/${encodeURIComponent(comment.id)}/delete">
         ${hiddenToken(authToken)}
         ${localeInput(view.locale)}
-        <button type="submit">${view.text("comments.delete")}</button>
+        <button type="submit" class="btn btn-outline-secondary">${view.text("comments.delete")}</button>
       </form>`
     : "";
 
@@ -1329,7 +1461,7 @@ function renderCommentEntry(artifact, comment, view, { authToken, canModerate, c
     <li class="comment-item${isReply ? " comment-reply" : ""}${resolved ? " comment-resolved" : ""}">
       <div class="comment-header">
         <span class="comment-author">${escapeHtml(comment.authorLabel)}</span>
-        <span class="comment-meta">${escapeHtml(comment.createdAt)}</span>
+        <span class="comment-meta">${renderDateTime(comment.createdAt, view)}</span>
         ${anchorLabel ? `<span class="comment-anchor">${anchorLabel}</span>` : ""}
         ${resolved ? `<span class="badge s-archived">${view.text("comments.resolved")}</span>` : ""}
       </div>
@@ -1367,13 +1499,13 @@ function renderCommentForm(artifact, view, { version, authToken, parentId, compa
       ${parentId ? `<input type="hidden" name="parentId" value="${escapeAttribute(parentId)}">` : ""}
       <label>
         <span>${view.text(compact ? "comments.replyLabel" : "comments.bodyLabel")}</span>
-        <textarea name="body" required maxlength="16384"></textarea>
+        <textarea name="body" required maxlength="16384" class="form-control"></textarea>
       </label>
       ${compact ? "" : `<label class="comment-line-label">
         <span>${view.text("comments.lineLabel")}</span>
-        <input type="number" name="line" min="1">
+        <input type="number" name="line" min="1" class="form-control">
       </label>`}
-      <button type="submit">${view.text(compact ? "comments.reply" : "comments.submit")}</button>
+      <button type="submit" class="btn btn-primary">${view.text(compact ? "comments.reply" : "comments.submit")}</button>
     </form>
   `;
 }
@@ -1386,11 +1518,11 @@ function renderReviewStatusForm(artifact, view, authToken) {
       ${localeInput(view.locale)}
       <label>
         <span>${view.text("comments.reviewStatus.label")}</span>
-        <select name="status">
+        <select name="status" class="form-select">
           ${REVIEW_STATUSES.map((status) => `<option value="${status}"${status === current ? " selected" : ""}>${view.text(`comments.reviewStatus.${status}`)}</option>`).join("")}
         </select>
       </label>
-      <button type="submit">${view.text("comments.reviewStatus.change")}</button>
+      <button type="submit" class="btn btn-outline-secondary">${view.text("comments.reviewStatus.change")}</button>
     </form>
   `;
 }
@@ -1497,8 +1629,8 @@ export function renderDiffPage({ user, artifact, fromVersion, toVersion, fromCon
 
   const preview = toVersion.format === "html"
     ? `<section class="split-preview">
-        <div>${renderContent(fromVersion.format, fromContent)}</div>
-        <div>${renderContent(toVersion.format, toContent)}</div>
+        <div>${renderContent(fromVersion.format, fromContent, {}, { view })}</div>
+        <div>${renderContent(toVersion.format, toContent, {}, { view })}</div>
       </section>`
     : "";
 
@@ -1537,13 +1669,13 @@ export function renderDiffPage({ user, artifact, fromVersion, toVersion, fromCon
           <input type="hidden" name="view" value="${escapeAttribute(resolvedView)}">
           <label class="field">
             <span>${view.text("diff.from")}</span>
-            <select name="from">${versionOptions}</select>
+            <select name="from" class="form-select">${versionOptions}</select>
           </label>
           <label class="field">
             <span>${view.text("diff.to")}</span>
-            <select name="to">${versionOptions}</select>
+            <select name="to" class="form-select">${versionOptions}</select>
           </label>
-          <button type="submit">${view.text("diff.compare")}</button>
+          <button type="submit" class="btn btn-outline-secondary">${view.text("diff.compare")}</button>
         </form>
         <script>
           document.querySelector('select[name="from"]').value = ${JSON.stringify(String(fromVersion.version))};
@@ -1772,6 +1904,7 @@ function renderBundleFiles(content, options = {}) {
 }
 
 export function renderContent(format, content, metadata = {}, options = {}) {
+  const view = options.view || viewContext(options.locale || DEFAULT_LOCALE, "/");
   if (format === "html") {
     return `<iframe class="artifact-frame" sandbox="allow-scripts allow-forms allow-popups" srcdoc="${escapeAttribute(htmlFrameContent(content))}"></iframe>`;
   }
@@ -1799,15 +1932,15 @@ export function renderContent(format, content, metadata = {}, options = {}) {
   }
 
   if (format === "notebook") {
-    return renderNotebook(content);
+    return renderNotebook(content, view);
   }
 
   if (format === "sarif") {
-    return renderSarif(content);
+    return renderSarif(content, view);
   }
 
   if (format === "csv") {
-    return renderCsv(content);
+    return renderCsv(content, view);
   }
 
   if (format === "image") {
@@ -1821,7 +1954,7 @@ export function renderContent(format, content, metadata = {}, options = {}) {
   if (format === "code") {
     const language = metadata.language || metadata.artifactyImport?.language || "";
     return `<section class="artifact-code-viewer" data-artifacty-code-viewer data-language="${escapeAttribute(language)}">
-      <textarea hidden>${escapeHtml(content)}</textarea>
+      <textarea hidden class="form-control">${escapeHtml(content)}</textarea>
       <pre class="artifact-code artifact-code-fallback"><code>${escapeHtml(content)}</code></pre>
     </section>`;
   }
@@ -1831,7 +1964,7 @@ export function renderContent(format, content, metadata = {}, options = {}) {
       return `<iframe class="artifact-frame artifact-react-frame" sandbox="allow-scripts" src="${escapeAttribute(options.reactFrameUrl)}"></iframe>`;
     }
     return `<section class="artifact-react-disabled">
-      <p>React rendering is disabled. Set <code>ARTIFACTY_ENABLE_REACT_RENDERER=true</code> to run this component in a sandboxed frame.</p>
+      <p>${view.text("react.disabled")}</p>
       <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>
     </section>`;
   }
@@ -1922,16 +2055,35 @@ export function renderReactFramePage({ title, content }) {
 }
 
 export function pageShell({ title, body, head = "", afterBody = "", locale = DEFAULT_LOCALE }) {
+  const darkThemeVariables = `        --bg: #15171b;
+        --grid: rgba(120, 160, 200, 0.06);
+        --panel: #1c1f24;
+        --panel-2: #25292f;
+        --text: #e6edf3;
+        --muted: #adb5c0;
+        --faint: #9aa5b2;
+        --line: #343b44;
+        --line-2: #596575;
+        --accent: #9cbcf5;
+        --accent-2: #bbd1f8;
+        --accent-ink: #18253d;
+        --accent-soft: #29374e;
+        --ring: #9cbcf5;
+        --code: #080c12;
+        --code-text: #e6edf3;
+`;
   return `<!doctype html>
 <html lang="${escapeAttribute(locale)}">
 <head>
   <meta charset="utf-8">
+  <script src="/assets/theme.js"></script><script type="module" src="/assets/auto-apply.js"></script>
+  <script src="/assets/sidebar.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
   ${head}
   <style>
     :root {
-      color-scheme: light dark;
+      color-scheme: light;
       --bg: #f5f6f8;
       --grid: rgba(31, 58, 99, 0.05);
       --panel: #ffffff;
@@ -1951,24 +2103,14 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
       --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+${darkThemeVariables}
+    }
     @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #15171b;
-        --grid: rgba(120, 160, 200, 0.06);
-        --panel: #1c1f24;
-        --panel-2: #25292f;
-        --text: #e6edf3;
-        --muted: #adb5c0;
-        --faint: #9aa5b2;
-        --line: #343b44;
-        --line-2: #596575;
-        --accent: #9cbcf5;
-        --accent-2: #bbd1f8;
-        --accent-ink: #18253d;
-        --accent-soft: #29374e;
-        --ring: #9cbcf5;
-        --code: #080c12;
-        --code-text: #e6edf3;
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+${darkThemeVariables}
       }
     }
     * { box-sizing: border-box; }
@@ -2051,24 +2193,10 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       color: var(--text);
       text-decoration: none;
     }
-    .language-switcher {
-      display: inline-flex;
-      gap: 2px;
-      margin-left: 5px;
-      padding-left: 9px;
-      border-left: 1px solid var(--line);
-    }
-    .language-switcher a,
-    .language-switcher .active {
-      padding: 5px 8px;
-      border-radius: 7px;
-    }
-    .language-switcher .active {
-      color: var(--text);
-      font-weight: 700;
-      text-decoration: none;
-      cursor: default;
-    }
+    .language-switcher { display: grid; gap: 8px; min-width: 0; }
+    .language-switcher label { display: grid; gap: 6px; min-width: 0; }
+    .language-switcher select { width: 100%; min-width: 0; max-width: 100%; }
+    .language-switcher button { justify-self: start; }
     .dashboard,
     .artifact-view,
     .artifact-editor {
@@ -2219,12 +2347,19 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       background: var(--panel);
       box-shadow: none;
     }
+    .dashboard-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 16px; }
+    .page-size-form, .page-size-form label { display: flex; align-items: center; gap: 8px; }
+    .page-size-form { margin: 0; }
+    .page-size-form select { min-width: 76px; width: auto; min-height: 44px; }
+    .page-size-form button { min-height: 44px; }
+    .pager-position { align-self: center; white-space: nowrap; }
     .pager {
       display: flex;
-      justify-content: flex-end;
+      flex-wrap: wrap;
+      justify-content: flex-start;
       gap: 8px;
-      margin-top: 14px;
-      font-family: var(--mono);
+      margin-top: 0;
+      font-family: var(--sans);
       font-size: 12.5px;
     }
     .pager a,
@@ -2349,11 +2484,12 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       font-size: 13px;
     }
     .field > span {
-      font-family: var(--mono);
-      font-size: 11.5px;
+      font-family: var(--sans);
+      font-size: 12px;
+      font-weight: 500;
       letter-spacing: 0;
       text-transform: none;
-      color: var(--faint);
+      color: var(--muted);
     }
     .check-field {
       display: flex;
@@ -2368,8 +2504,6 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       min-height: 0;
       padding: 0;
     }
-    input:not([type="checkbox"]):not([type="radio"]),
-    select,
     textarea {
       width: 100%;
       border: 1px solid var(--line-2);
@@ -2455,59 +2589,12 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       border: 0;
       background: var(--panel);
     }
-    input:focus,
-    select:focus,
-    textarea:focus {
-      outline: 3px solid var(--ring);
-      outline-offset: 0;
-      border-color: var(--accent);
-    }
+    button:not(.btn) { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
     .editor-actions {
       display: flex;
       align-items: center;
       justify-content: flex-end;
       gap: 12px;
-    }
-    button {
-      min-height: 38px;
-      border: 1px solid var(--accent);
-      border-radius: 8px;
-      padding: 7px 15px;
-      background: var(--accent);
-      color: var(--accent-ink);
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s ease, border-color 0.15s ease;
-    }
-    button:hover { background: var(--accent-2); border-color: var(--accent-2); }
-    .button-link {
-      display: inline-flex;
-      min-height: 38px;
-      align-items: center;
-      justify-content: center;
-      padding: 7px 15px;
-      border: 1px solid var(--accent);
-      border-radius: 8px;
-      background: var(--accent);
-      color: var(--accent-ink);
-      font-weight: 600;
-    }
-    .button-link:hover {
-      border-color: var(--accent-2);
-      background: var(--accent-2);
-      color: var(--accent-ink);
-      text-decoration: none;
-    }
-    .inline-action button {
-      min-height: 32px;
-      padding: 5px 12px;
-      font-family: var(--mono);
-      font-size: 12px;
-      font-weight: 500;
-      border-color: var(--line-2);
-      background: var(--panel);
-      color: var(--muted);
     }
     .inline-action button:hover {
       background: var(--panel-2);
@@ -3179,6 +3266,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .meta-card table { display: block; max-width: 100%; overflow-x: auto; }
     .artifact-doc { font-size: 15px; line-height: 1.7; }
     .workspace-header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .workspace-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .workspace-brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 19px; font-weight: 700; letter-spacing: -.04em; }
     .workspace-brand svg { width: 27px; height: 27px; color: var(--accent); }
     .workspace-desktop { display: none; }
@@ -3188,13 +3276,13 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .workspace-mobile nav { padding-top: 16px; }
     .workspace-primary, .workspace-actions { display: grid; gap: 4px; }
     .workspace-primary { padding-bottom: 16px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-    .workspace-header nav a, .workspace-dropdown summary, .workspace-dropdown .nav-form button { display: block; min-height: 38px; padding: 8px 10px; color: var(--muted); border-radius: 6px; font-size: 14px; text-align: left; }
+    .workspace-header nav a, .workspace-dropdown summary, .workspace-dropdown .nav-form button { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 8px 10px; color: var(--muted); border-radius: 6px; font-size: 14px; text-align: left; }
     .workspace-header nav a:hover, .workspace-dropdown summary:hover { background: var(--panel-2); color: var(--text); text-decoration: none; }
     .workspace-header [aria-current="page"], .workspace-header .is-current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
     .workspace-dropdown summary { cursor: pointer; list-style: none; }
     .workspace-dropdown summary::-webkit-details-marker { display: none; }
-    .workspace-dropdown summary::after { content: "⌄"; float: right; margin-left: 8px; }
-    .workspace-dropdown[open] > summary::after { content: "⌃"; }
+    .workspace-chevron { margin-left: auto; display: inline-flex; }
+    .workspace-dropdown[open] > summary .workspace-chevron { transform: rotate(180deg); }
     .workspace-version { color: var(--faint); font-size: 12px; padding: 10px; }
     .settings-page { max-width: 1100px; }
     .settings-page .meta-card { gap: 16px; }
@@ -3204,11 +3292,56 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .settings-page .field { min-width: 0; }
     .settings-page textarea[name="allowedCidrs"] { min-height: 120px; height: 140px; }
     .settings-page .editor-form { gap: 12px; }
+    .settings-page .user-role-form { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; }
+    .user-account-actions { display: grid; gap: 8px; justify-items: start; }
+
+    .user-role-form select { width: auto; min-width: 105px; }
+    .user-role-form select, .user-role-form button { margin: 0; }
+
+    .meta-card:has(> form[action="/admin/retention/run"]) { min-width: 0; overflow-wrap: anywhere; }
+    form[action="/admin/retention/run"], form[action="/admin/retention/run"] > * { min-width: 0; }
+    form[action="/admin/retention/run"] .checkbox-field { display: block; white-space: normal; overflow-wrap: anywhere; line-height: 1.6; }
+    form[action="/admin/retention/run"] .checkbox-field input { margin-right: 6px; vertical-align: middle; }
+    .retention-policy-form .retention-section { display: grid; gap: 16px; min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 6px; }
+    .retention-policy-form legend { padding: 0 6px; font-weight: 600; }
+    .smtp-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+    .smtp-settings-form input, .smtp-settings-form select { min-width: 0; }
+    .smtp-settings-form .field { align-content: start; }
+    @media (max-width: 640px) { .smtp-field-grid { grid-template-columns: minmax(0, 1fr); } }
+    .retention-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+    .retention-policy-form .field { display: grid; gap: 8px; align-content: start; }
+    .retention-policy-form input, .retention-policy-form textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+    .retention-policy-form textarea { min-height: 112px; height: 112px; }
+    @media (max-width: 640px) { .retention-field-grid { grid-template-columns: minmax(0, 1fr); } }
+
     .workspace-dropdown-content { display: grid; padding-left: 10px; border-left: 1px solid var(--line); margin: 4px 0 8px 10px; }
     .workspace-dropdown-content .nav-form { display: block; }
     .workspace-identity { overflow-wrap: anywhere; font-size: 12px; color: var(--faint); padding: 8px 10px; }
-    .workspace-header .language-switcher { border: 0; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; font-size: 12px; }
-    .workspace-header .language-switcher a, .workspace-header .language-switcher .active { min-height: 38px; padding: 8px 10px; }
+    .theme-controls { border: 0; min-width: 0; margin: 16px 10px 0; padding: 0; }
+    .theme-controls legend { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .theme-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 3px; gap: 2px; background: var(--panel-2); border-radius: 8px; }
+    .theme-choices .btn { padding: 6px; min-width: 0; border: 0; display: inline-flex; justify-content: center; align-items: center; background: transparent; color: var(--muted); }
+    .theme-choices .btn[aria-pressed="true"] { background: var(--panel); color: var(--accent); box-shadow: 0 1px 3px #0002; }
+    .workspace-header svg { flex-shrink: 0; }
+    .workspace-header .sidebar-toggle { display: none; }
+    .sidebar-toggle > span:not([hidden]) { display: flex; align-items: center; }
+    .workspace-brand-row svg { display: block; }
+    @media (min-width: 1100px) {
+      .sidebar-toggle:not([hidden]) { display: inline-flex; position: static; width: 36px; height: 36px; padding: 0; flex-shrink: 0; }
+      .workspace-desktop { padding-top: 0; }
+      :root[data-sidebar="collapsed"] body:has(> .workspace-header) { padding-left: 68px; }
+      :root[data-sidebar="collapsed"] .workspace-header { width: 68px; padding: 24px 10px; }
+      :root[data-sidebar="collapsed"] .workspace-brand { display: none; }
+      :root[data-sidebar="collapsed"] .workspace-brand-row { justify-content: center; }
+
+      :root[data-sidebar="collapsed"] .workspace-nav-label, :root[data-sidebar="collapsed"] .workspace-brand-name, :root[data-sidebar="collapsed"] .workspace-chevron, :root[data-sidebar="collapsed"] .workspace-version, :root[data-sidebar="collapsed"] .workspace-identity, :root[data-sidebar="collapsed"] .language-switcher, :root[data-sidebar="collapsed"] .theme-controls { display: none; }
+      :root[data-sidebar="collapsed"] .workspace-dropdown-content { padding-left: 0; border: 0; margin-left: 0; }
+      :root[data-sidebar="collapsed"] .workspace-header nav a, :root[data-sidebar="collapsed"] .workspace-dropdown summary, :root[data-sidebar="collapsed"] .nav-form button { justify-content: center; padding: 10px; }
+      :root[data-sidebar="collapsed"] .workspace-header [aria-current="page"] { box-shadow: inset 3px 0 var(--accent); }
+      :root[data-sidebar="collapsed"] .workspace-header nav a:is(:hover, :focus-visible) .workspace-nav-label, :root[data-sidebar="collapsed"] .workspace-dropdown > summary:is(:hover, :focus-visible) .workspace-nav-label, :root[data-sidebar="collapsed"] .nav-form button:is(:hover, :focus-visible) .workspace-nav-label { display: block; position: fixed; left: 76px; z-index: 50; padding: 6px 10px; max-width: 240px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 3px 12px #0002; pointer-events: none; }
+    }
+    .workspace-header .language-switcher { margin: 12px 0 0; padding: 0 10px; font-size: 12px; }
+
     .workspace-skip { position: absolute; left: 16px; top: -100px; z-index: 100; background: var(--panel); padding: 8px 16px; }
     .workspace-skip:focus { top: 8px; }
     :focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
@@ -3253,7 +3386,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     @media (min-width: 1100px) {
       body:has(> .workspace-header) { padding-left: 196px; }
       .workspace-header { position: fixed; inset: 0 auto 0 0; width: 196px; padding: 24px 12px; border-bottom: 0; border-right: 1px solid var(--line); display: block; overflow-y: auto; z-index: 20; }
-      .workspace-brand { padding: 0 10px 26px; }
+      .workspace-brand-row { min-height: 36px; margin-bottom: 18px; }
+      .workspace-brand { padding: 0 0 0 10px; }
       .workspace-desktop { display: block; }
       .workspace-mobile { display: none; }
     }
@@ -3281,6 +3415,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       .dashboard .row-main strong { font-size: 14px; }
     }
   </style>
+  <link rel="stylesheet" href="/assets/ui-controls.css">
 </head>
 <body>
   ${body}
@@ -3290,7 +3425,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
 }
 
 function formatSelect(selected) {
-  return `<select name="format">
+  return `<select name="format" class="form-select">
     ${ARTIFACT_FORMATS.map((format) => {
       const label = format[0].toUpperCase() + format.slice(1);
       return `<option value="${format}"${format === selected ? " selected" : ""}>${label}</option>`;
@@ -3299,13 +3434,13 @@ function formatSelect(selected) {
 }
 
 function artifactTypeSelect(selected) {
-  return `<select name="artifactType">
+  return `<select name="artifactType" class="form-select">
     ${artifactTypeOptions(selected)}
   </select>`;
 }
 
 function visibilitySelect(selected, view) {
-  return `<select name="visibility">
+  return `<select name="visibility" class="form-select">
     ${VISIBILITY_VALUES.map((value) => `<option value="${value}"${value === selected ? " selected" : ""}>${view.text(`artifact.visibility.${value}`)}</option>`).join("")}
   </select>`;
 }
@@ -3331,6 +3466,13 @@ function editorHead() {
 function editorScript(locale) {
   const config = JSON.stringify(editorMessages(locale)).replaceAll("<", "\\u003c");
   return `<script>window.ARTIFACTY_I18N=${config};</script><script type="module" src="${EDITOR_CLIENT_PATH}"></script>`;
+}
+
+function renderDateTime(value, view) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return escapeHtml(value);
+  const label = new Intl.DateTimeFormat(view.locale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date);
+  return `<time datetime="${escapeAttribute(value)}" title="${escapeAttribute(value)}">${escapeHtml(label)} UTC</time>`;
 }
 
 function viewContext(locale, currentPath) {
@@ -3394,13 +3536,11 @@ function statusBadge(label) {
   return `<span class="badge s-archived">${label}</span>`;
 }
 
-// Only rendered for 'private' artifacts (the non-default visibility) so the
-// common case doesn't add visual noise to every row.
+// Highlight explicit public/private visibility while keeping default team rows compact.
 function visibilityBadge(artifact, view) {
-  if ((artifact.visibility || "team") !== "private") {
-    return "";
-  }
-  return `<span class="badge v-private">${view.text("artifact.visibility.private")}</span>`;
+  const visibility = artifact.visibility || "team";
+  if (!["private", "public"].includes(visibility)) return "";
+  return `<span class="badge v-${visibility}">${view.text(`artifact.visibility.${visibility}`)}</span>`;
 }
 
 function htmlFrameContent(content) {
@@ -3494,37 +3634,50 @@ function frameResizeScript() {
   return `<script>(function(){window.addEventListener("message",function(event){var data=event.data;if(!data||typeof data.__artifactyHeight!=="number"){return;}var frames=document.querySelectorAll(".artifact-frame");for(var i=0;i<frames.length;i+=1){if(frames[i].contentWindow===event.source){var height=Math.min(Math.max(Math.ceil(data.__artifactyHeight),200),200000);frames[i].style.height=height+"px";break;}}});})();</script>`;
 }
 
-function viewerScript() {
-  return `<script type="module" src="${VIEWER_CLIENT_PATH}"></script>`;
+function viewerScript(locale = DEFAULT_LOCALE) {
+  const view = viewContext(locale, "/");
+  const messages = Object.fromEntries(["filter", "filterColumn", "ruleFilter", "rowsShown", "resultsShown"].map((key) => [key, view.raw(`viewer.${key}`, { column: "{column}", visible: "{visible}", total: "{total}" })]));
+  const config = JSON.stringify(messages).replaceAll("<", "\\u003c");
+  return `<script type="application/json" id="artifacty-viewer-i18n">${config}</script><script type="module" src="${VIEWER_CLIENT_PATH}"></script>`;
 }
 
 function reactRendererEnabled() {
   return process.env.ARTIFACTY_ENABLE_REACT_RENDERER === "true";
 }
 
+function themeControls(view) {
+  return `<fieldset class="theme-controls" data-theme-controls hidden><legend>${view.text("theme.label")}</legend>
+    <div class="theme-choices">${["system", "light", "dark"].map((theme) => `<button type="button" data-theme-choice="${theme}" aria-pressed="${theme === "system"}" aria-label="${view.attr(`theme.${theme}`)}" title="${view.attr(`theme.${theme}`)}" class="btn btn-ghost">${uiIcon({ system: "device-desktop", light: "sun", dark: "moon" }[theme])}<span class="dashboard-sr-only">${view.text(`theme.${theme}`)}</span></button>`).join("")}</div>
+  </fieldset>`;
+}
+
 function languageSwitcher(view) {
-  const english = view.locale === "en"
-    ? `<span class="active">${view.text("language.english")}</span>`
-    : `<a href="${switchLocaleHref(view.currentPath, "en")}">${view.text("language.english")}</a>`;
-  const korean = view.locale === "ko"
-    ? `<span class="active">${view.text("language.korean")}</span>`
-    : `<a href="${switchLocaleHref(view.currentPath, "ko")}">${view.text("language.korean")}</a>`;
-  return `<span class="language-switcher">${english}${korean}</span>`;
+  const current = new URL(view.currentPath || "/", "http://artifacty.local");
+  const preserved = [...current.searchParams.entries()].filter(([name]) => name !== "lang")
+    .map(([name, value]) => `<input type="hidden" name="${escapeAttribute(name)}" value="${escapeAttribute(value)}">`).join("");
+  const options = availableLanguages().filter((language) => language.enabled).map((language) =>
+    `<option value="${escapeAttribute(language.locale)}"${language.locale === view.locale ? " selected" : ""}>${escapeHtml(language.nativeName)}</option>`
+  ).join("");
+  return `<form class="language-switcher" data-auto-apply="all" method="get" action="${escapeAttribute(`${current.pathname}${current.hash}`)}">
+    ${preserved}<label><span>${view.text("language.label")}</span><select name="lang" class="form-select">${options}</select></label>
+    <button type="submit" class="btn btn-outline-secondary">${view.text("language.apply")}</button>
+  </form>`;
 }
 
 function workspaceHeader(user, view) {
   const pathname = new URL(view.currentPath, "http://artifacty.local").pathname;
-  const link = (href, key, active = pathname === href, className = "") => `<a href="${view.href(href)}"${active ? ' aria-current="page"' : ""}${className ? ` class="${className}"` : ""}>${view.text(key)}</a>`;
+  const icons = { "/": "files", "/inbox": "inbox", "/new": "plus", "/import": "upload", "/admin/access": "settings", "/admin/users": "users", "/admin/backup": "database-export", "/admin/retention": "archive", "/admin/webhooks": "webhook", "/admin/update": "refresh", "/admin/languages": "language", "/admin/email": "mail", "/account": "user-circle", "/account/password": "key", "/login": "login", "/docs/api": "code" };
+  const link = (href, key, active = pathname === href, className = "") => `<a href="${view.href(href)}" title="${view.attr(key)}" aria-label="${view.attr(key)}"${active ? ' aria-current="page"' : ""}${className ? ` class="${className}"` : ""}>${uiIcon(icons[href] || "files")}<span class="workspace-nav-label">${view.text(key)}</span></a>`;
   const artifactActive = pathname === "/" || pathname.startsWith("/artifacts/");
-  const adminLinks = user?.role === "admin" ? `<details class="workspace-dropdown"${pathname.startsWith("/admin/") ? " open" : ""}><summary${pathname.startsWith("/admin/") ? ' class="is-current"' : ""}>${view.text("nav.administration")}</summary><div class="workspace-dropdown-content">
-    ${link("/admin/access", "access.title")}${link("/admin/users", "nav.users")}${link("/admin/backup", "nav.backup")}${link("/admin/retention", "retention.navLabel")}${link("/admin/webhooks", "nav.webhooks")}${link("/admin/update", "update.title")}<span class="workspace-version">Artifacty v${escapeHtml(APP_VERSION)}</span>
+  const adminLinks = user?.role === "admin" ? `<details class="workspace-dropdown"${pathname.startsWith("/admin/") ? " open" : ""}><summary${pathname.startsWith("/admin/") ? ' class="is-current"' : ""} title="${view.attr("nav.administration")}" aria-label="${view.attr("nav.administration")}">${uiIcon("settings")}<span class="workspace-nav-label">${view.text("nav.administration")}</span><span class="workspace-chevron">${uiIcon("chevron-down", { size: 14 })}</span></summary><div class="workspace-dropdown-content">
+    ${link("/admin/access", "access.title")}${link("/admin/users", "nav.users")}${link("/admin/backup", "nav.backup")}${link("/admin/retention", "retention.navLabel")}${link("/admin/webhooks", "nav.webhooks")}${link("/admin/update", "update.title")}${link("/admin/languages", "languageAdmin.title")}${link("/admin/email", "smtp.title")}<span class="workspace-version">Artifacty v${escapeHtml(APP_VERSION)}</span>
   </div></details>` : "";
-  const account = user ? `<details class="workspace-dropdown"${pathname.startsWith("/account") ? " open" : ""}><summary${pathname.startsWith("/account") ? ' class="is-current"' : ""}>${view.text("nav.account")}</summary><div class="workspace-dropdown-content">
+  const account = user ? `<details class="workspace-dropdown"${pathname.startsWith("/account") ? " open" : ""}><summary${pathname.startsWith("/account") ? ' class="is-current"' : ""} title="${view.attr("nav.account")}" aria-label="${view.attr("nav.account")}">${uiIcon("user-circle")}<span class="workspace-nav-label">${view.text("nav.account")}</span><span class="workspace-chevron">${uiIcon("chevron-down", { size: 14 })}</span></summary><div class="workspace-dropdown-content">
     <span class="workspace-identity">${escapeHtml(user.name || user.email || "")}</span>${link("/account", "nav.accountTokens")}${link("/account/password", "nav.password")}
-    <form method="post" action="/logout" class="nav-form">${localeInput(view.locale)}<button type="submit">${view.text("nav.signOut")}</button></form>
+    <form method="post" action="/logout" class="nav-form">${localeInput(view.locale)}<button type="submit" title="${view.attr("nav.signOut")}" aria-label="${view.attr("nav.signOut")}" class="btn btn-ghost">${uiIcon("logout")}<span class="workspace-nav-label">${view.text("nav.signOut")}</span></button></form>
   </div></details>` : user === null ? link("/login", "nav.signIn") : "";
-  const links = `<div class="workspace-primary">${link("/", "nav.artifacts", artifactActive)}${user ? link("/inbox", "inbox.title") : ""}</div><div class="workspace-actions">${link("/new", "nav.new", pathname === "/new", "workspace-create")}${link("/import", "nav.import")}${adminLinks}${account}${link("/docs/api", "nav.apiDocs")}${languageSwitcher(view)}</div>`;
-  return `<a class="workspace-skip" href="#main-content">${view.text("nav.skip")}</a><header class="workspace-header"><a class="workspace-brand" href="${view.href("/")}">${brandMark()}<span>artifacty</span></a>
+  const links = `<div class="workspace-primary">${link("/", "nav.artifacts", artifactActive)}${user ? link("/inbox", "inbox.title") : ""}</div><div class="workspace-actions">${link("/new", "nav.new", pathname === "/new", "workspace-create")}${link("/import", "nav.import")}${adminLinks}${account}${link("/docs/api", "nav.apiDocs")}${languageSwitcher(view)}${themeControls(view)}</div>`;
+  return `<a class="workspace-skip" href="#main-content">${view.text("nav.skip")}</a><header class="workspace-header"><div class="workspace-brand-row"><a class="workspace-brand" aria-label="Artifacty" href="${view.href("/")}">${brandMark()}<span class="workspace-brand-name">artifacty</span></a><button type="button" class="sidebar-toggle btn btn-ghost" data-sidebar-toggle hidden aria-expanded="true" aria-label="${view.attr("nav.collapseSidebar")}" title="${view.attr("nav.collapseSidebar")}" data-collapse-label="${view.attr("nav.collapseSidebar")}" data-expand-label="${view.attr("nav.expandSidebar")}"><span data-sidebar-collapse-icon>${uiIcon("layout-sidebar-left-collapse")}</span><span data-sidebar-expand-icon hidden>${uiIcon("layout-sidebar-left-expand")}</span></button></div>
     <nav class="workspace-desktop" aria-label="${view.attr("dashboard.navigation")}">${links}</nav>
     <details class="workspace-mobile"><summary>${view.text("dashboard.more")}</summary><nav aria-label="${view.attr("dashboard.navigation")}">${links}</nav></details>
   </header>`;
@@ -3634,7 +3787,7 @@ function markdownToHtml(markdown, diagramState = createMermaidDiagramState()) {
         inList = true;
       }
       const checked = taskItem[1].toLowerCase() === "x";
-      html.push(`<li class="task-list-item"><label><input type="checkbox" disabled${checked ? " checked" : ""}> ${inlineMarkdown(taskItem[2])}</label></li>`);
+      html.push(`<li class="task-list-item"><label><input type="checkbox" disabled${checked ? " checked" : ""} class="form-check-input"> ${inlineMarkdown(taskItem[2])}</label></li>`);
       continue;
     }
 
@@ -3769,19 +3922,20 @@ const CSV_RENDER_COLUMN_LIMIT = 80;
 const SARIF_RENDER_RESULT_LIMIT = 500;
 
 function renderMediaArtifact(format, content, metadata = {}, options = {}) {
+  const view = options.view || viewContext(options.locale || DEFAULT_LOCALE, "/");
   const mimeType = mediaMimeType(metadata, format);
   const source = options.rawUrl || mediaDataUrl(content, mimeType);
   if (!source) {
     return `<section class="artifact-media-note">
-      Media preview is unavailable because this artifact does not contain valid base64 media content.
+      ${view.text("media.unavailable")}
     </section>
     <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>`;
   }
 
   const label = [
     mimeType || format,
-    metadata.encoding ? `encoding: ${metadata.encoding}` : "",
-    metadata.originalEncoding ? `source: ${metadata.originalEncoding}` : ""
+    metadata.encoding ? view.raw("media.encoding", { encoding: metadata.encoding }) : "",
+    metadata.originalEncoding ? view.raw("media.source", { encoding: metadata.originalEncoding }) : ""
   ].filter(Boolean).join(" · ");
 
   if (format === "video") {
@@ -3792,7 +3946,7 @@ function renderMediaArtifact(format, content, metadata = {}, options = {}) {
   }
 
   return `<figure class="artifact-media artifact-image">
-    <img src="${escapeAttribute(source)}" alt="Image artifact">
+    <img src="${escapeAttribute(source)}" alt="${view.text("media.image")}">
     <figcaption>${escapeHtml(label || "image artifact")}</figcaption>
   </figure>`;
 }
@@ -3817,17 +3971,17 @@ function mediaDataUrl(content, mimeType) {
   return `data:${mimeType};base64,${base64}`;
 }
 
-function renderCsv(content) {
+function renderCsv(content, view) {
   const parsed = parseCsv(content);
   if (!parsed.ok) {
     return `<section class="artifact-csv">
-      <p class="artifact-csv-note">CSV parsing failed: ${escapeHtml(parsed.error)}. Showing escaped source.</p>
+      <p class="artifact-csv-note">${view.text("csv.error", { error: parsed.error })}</p>
       <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>
     </section>`;
   }
 
   if (parsed.rows.length === 0) {
-    return `<section class="artifact-csv"><p class="artifact-csv-note">Empty CSV artifact.</p></section>`;
+    return `<section class="artifact-csv"><p class="artifact-csv-note">${view.text("csv.empty")}</p></section>`;
   }
 
   const columnCount = Math.max(...parsed.rows.map((row) => row.length));
@@ -3837,7 +3991,7 @@ function renderCsv(content) {
   const rowTruncated = parsed.rows.length - 1 > CSV_RENDER_ROW_LIMIT;
   const columnTruncated = columnCount > CSV_RENDER_COLUMN_LIMIT;
   const headerHtml = Array.from({ length: visibleColumns }, (_, index) =>
-    `<th data-csv-col="${index}">${escapeHtml(header[index] || `Column ${index + 1}`)}</th>`
+    `<th data-csv-col="${index}">${escapeHtml(header[index] || view.raw("csv.column", { column: index + 1 }))}</th>`
   ).join("");
   const bodyHtml = bodyRows.map((row) =>
     `<tr data-csv-row>${Array.from({ length: visibleColumns }, (_, index) =>
@@ -3845,10 +3999,10 @@ function renderCsv(content) {
     ).join("")}</tr>`
   ).join("\n");
   const notes = [
-    `${parsed.rows.length - 1} data rows`,
-    `${columnCount} columns`,
-    rowTruncated ? `showing first ${CSV_RENDER_ROW_LIMIT} rows` : "",
-    columnTruncated ? `showing first ${CSV_RENDER_COLUMN_LIMIT} columns` : ""
+    view.raw("csv.rows", { count: parsed.rows.length - 1 }),
+    view.raw("csv.columns", { count: columnCount }),
+    rowTruncated ? view.raw("csv.firstRows", { count: CSV_RENDER_ROW_LIMIT }) : "",
+    columnTruncated ? view.raw("csv.firstColumns", { count: CSV_RENDER_COLUMN_LIMIT }) : ""
   ].filter(Boolean).join(" · ");
 
   return `<section class="artifact-csv" data-artifact-csv>
@@ -3862,20 +4016,20 @@ function renderCsv(content) {
   </section>`;
 }
 
-function renderSarif(content) {
+function renderSarif(content, view) {
   let sarif;
   try {
     sarif = JSON.parse(content);
   } catch {
     return `<section class="artifact-sarif">
-      <p class="artifact-sarif-note">Invalid SARIF JSON. Showing escaped source.</p>
+      <p class="artifact-sarif-note">${view.text("sarif.invalid")}</p>
       <pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>
     </section>`;
   }
 
   if (!isSarifDocument(sarif)) {
     return `<section class="artifact-sarif">
-      <p class="artifact-sarif-note">This JSON does not match the expected SARIF top-level shape. Showing formatted JSON.</p>
+      <p class="artifact-sarif-note">${view.text("sarif.shape")}</p>
       <pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>
     </section>`;
   }
@@ -3891,26 +4045,26 @@ function renderSarif(content) {
     <td>${escapeHtml(result.tool)}</td>
   </tr>`).join("\n");
   const note = results.length > SARIF_RENDER_RESULT_LIMIT
-    ? `Showing first ${SARIF_RENDER_RESULT_LIMIT} of ${results.length} results.`
-    : `${results.length} results.`;
+    ? view.raw("sarif.first", { count: SARIF_RENDER_RESULT_LIMIT, total: results.length })
+    : view.raw("sarif.results", { count: results.length });
 
   return `<section class="artifact-sarif" data-artifact-sarif>
     <div class="artifact-summary-grid">
-      ${summaryCard("Runs", sarif.runs.length)}
-      ${summaryCard("Results", results.length)}
-      ${summaryCard("Errors", counts.error || 0)}
-      ${summaryCard("Warnings", counts.warning || 0)}
-      ${summaryCard("Notes", counts.note || 0)}
+      ${summaryCard(view.raw("sarif.runs"), sarif.runs.length)}
+      ${summaryCard(view.raw("sarif.resultsTitle"), results.length)}
+      ${summaryCard(view.raw("sarif.errors"), counts.error || 0)}
+      ${summaryCard(view.raw("sarif.warnings"), counts.warning || 0)}
+      ${summaryCard(view.raw("sarif.notes"), counts.note || 0)}
     </div>
     <p class="artifact-sarif-note">${escapeHtml(note)}</p>
     <div class="artifact-table-scroll">
       <table class="artifact-table" data-sarif-table>
-        <thead><tr><th data-sarif-sort="level">Level</th><th data-sarif-sort="rule">Rule</th><th>Message</th><th data-sarif-sort="location">Location</th><th>Tool</th></tr></thead>
+        <thead><tr><th data-sarif-sort="level">${view.text("sarif.level")}</th><th data-sarif-sort="rule">${view.text("sarif.rule")}</th><th>${view.text("sarif.message")}</th><th data-sarif-sort="location">${view.text("sarif.location")}</th><th>${view.text("sarif.tool")}</th></tr></thead>
         <tbody>${rowHtml}</tbody>
       </table>
     </div>
     <details class="artifact-raw-details">
-      <summary>Raw SARIF JSON</summary>
+      <summary>${view.text("sarif.raw")}</summary>
       <pre class="artifact-code"><code>${escapeHtml(formatJson(content))}</code></pre>
     </details>
   </section>`;
@@ -3991,7 +4145,7 @@ const NOTEBOOK_OUTPUT_MIME_PRIORITY = [
   "text/plain"
 ];
 
-function renderNotebook(content) {
+function renderNotebook(content, view) {
   let notebook;
   try {
     notebook = JSON.parse(content);
@@ -4006,16 +4160,16 @@ function renderNotebook(content) {
   const diagramState = createMermaidDiagramState();
   const cells = notebook.cells;
   const rendered = cells.slice(0, NOTEBOOK_MAX_RENDERED_CELLS)
-    .map((cell) => renderNotebookCell(cell, language, diagramState))
+    .map((cell) => renderNotebookCell(cell, language, diagramState, view))
     .join("");
   const notice = cells.length > NOTEBOOK_MAX_RENDERED_CELLS
-    ? `<p class="artifact-notebook-notice">Showing the first ${NOTEBOOK_MAX_RENDERED_CELLS} of ${cells.length} cells.</p>`
+    ? `<p class="artifact-notebook-notice">${view.text("notebook.cells", { count: NOTEBOOK_MAX_RENDERED_CELLS, total: cells.length })}</p>`
     : "";
 
   return `<article class="artifact-doc artifact-notebook">${notice}${rendered}</article>`;
 }
 
-function renderNotebookCell(cell, language, diagramState) {
+function renderNotebookCell(cell, language, diagramState, view) {
   const cellType = cell?.cell_type;
   const source = notebookText(cell?.source);
 
@@ -4034,9 +4188,9 @@ function renderNotebookCell(cell, language, diagramState) {
     const cellOutputs = Array.isArray(cell?.outputs) ? cell.outputs : [];
     const visibleOutputs = cellOutputs.slice(0, NOTEBOOK_MAX_OUTPUTS_PER_CELL);
     const outputsNotice = cellOutputs.length > NOTEBOOK_MAX_OUTPUTS_PER_CELL
-      ? `<p class="artifact-notebook-notice">Showing the first ${NOTEBOOK_MAX_OUTPUTS_PER_CELL} of ${cellOutputs.length} outputs.</p>`
+      ? `<p class="artifact-notebook-notice">${view.text("notebook.outputs", { count: NOTEBOOK_MAX_OUTPUTS_PER_CELL, total: cellOutputs.length })}</p>`
       : "";
-    const outputs = visibleOutputs.map((output) => renderNotebookOutput(output, diagramState)).join("") + outputsNotice;
+    const outputs = visibleOutputs.map((output) => renderNotebookOutput(output, diagramState, view)).join("") + outputsNotice;
     return `<section class="artifact-notebook-cell artifact-notebook-cell-code">
       <div class="artifact-notebook-execcount">${escapeHtml(executionLabel)}</div>
       <pre><code${classAttribute}>${escapeHtml(source)}</code></pre>
@@ -4055,11 +4209,11 @@ function stripAnsiEscapes(value) {
   return String(value ?? "").replace(ANSI_ESCAPE_PATTERN, "");
 }
 
-function renderNotebookOutput(output, diagramState) {
+function renderNotebookOutput(output, diagramState, view) {
   const outputType = output?.output_type;
 
   if (outputType === "stream") {
-    return renderNotebookTextOutput(notebookText(output.text));
+    return renderNotebookTextOutput(notebookText(output.text), "", view);
   }
 
   if (outputType === "error") {
@@ -4073,18 +4227,18 @@ function renderNotebookOutput(output, diagramState) {
       : notebookText(output.traceback);
     const traceback = stripAnsiEscapes(rawTraceback) ||
       `${notebookText(output.ename)}: ${notebookText(output.evalue)}`;
-    return renderNotebookTextOutput(traceback, "artifact-notebook-error");
+    return renderNotebookTextOutput(traceback, "artifact-notebook-error", view);
   }
 
   if (outputType === "execute_result" || outputType === "display_data") {
-    return renderNotebookMimeBundle(output.data, diagramState);
+    return renderNotebookMimeBundle(output.data, diagramState, view);
   }
 
   return "";
 }
 
-function renderNotebookTextOutput(text, extraClass = "") {
-  const truncated = notebookTruncateIfOversized(text);
+function renderNotebookTextOutput(text, extraClass = "", view) {
+  const truncated = notebookTruncateIfOversized(text, view);
   if (truncated) {
     return truncated;
   }
@@ -4092,7 +4246,7 @@ function renderNotebookTextOutput(text, extraClass = "") {
   return `<pre class="artifact-notebook-output artifact-code${classAttribute}"><code>${escapeHtml(text)}</code></pre>`;
 }
 
-function renderNotebookMimeBundle(data, diagramState) {
+function renderNotebookMimeBundle(data, diagramState, view) {
   const bundle = data && typeof data === "object" && !Array.isArray(data) ? data : {};
   const keys = Object.keys(bundle);
   if (keys.length === 0) {
@@ -4101,11 +4255,11 @@ function renderNotebookMimeBundle(data, diagramState) {
 
   const mime = NOTEBOOK_OUTPUT_MIME_PRIORITY.find((candidate) => keys.includes(candidate));
   if (!mime) {
-    return `<p class="artifact-notebook-output-placeholder">Unsupported output type: ${escapeHtml(keys[0])}</p>`;
+    return `<p class="artifact-notebook-output-placeholder">${view.text("notebook.unsupported", { type: keys[0] })}</p>`;
   }
 
   const value = notebookText(bundle[mime]);
-  const truncated = notebookTruncateIfOversized(value);
+  const truncated = notebookTruncateIfOversized(value, view);
   if (truncated) {
     return truncated;
   }
@@ -4119,9 +4273,9 @@ function renderNotebookMimeBundle(data, diagramState) {
   if (mime === "image/png" || mime === "image/jpeg") {
     const dataUrl = mediaDataUrl(value, mime);
     if (!dataUrl) {
-      return `<p class="artifact-notebook-output-placeholder">Unsupported output type: ${escapeHtml(mime)}</p>`;
+      return `<p class="artifact-notebook-output-placeholder">${view.text("notebook.unsupported", { type: mime })}</p>`;
     }
-    return `<figure class="artifact-media artifact-image artifact-notebook-output"><img src="${escapeAttribute(dataUrl)}" alt="Notebook output image"></figure>`;
+    return `<figure class="artifact-media artifact-image artifact-notebook-output"><img src="${escapeAttribute(dataUrl)}" alt="${view.text("notebook.image")}"></figure>`;
   }
   if (mime === "image/svg+xml") {
     return `<iframe class="artifact-frame artifact-svg-frame artifact-notebook-output" sandbox srcdoc="${escapeAttribute(svgFrameContent(value))}"></iframe>`;
@@ -4132,12 +4286,12 @@ function renderNotebookMimeBundle(data, diagramState) {
   return "";
 }
 
-function notebookTruncateIfOversized(value) {
+function notebookTruncateIfOversized(value, view) {
   const size = Buffer.byteLength(String(value ?? ""), "utf8");
   if (size <= NOTEBOOK_MAX_OUTPUT_BYTES) {
     return null;
   }
-  return `<p class="artifact-notebook-output-truncated">Output truncated: ${escapeHtml(String(size))} bytes exceeds the 2 MB limit.</p>`;
+  return `<p class="artifact-notebook-output-truncated">${view.text("notebook.truncated", { size })}</p>`;
 }
 
 function notebookText(value) {

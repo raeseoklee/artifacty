@@ -59,3 +59,12 @@ for (const scenario of ["succeeded", "failed", "interrupted", "running", "offlin
     else { assert.equal(state.textContent, messages[scenario]); assert.equal(error.textContent, "<unsafe>"); }
   });
 }
+
+test("an up-to-date installation shows only the current-version message without target or release links", () => {
+  for (const locale of ["en", "ko"]) {
+    const html = render({ check: { ...check, targetVersion: '0.14.0', updateAvailable: false } }, locale);
+    assert.match(html, locale === 'ko' ? /최신 버전입니다/ : /You’re up to date/);
+    assert.doesNotMatch(html, /releases\/tag|action="\/admin\/update\/start"|<h2>Available version<\/h2>|<h2>업데이트할 버전<\/h2>/);
+    assert.match(html, /data-update-version>0.14.0/);
+  }
+});

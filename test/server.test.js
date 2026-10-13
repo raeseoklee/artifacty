@@ -1475,9 +1475,18 @@ test("serves the OpenAPI document and HTML API reference with no auth required",
     assert.equal(docsResponse.status, 200);
     assert.match(docsResponse.headers.get("content-type") || "", /text\/html/);
     const html = await docsResponse.text();
-    assert.match(html, /Artifacty API reference/);
+    assert.match(html, /API reference/);
     assert.match(html, /\/api\/artifacts/);
     assert.match(html, /openapi\.json/);
+    assert.match(html, /src="\/assets\/api-docs\.js"/);
+    const koreanDocs = await fetch(`${app.url}/docs/api?lang=ko`);
+    assert.match(await koreanDocs.text(), /<html lang="ko">/);
+    for (const method of ["GET", "HEAD"]) {
+      const script = await fetch(`${app.url}/assets/api-docs.js`, { method });
+      assert.equal(script.status, 200);
+      assert.match(script.headers.get("content-type"), /javascript/);
+      if (method === "HEAD") assert.equal(await script.text(), "");
+    }
   } finally {
     await app.close();
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -2193,8 +2202,8 @@ test("renders Markdown embedded fenced code, mermaid cap, and task lists; keeps 
     const page = await (await fetch(created.url)).text();
     assert.match(page, /<pre><code class="language-js">console\.log/);
     assert.match(page, /task-list-item/);
-    assert.match(page, /<input type="checkbox" disabled checked>/);
-    assert.match(page, /<input type="checkbox" disabled> Todo item/);
+    assert.match(page, /<input type="checkbox" disabled checked(?: class="[^"]*")?>/);
+    assert.match(page, /<input type="checkbox" disabled(?: class="[^"]*")?> Todo item/);
     // Inline HTML stays escaped, never interpreted, even inside the rendered doc.
     assert.match(page, /&lt;script&gt;alert\(&#39;xss&#39;\)&lt;\/script&gt;/);
     assert.doesNotMatch(page, /<script>alert\('xss'\)<\/script>/);

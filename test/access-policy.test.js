@@ -36,7 +36,7 @@ test("access mode defaults public, is persisted, and requires an administrator t
     const { admin, reader } = await users(store);
     await assert.rejects(setAccessMode(store, "private", { access: reader }), { statusCode: 403 });
     await assert.rejects(setAccessMode(store, "invalid", { access: admin }), { statusCode: 400 });
-    const artifact = await createArtifact(store, { title: "Existing public artifact", content: "old content", format: "text" });
+    const artifact = await createArtifact(store, { title: "Existing public artifact", content: "old content", format: "text", visibility: "public" });
     assert.equal((await getArtifact(store, artifact.id, { access: anonymous })).id, artifact.id);
     await setAccessMode(store, "private", { access: admin });
     assert.equal(await getAccessMode(createStore({ home: store.home })), "private");

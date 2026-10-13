@@ -74,12 +74,15 @@ test("sharing maps remain optional, validate atomically, and access reports expl
     assert.deepEqual(row.reasons.sort(), ["direct:read", "team:Reviewers:comment"]);
     assert.equal(report.anonymousRead, false);
     await assert.rejects(getArtifactAccessReport(store, artifact.id, { access: reader }), { statusCode: 403 });
-    assert.deepEqual(await previewAccessMode(store, "public", { access: admin }), { mode: "public", anonymousArtifactCount: 1 });
-    assert.deepEqual(await previewAccessMode(store, "private", { access: admin }), { mode: "private", anonymousArtifactCount: 0 });
+    const preview = await previewAccessMode(store, "public", { access: admin });
+    assert.equal(preview.anonymousArtifactCount, 0);
+    assert.equal(preview.total, 0);
+    assert.deepEqual(preview.artifacts.map((entry) => entry.id), []);
+    assert.deepEqual(await previewAccessMode(store, "private", { access: admin }), { mode: "private", anonymousArtifactCount: 0, total: 0, artifacts: [] });
     await assert.rejects(previewAccessMode(store, "public", { access: reader }), { statusCode: 403 });
     await setAccessMode(store, "public", { access: admin });
     const publicReport = await getArtifactAccessReport(store, artifact.id, { access: owner });
-    assert.equal(publicReport.anonymousRead, true);
+    assert.equal(publicReport.anonymousRead, false);
     assert.equal(publicReport.users.find((user) => user.id === other.userId).permission, "edit");
   });
 });

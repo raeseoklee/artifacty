@@ -9,7 +9,7 @@ const artifact = { id: "secret-id", title: "Manual", ownerUserId: "owner", versi
 test("access settings preview exposure and confirm or roll back network changes", () => {
   const initial = renderAdminAccessPage({ baseUrl, user, mode: "private" });
   assert.match(initial, /action="\/admin\/access\/preview"/);
-  assert.doesNotMatch(initial, /action="\/admin\/access"/);
+  assert.doesNotMatch(initial, /<form[^>]*method="post"[^>]*action="\/admin\/access"/);
   const html = renderAdminAccessPage({ baseUrl, user, mode: "private", preview: { mode: "public", anonymousArtifactCount: 12 }, pendingNetworkPolicy: { id: 'p"1', expiresAt: "2026-10-13" }, shareLinkPolicy: { enabledInPrivate: true } });
   assert.match(html, /12 artifacts will be readable/);
   assert.match(html, /action="\/admin\/access"/);
@@ -46,7 +46,7 @@ test("share links expose token once and support expiration, pinning and revocati
 test("public shared viewer reveals content without private navigation or metadata", () => {
   const html = renderSharedArtifactPage({ artifact, version, content: "hello", sharePath: "/s/token" });
   assert.match(html, /hello/);
-  assert.doesNotMatch(html, /secret-id|secret-relation|href="\/artifacts|action=|href="\/account/);
+  assert.doesNotMatch(html, /secret-id|secret-relation|href="\/artifacts|<form\b[^>]*\baction=|href="\/account/);
   const image = renderSharedArtifactPage({ artifact, version: { ...version, format: "image", metadata: { contentType: "image/png" } }, content: "YWJj", sharePath: "/s/token" });
   assert.match(image, /src="\/s\/token\/raw"/);
 });

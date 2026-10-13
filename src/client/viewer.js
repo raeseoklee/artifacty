@@ -5,6 +5,17 @@ import { html } from "@codemirror/lang-html";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 
+const viewerMessages = {
+  filter: "Filter", filterColumn: "Filter column {column}", ruleFilter: "Filter by rule id",
+  rowsShown: "{visible} of {total} rows shown", resultsShown: "{visible} of {total} results shown"
+};
+try {
+  Object.assign(viewerMessages, JSON.parse(document.getElementById("artifacty-viewer-i18n")?.textContent || "{}"));
+} catch { /* Keep English fallback when optional configuration is unavailable. */ }
+function viewerText(key, params = {}) {
+  return viewerMessages[key].replace(/\{(\w+)\}/g, (match, name) => String(params[name] ?? match));
+}
+
 const viewerTheme = EditorView.theme({
   "&": {
     minHeight: "50vh"
@@ -235,8 +246,8 @@ function enhanceCsvViewer(section) {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "csv-filter-input";
-    input.placeholder = "Filter";
-    input.setAttribute("aria-label", `Filter column ${index + 1}`);
+    input.placeholder = viewerText("filter");
+    input.setAttribute("aria-label", viewerText("filterColumn", { column: index + 1 }));
     input.addEventListener("input", apply);
     cell.append(input);
     filterRow.append(cell);
@@ -289,7 +300,7 @@ function enhanceCsvViewer(section) {
     tbody.append(fragment);
 
     status.hidden = false;
-    status.textContent = `${visible.length} of ${rows.length} rows shown`;
+    status.textContent = viewerText("rowsShown", { visible: visible.length, total: rows.length });
   }
 
   apply();
@@ -335,8 +346,8 @@ function enhanceSarifViewer(section) {
   const ruleInput = document.createElement("input");
   ruleInput.type = "text";
   ruleInput.className = "sarif-rule-filter";
-  ruleInput.placeholder = "Filter by rule id";
-  ruleInput.setAttribute("aria-label", "Filter by rule id");
+  ruleInput.placeholder = viewerText("ruleFilter");
+  ruleInput.setAttribute("aria-label", viewerText("ruleFilter"));
   ruleInput.addEventListener("input", apply);
 
   controls.append(chipsWrap, ruleInput);
@@ -437,7 +448,7 @@ function enhanceSarifViewer(section) {
     tbody.append(fragment);
 
     status.hidden = false;
-    status.textContent = `${visible.length} of ${rows.length} results shown`;
+    status.textContent = viewerText("resultsShown", { visible: visible.length, total: rows.length });
   }
 
   apply();

@@ -1,8 +1,264 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export const DEFAULT_LOCALE = "en";
 export const SUPPORTED_LOCALES = ["en", "ko"];
+const languageContext = new AsyncLocalStorage();
 
-const TRANSLATIONS = {
+// Settings belong to a server/store, not the process. Concurrent servers must
+// never share a custom translation catalog or another administrator's choices.
+export function runWithLanguageSettings(settings, callback) {
+  const packs = settings.packs || [];
+  return languageContext.run({
+    defaultLocale: settings.defaultLocale,
+    enabledLocales: [...settings.enabledLocales],
+    packs: packs.map((pack) => ({ ...pack, messages: { ...pack.messages } }))
+  }, callback);
+}
+
+export function defaultLocale() {
+  return languageContext.getStore()?.defaultLocale || DEFAULT_LOCALE;
+}
+
+export function enabledLocales() {
+  return [...(languageContext.getStore()?.enabledLocales || SUPPORTED_LOCALES)];
+}
+
+export function availableLanguages() {
+  const enabled = enabledLocales();
+  return [
+    { locale: "en", nativeName: "English" },
+    { locale: "ko", nativeName: "한국어" },
+    ...(languageContext.getStore()?.packs || []).map(({ locale, nativeName }) => ({ locale, nativeName }))
+  ].map((language) => ({ ...language, enabled: enabled.includes(language.locale) }));
+}
+
+export const TRANSLATIONS = {
   en: {
+    "nav.collapseSidebar": "Collapse sidebar",
+    "nav.expandSidebar": "Expand sidebar",
+    "apiDocs.title": "API reference",
+    "apiDocs.copy": "Copy",
+    "apiDocs.copied": "Copied to clipboard.",
+    "apiDocs.copyFailed": "Copy failed. Select and copy the example manually.",
+    "apiDocs.requestExample": "Example request",
+    "apiDocs.responseExample": "Example response",
+    "apiDocs.schema": "Schema",
+    "apiDocs.schemas": "Schemas",
+    "apiDocs.noSchema": "See the endpoint description for the response format.",
+    "apiDocs.access": "Required access",
+    "apiDocs.parameters": "Parameters",
+    "apiDocs.name": "Name",
+    "apiDocs.location": "Location",
+    "apiDocs.type": "Type",
+    "apiDocs.description": "Description",
+    "apiDocs.required": "required",
+    "apiDocs.responses": "Responses",
+    "apiDocs.download": "Download OpenAPI JSON",
+    "apiDocs.intro": "Browse endpoints, inspect schemas, and copy request examples.",
+    "apiDocs.search": "Find an endpoint",
+    "apiDocs.searchPlaceholder": "Search method, path, or description",
+    "apiDocs.noResults": "No matching endpoints.",
+    "apiDocs.sampleNote": "All examples are samples, not live data. Replace IDs and YOUR_API_TOKEN before use. Copying does not send a request. Write commands change data when run. Backup import uses your exported backup.json file.",
+    "dashboard.pagination": "Pagination",
+    "dashboard.pagePosition": "Page {page} of {pages}",
+    "dashboard.pageSize": "Per page",
+    "smtp.authHelp": "Leave the username blank to disable SMTP authentication and clear the saved password. With a username, leave the password blank to keep the saved password.",
+
+    "artifact.visibility.public": "Public",
+    "artifact.visibility.help": "Team requires sign-in. Public allows anonymous viewing only when the server is in public mode. Private server mode always requires sign-in and access permissions.",
+    "theme.label": "Appearance",
+    "theme.system": "System",
+    "theme.light": "Light",
+    "theme.dark": "Dark",
+
+    "smtp.invalidSettings": "Check the host, port, TLS mode, and sender address.",
+    "smtp.title": "Email / SMTP",
+    "smtp.settings": "Outgoing email settings",
+    "smtp.help": "Send administrator password resets through your SMTP server. Saving these settings does not send an email.",
+    "smtp.security": "The saved SMTP password is encrypted. TLS is required and server certificates are verified.",
+    "smtp.enabled": "Enable password reset emails",
+    "smtp.host": "SMTP host",
+    "smtp.port": "Port",
+    "smtp.tlsMode": "TLS connection",
+    "smtp.tls": "Implicit TLS",
+    "smtp.starttls": "STARTTLS (required)",
+    "smtp.from": "From email address",
+    "smtp.username": "Username",
+    "smtp.password": "SMTP password",
+    "smtp.keepPassword": "Leave blank to keep the saved password",
+    "smtp.enterPassword": "Enter SMTP password",
+    "smtp.restoreNote": "Keep the server encryption key with your recovery materials. Restored encrypted credentials need the same key.",
+    "smtp.save": "Save email settings",
+    "smtp.saved": "Email settings saved.",
+    "smtp.saveFailed": "Email settings could not be saved. Check the host, port, TLS mode, and sender address.",
+    "smtp.mailStatus.sent": "The SMTP server accepted the reset email. This does not confirm inbox delivery.",
+    "smtp.mailStatus.failed": "Email delivery could not be confirmed. Copy the temporary password now and share it securely with this user.",
+    "smtp.mailStatus.not-configured": "Email is not configured. Copy the temporary password now and share it securely with this user.",
+    "smtp.resetSubject": "Your Artifacty temporary password",
+    "smtp.resetBody": "Account: {email}\nTemporary password: {password}\nSign in to Artifacty and change this password.",
+
+    "users.resetPassword": "Reset password",
+    "users.resetFor": "Reset password for {email}",
+    "users.resetReady": "Temporary password created",
+    "users.resetAccount": "Account: {email}",
+    "users.resetHelp": "Copy this temporary password now. It is shown only once. Existing sessions have ended. The user must sign in with this password and change it before continuing.",
+
+    "access.previewTitle": "Access mode preview",
+    "access.backToSettings": "Back to access settings",
+    "access.previewAnonymous": "This preview shows what an anonymous visitor can see. It does not simulate a signed-in user or team.",
+    "access.previewUnsaved": "Settings have not been saved. Return to access settings to apply this mode. Artifact links are disabled in this preview.",
+    "access.previewListCount": "Showing {shown} of {total} artifacts visible to anonymous visitors.",
+    "access.previewSignIn": "Sign-in required",
+    "access.previewPrivate": "Anonymous visitors cannot open the dashboard in private mode. Signed-in users can view artifacts according to their assigned permissions.",
+
+    "users.lastAdmin": "At least one active administrator must remain.",
+    "users.roleFor": "Role for {email}",
+    "users.saveRoleFor": "Save role for {email}",
+    "users.saveRole": "Save",
+    "users.invalidRole": "Choose user or administrator.",
+
+    "languageAdmin.template": "Download translation template",
+    "languageAdmin.templateHelp": "Change the language code and native name, translate the messages, then paste the JSON below.",
+    "languageAdmin.tooLarge": "Language pack exceeds 512 KiB.",
+    "languageAdmin.invalidJson": "Enter a valid JSON language pack.",
+    "retention.artifactsSection": "Artifact lifecycle",
+    "retention.typeRulesSection": "Rules by artifact type",
+    "retention.historySection": "Audit and event history",
+
+    "language.label": "Language",
+    "language.apply": "Apply",
+    "languageAdmin.title": "Languages",
+    "languageAdmin.settings": "Language settings",
+    "languageAdmin.enabled": "Enabled languages",
+    "languageAdmin.default": "Default language",
+    "languageAdmin.defaultHelp": "The default language must be enabled. Visitors can choose another enabled language.",
+    "languageAdmin.save": "Save language settings",
+    "languageAdmin.import": "Import language pack",
+    "languageAdmin.pack": "Language pack JSON",
+    "languageAdmin.importHelp": "Paste a JSON object with locale, nativeName, and messages. The maximum size is 512 KiB. You can translate only some message keys; missing messages use English. Keep placeholders such as {count} unchanged.",
+    "languageAdmin.disabledHelp": "A newly imported language starts disabled. Enable it above when it is ready.",
+
+    "media.unavailable": "Media preview is unavailable because this artifact does not contain valid base64 media content.",
+    "media.image": "Image artifact",
+    "media.encoding": "encoding: {encoding}",
+    "media.source": "source: {encoding}",
+    "inbox.type.shared-with-me": "Shared with me",
+    "inbox.type.comment": "New comment",
+    "inbox.type.new-version": "New version",
+    "inbox.type.review-requested": "Review requested",
+
+    "auth.invalidCredentials": "Invalid email or password.",
+    "password.mismatch": "New password and confirmation do not match.",
+    "password.changed": "Password changed.",
+    "viewer.filter": "Filter",
+    "viewer.filterColumn": "Filter column {column}",
+    "viewer.ruleFilter": "Filter by rule id",
+    "viewer.rowsShown": "{visible} of {total} rows shown",
+    "viewer.resultsShown": "{visible} of {total} results shown",
+    "csv.empty": "Empty CSV artifact.",
+    "csv.error": "CSV parsing failed: {error}. Showing escaped source.",
+    "csv.column": "Column {column}",
+    "csv.rows": "{count} data rows",
+    "csv.columns": "{count} columns",
+    "csv.firstRows": "showing first {count} rows",
+    "csv.firstColumns": "showing first {count} columns",
+    "sarif.invalid": "Invalid SARIF JSON. Showing escaped source.",
+    "sarif.shape": "This JSON does not match the expected SARIF top-level shape. Showing formatted JSON.",
+    "sarif.first": "Showing first {count} of {total} results.",
+    "sarif.results": "{count} results.",
+    "sarif.runs": "Runs",
+    "sarif.resultsTitle": "Results",
+    "sarif.errors": "Errors",
+    "sarif.warnings": "Warnings",
+    "sarif.notes": "Notes",
+    "sarif.level": "Level",
+    "sarif.rule": "Rule",
+    "sarif.message": "Message",
+    "sarif.location": "Location",
+    "sarif.tool": "Tool",
+    "sarif.raw": "Raw SARIF JSON",
+    "react.disabled": "React rendering is disabled. Set ARTIFACTY_ENABLE_REACT_RENDERER=true to run this component in a sandboxed frame.",
+    "notebook.cells": "Showing the first {count} of {total} cells.",
+    "notebook.outputs": "Showing the first {count} of {total} outputs.",
+    "notebook.unsupported": "Unsupported output type: {type}",
+    "notebook.image": "Notebook output image",
+    "notebook.truncated": "Output truncated: {size} bytes exceeds the 2 MB limit.",
+
+    "versions.manage": "Manage versions",
+    "ui.version": "Version",
+    "ui.created": "Created",
+    "ui.bytes": "Bytes",
+    "ui.action": "Action",
+    "ui.reason": "Reason",
+    "ui.delete": "Delete",
+    "versions.view": "View version",
+    "versions.repair": "Repair version",
+    "ui.email": "Email",
+    "ui.name": "Name",
+    "ui.password": "Password",
+    "ui.revoke": "Revoke",
+    "account.newToken": "New API token",
+    "account.profile": "Profile",
+    "account.createToken": "Create token",
+    "account.tokens": "API tokens",
+    "ui.lastUsed": "Last used",
+    "ui.status": "Status",
+    "account.noTokens": "No API tokens.",
+    "ui.title": "Title",
+    "ui.updated": "Updated",
+    "ui.none": "None.",
+    "password.title": "Change Password",
+    "password.submit": "Change password",
+    "password.current": "Current password",
+    "password.new": "New password",
+    "password.confirm": "Confirm password",
+    "backup.status": "Store status",
+    "backup.home": "Home",
+    "backup.bytes": "Content bytes",
+    "backup.integrity": "Integrity",
+    "backup.download": "Download backup",
+    "backup.restore": "Restore backup",
+    "backup.json": "Backup JSON",
+    "users.importResults": "Import results",
+    "ui.role": "Role",
+    "users.resetRequired": "Reset required",
+    "users.temporaryPassword": "Temporary password",
+    "users.skipped": "Skipped",
+    "users.failed": "Failed",
+    "ui.row": "Row",
+    "ui.error": "Error",
+    "users.create": "Create user",
+    "users.importTitle": "Import users from CSV",
+    "users.import": "Import users",
+    "users.existing": "Existing users",
+    "import.generic": "Generic",
+    "login.setupHelp": "No users exist yet. The first account becomes an administrator.",
+    "account.copyToken": "Copy this token now. Artifacty stores only its hash and cannot show it again.",
+    "password.required": "Password change is required before continuing.",
+    "users.csvHelp": "Use headers: email, name, role, password, password_reset_required. Missing passwords are generated and must be changed at first sign-in.",
+    "login.setup": "Create admin account",
+    "login.create": "Create admin",
+    "ui.never": "Never",
+    "ui.active": "Active",
+    "ui.disabled": "Disabled",
+    "ui.disable": "Disable",
+    "ui.enable": "Enable",
+    "ui.yes": "Yes",
+    "ui.no": "No",
+    "users.provided": "Provided in CSV",
+    "users.requirePassword": "Require password change",
+    "account.tokenName": "Token name",
+    "backup.ok": "OK",
+    "backup.attention": "Needs attention",
+    "versions.content": "v{version} content",
+    "users.summary": "{created} created, {skipped} skipped, {failed} failed.",
+    "backup.complete": "Restore complete. {count} artifacts imported",
+    "ui.role.user": "user",
+    "ui.role.admin": "admin",
+    "backup.integrityHelp": "Run artifacty integrity before migration. Current backup will only include readable referenced version files.",
+    "backup.exportHelp": "Exports artifact metadata and version contents as one JSON bundle. The full scope also includes users, API tokens, audit history, relations, and webhooks (secrets are never included and must be re-issued after restore).",
+    "backup.restoreHelp": "Restore replaces the target server's artifact records and version files with the backup contents. An artifacts-only bundle leaves users, sessions, API tokens, and audit logs unchanged. A full-scope bundle also replaces users, API tokens, audit history, relations, and webhooks (disabled on import; they must be re-issued) — check both boxes below to proceed, and force-users only if this server already has accounts.",
+
     "update.releaseNotes": "Release notes",
     "update.checkFailed": "Could not check the latest version. Try checking again.",
     "update.checkAgain": "Check again to prepare a new update confirmation.",
@@ -16,7 +272,7 @@ const TRANSLATIONS = {
     "update.backup": "The updater creates a backup before installing the selected version. The server briefly stops and restarts. Keep this page open to reconnect.",
     "update.manual": "For other installations, use the update instructions for your installation method.",
     "update.unsupported": "This installation cannot update from the browser.",
-    "update.current": "This installation is up to date.",
+    "update.current": "You’re up to date.",
     "update.confirm": "I agree to back up the store and restart the server to install this version.",
     "update.start": "Back up and update",
     "update.progress": "Update status",
@@ -331,6 +587,231 @@ const TRANSLATIONS = {
     "views.namePlaceholder": "View name"
   },
   ko: {
+    "nav.collapseSidebar": "사이드바 접기",
+    "nav.expandSidebar": "사이드바 펼치기",
+    "apiDocs.title": "API 문서",
+    "apiDocs.copy": "복사",
+    "apiDocs.copied": "클립보드에 복사했습니다.",
+    "apiDocs.copyFailed": "복사하지 못했습니다. 예제를 선택해 직접 복사해 주세요.",
+    "apiDocs.requestExample": "요청 예제",
+    "apiDocs.responseExample": "응답 예제",
+    "apiDocs.schema": "스키마",
+    "apiDocs.schemas": "스키마",
+    "apiDocs.noSchema": "응답 형식은 엔드포인트 설명을 확인하세요.",
+    "apiDocs.access": "필요 권한",
+    "apiDocs.parameters": "매개변수",
+    "apiDocs.name": "이름",
+    "apiDocs.location": "위치",
+    "apiDocs.type": "유형",
+    "apiDocs.description": "설명",
+    "apiDocs.required": "필수",
+    "apiDocs.responses": "응답",
+    "apiDocs.download": "OpenAPI JSON 다운로드",
+    "apiDocs.intro": "엔드포인트와 스키마를 살펴보고 요청 예제를 복사할 수 있습니다.",
+    "apiDocs.search": "엔드포인트 찾기",
+    "apiDocs.searchPlaceholder": "메서드, 경로 또는 설명 검색",
+    "apiDocs.noResults": "일치하는 엔드포인트가 없습니다.",
+    "apiDocs.sampleNote": "모든 예제는 실제 데이터가 아닌 샘플입니다. 사용 전에 ID와 YOUR_API_TOKEN을 바꾸세요. 복사만으로 요청이 전송되지는 않습니다. 쓰기 명령을 실행하면 데이터가 변경됩니다. 백업 가져오기에는 직접 내보낸 backup.json 파일을 사용하세요.",
+    "dashboard.pagination": "페이지 이동",
+    "dashboard.pagePosition": "{pages}페이지 중 {page}페이지",
+    "dashboard.pageSize": "페이지당 항목",
+    "smtp.authHelp": "사용자 이름을 비우면 SMTP 인증을 사용하지 않고 저장된 비밀번호도 삭제합니다. 사용자 이름을 입력한 경우 비밀번호를 비워 두면 저장된 비밀번호를 유지합니다.",
+
+    "artifact.visibility.public": "전체 공개",
+    "artifact.visibility.help": "팀 공개는 로그인이 필요합니다. 전체 공개는 서버가 퍼블릭 모드일 때만 익명 열람을 허용합니다. 서버가 프라이빗 모드이면 로그인과 접근 권한이 항상 필요합니다.",
+    "theme.label": "화면 테마",
+    "theme.system": "시스템",
+    "theme.light": "라이트",
+    "theme.dark": "다크",
+
+    "smtp.invalidSettings": "호스트, 포트, TLS 방식과 보내는 주소를 확인하세요.",
+    "smtp.title": "이메일 / SMTP",
+    "smtp.settings": "메일 발송 설정",
+    "smtp.help": "관리자가 초기화한 임시 비밀번호를 SMTP 서버로 발송합니다. 설정을 저장하는 것만으로 메일이 발송되지는 않습니다.",
+    "smtp.security": "저장된 SMTP 비밀번호는 암호화됩니다. TLS 연결이 필수이며 서버 인증서를 검증합니다.",
+    "smtp.enabled": "비밀번호 초기화 메일 발송 사용",
+    "smtp.host": "SMTP 호스트",
+    "smtp.port": "포트",
+    "smtp.tlsMode": "TLS 연결 방식",
+    "smtp.tls": "처음부터 TLS 연결",
+    "smtp.starttls": "STARTTLS (필수)",
+    "smtp.from": "보내는 이메일 주소",
+    "smtp.username": "사용자 이름",
+    "smtp.password": "SMTP 비밀번호",
+    "smtp.keepPassword": "비워 두면 저장된 비밀번호 유지",
+    "smtp.enterPassword": "SMTP 비밀번호 입력",
+    "smtp.restoreNote": "서버 암호화 키를 복구 자료와 함께 안전하게 보관하세요. 암호화된 인증 정보를 복원하려면 같은 키가 필요합니다.",
+    "smtp.save": "메일 설정 저장",
+    "smtp.saved": "메일 설정을 저장했습니다.",
+    "smtp.saveFailed": "메일 설정을 저장하지 못했습니다. 호스트, 포트, TLS 방식과 보내는 주소를 확인하세요.",
+    "smtp.mailStatus.sent": "SMTP 서버가 비밀번호 초기화 메일을 접수했습니다. 받은편지함 도착까지 확인된 것은 아닙니다.",
+    "smtp.mailStatus.failed": "메일 발송을 확인하지 못했습니다. 지금 임시 비밀번호를 복사해 해당 사용자에게 안전하게 전달하세요.",
+    "smtp.mailStatus.not-configured": "메일 발송이 설정되지 않았습니다. 지금 임시 비밀번호를 복사해 해당 사용자에게 안전하게 전달하세요.",
+    "smtp.resetSubject": "Artifacty 임시 비밀번호 안내",
+    "smtp.resetBody": "계정: {email}\n임시 비밀번호: {password}\nArtifacty에 로그인한 뒤 비밀번호를 변경하세요.",
+
+    "users.resetPassword": "비밀번호 초기화",
+    "users.resetFor": "{email}의 비밀번호 초기화",
+    "users.resetReady": "임시 비밀번호 생성됨",
+    "users.resetAccount": "계정: {email}",
+    "users.resetHelp": "지금 임시 비밀번호를 복사하세요. 이 화면에서 한 번만 표시됩니다. 기존 세션은 종료되었습니다. 사용자는 이 비밀번호로 로그인한 뒤 비밀번호를 변경해야 합니다.",
+
+    "access.previewTitle": "접근 모드 미리보기",
+    "access.backToSettings": "접근 설정으로 돌아가기",
+    "access.previewAnonymous": "이 화면은 로그인하지 않은 방문자에게 보이는 내용을 보여 줍니다. 로그인한 사용자나 팀의 권한을 재현하지 않습니다.",
+    "access.previewUnsaved": "설정은 저장되지 않았습니다. 이 모드를 적용하려면 접근 설정으로 돌아가세요. 미리보기에서는 아티팩트 링크가 비활성화됩니다.",
+    "access.previewListCount": "로그인하지 않은 방문자에게 보이는 아티팩트 {total}개 중 {shown}개를 표시합니다.",
+    "access.previewSignIn": "로그인 필요",
+    "access.previewPrivate": "프라이빗 모드에서는 로그인하지 않은 방문자가 대시보드를 열 수 없습니다. 로그인한 사용자는 부여된 권한에 따라 아티팩트를 볼 수 있습니다.",
+
+    "users.lastAdmin": "활성 관리자 계정이 최소 한 개는 있어야 합니다.",
+    "users.roleFor": "{email}의 역할",
+    "users.saveRoleFor": "{email}의 역할 저장",
+    "users.saveRole": "저장",
+    "users.invalidRole": "사용자 또는 관리자를 선택하세요.",
+
+    "languageAdmin.template": "번역 템플릿 다운로드",
+    "languageAdmin.templateHelp": "언어 코드와 해당 언어로 쓴 이름을 변경하고 문구를 번역한 뒤, 아래에 JSON을 붙여 넣으세요.",
+    "languageAdmin.tooLarge": "번역 팩은 512 KiB를 넘을 수 없습니다.",
+    "languageAdmin.invalidJson": "올바른 JSON 번역 팩을 입력하세요.",
+    "retention.artifactsSection": "아티팩트 보관 기간",
+    "retention.typeRulesSection": "아티팩트 유형별 규칙",
+    "retention.historySection": "감사 로그와 이벤트 기록",
+
+    "language.label": "언어",
+    "language.apply": "적용",
+    "languageAdmin.title": "언어 관리",
+    "languageAdmin.settings": "언어 설정",
+    "languageAdmin.enabled": "활성 언어",
+    "languageAdmin.default": "기본 언어",
+    "languageAdmin.defaultHelp": "기본 언어는 활성 언어 중에서 선택하세요. 방문자는 활성화된 다른 언어를 선택할 수 있습니다.",
+    "languageAdmin.save": "언어 설정 저장",
+    "languageAdmin.import": "번역 팩 가져오기",
+    "languageAdmin.pack": "번역 팩 JSON",
+    "languageAdmin.importHelp": "locale, nativeName, messages를 포함한 JSON 객체를 붙여 넣으세요. 최대 크기는 512 KiB입니다. 일부 문구만 번역해도 되며 누락된 문구는 영어로 표시됩니다. {count} 같은 치환 변수는 그대로 유지하세요.",
+    "languageAdmin.disabledHelp": "새로 가져온 언어는 비활성 상태로 등록됩니다. 준비가 되면 위에서 활성화하세요.",
+
+    "media.unavailable": "올바른 base64 미디어 콘텐츠가 없어 미리보기를 표시할 수 없습니다.",
+    "media.image": "이미지 아티팩트",
+    "media.encoding": "인코딩: {encoding}",
+    "media.source": "원본: {encoding}",
+    "inbox.type.shared-with-me": "나에게 공유됨",
+    "inbox.type.comment": "새 댓글",
+    "inbox.type.new-version": "새 버전",
+    "inbox.type.review-requested": "검토 요청",
+
+    "auth.invalidCredentials": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    "password.mismatch": "새 비밀번호와 확인 비밀번호가 일치하지 않습니다.",
+    "password.changed": "비밀번호가 변경되었습니다.",
+    "viewer.filter": "필터",
+    "viewer.filterColumn": "{column}열 필터",
+    "viewer.ruleFilter": "규칙 ID로 필터",
+    "viewer.rowsShown": "전체 {total}행 중 {visible}행 표시",
+    "viewer.resultsShown": "전체 {total}개 결과 중 {visible}개 표시",
+    "csv.empty": "CSV 아티팩트가 비어 있습니다.",
+    "csv.error": "CSV를 해석하지 못했습니다: {error}. 원본을 텍스트로 표시합니다.",
+    "csv.column": "열 {column}",
+    "csv.rows": "데이터 {count}행",
+    "csv.columns": "{count}열",
+    "csv.firstRows": "처음 {count}행 표시",
+    "csv.firstColumns": "처음 {count}열 표시",
+    "sarif.invalid": "올바른 SARIF JSON이 아닙니다. 원본을 텍스트로 표시합니다.",
+    "sarif.shape": "SARIF 최상위 구조와 일치하지 않는 JSON입니다. 서식을 정리한 JSON을 표시합니다.",
+    "sarif.first": "전체 {total}개 결과 중 처음 {count}개를 표시합니다.",
+    "sarif.results": "결과 {count}개.",
+    "sarif.runs": "실행",
+    "sarif.resultsTitle": "결과",
+    "sarif.errors": "오류",
+    "sarif.warnings": "경고",
+    "sarif.notes": "참고",
+    "sarif.level": "수준",
+    "sarif.rule": "규칙",
+    "sarif.message": "메시지",
+    "sarif.location": "위치",
+    "sarif.tool": "도구",
+    "sarif.raw": "원본 SARIF JSON",
+    "react.disabled": "React 렌더링이 비활성화되어 있습니다. 샌드박스 프레임에서 실행하려면 ARTIFACTY_ENABLE_REACT_RENDERER=true로 설정하세요.",
+    "notebook.cells": "전체 {total}개 셀 중 처음 {count}개를 표시합니다.",
+    "notebook.outputs": "전체 {total}개 출력 중 처음 {count}개를 표시합니다.",
+    "notebook.unsupported": "지원하지 않는 출력 형식: {type}",
+    "notebook.image": "노트북 출력 이미지",
+    "notebook.truncated": "출력이 생략되었습니다. {size}바이트로 2 MB 제한을 초과합니다.",
+
+    "versions.manage": "버전 관리",
+    "ui.version": "버전",
+    "ui.created": "생성일",
+    "ui.bytes": "바이트",
+    "ui.action": "작업",
+    "ui.reason": "사유",
+    "ui.delete": "삭제",
+    "versions.view": "버전 보기",
+    "versions.repair": "버전 복구",
+    "ui.email": "이메일",
+    "ui.name": "이름",
+    "ui.password": "비밀번호",
+    "ui.revoke": "폐기",
+    "account.newToken": "새 API 토큰",
+    "account.profile": "프로필",
+    "account.createToken": "토큰 만들기",
+    "account.tokens": "API 토큰",
+    "ui.lastUsed": "마지막 사용",
+    "ui.status": "상태",
+    "account.noTokens": "API 토큰이 없습니다.",
+    "ui.title": "제목",
+    "ui.updated": "수정일",
+    "ui.none": "없습니다.",
+    "password.title": "비밀번호 변경",
+    "password.submit": "비밀번호 변경",
+    "password.current": "현재 비밀번호",
+    "password.new": "새 비밀번호",
+    "password.confirm": "비밀번호 확인",
+    "backup.status": "저장소 상태",
+    "backup.home": "저장소 경로",
+    "backup.bytes": "콘텐츠 크기(바이트)",
+    "backup.integrity": "무결성",
+    "backup.download": "백업 다운로드",
+    "backup.restore": "백업 복원",
+    "backup.json": "백업 JSON",
+    "users.importResults": "가져오기 결과",
+    "ui.role": "역할",
+    "users.resetRequired": "변경 필요",
+    "users.temporaryPassword": "임시 비밀번호",
+    "users.skipped": "건너뜀",
+    "users.failed": "실패",
+    "ui.row": "행",
+    "ui.error": "오류",
+    "users.create": "사용자 만들기",
+    "users.importTitle": "CSV에서 사용자 가져오기",
+    "users.import": "사용자 가져오기",
+    "users.existing": "기존 사용자",
+    "import.generic": "일반",
+    "login.setupHelp": "아직 사용자가 없습니다. 첫 번째 계정은 관리자가 됩니다.",
+    "account.copyToken": "지금 토큰을 복사하세요. Artifacty는 해시만 저장하므로 이 토큰을 다시 표시할 수 없습니다.",
+    "password.required": "계속하려면 비밀번호를 변경해야 합니다.",
+    "users.csvHelp": "열 이름은 email, name, role, password, password_reset_required를 사용하세요. 비밀번호를 비워 두면 자동으로 생성되며 첫 로그인 시 변경해야 합니다.",
+    "login.setup": "관리자 계정 만들기",
+    "login.create": "관리자 만들기",
+    "ui.never": "사용한 적 없음",
+    "ui.active": "활성",
+    "ui.disabled": "비활성",
+    "ui.disable": "비활성화",
+    "ui.enable": "활성화",
+    "ui.yes": "예",
+    "ui.no": "아니요",
+    "users.provided": "CSV에서 지정함",
+    "users.requirePassword": "비밀번호 변경 요구",
+    "account.tokenName": "토큰 이름",
+    "backup.ok": "정상",
+    "backup.attention": "확인 필요",
+    "versions.content": "v{version} 콘텐츠",
+    "users.summary": "생성 {created}명, 건너뜀 {skipped}명, 실패 {failed}명.",
+    "backup.complete": "복원이 완료되었습니다. 아티팩트 {count}개를 가져왔습니다",
+    "ui.role.user": "사용자",
+    "ui.role.admin": "관리자",
+    "backup.integrityHelp": "이전하기 전에 artifacty integrity 명령을 실행하세요. 현재 백업에는 참조된 버전 파일 중 읽을 수 있는 파일만 포함됩니다.",
+    "backup.exportHelp": "아티팩트 메타데이터와 버전 콘텐츠를 하나의 JSON 묶음으로 내보냅니다. 전체 범위에는 사용자, API 토큰, 감사 기록, 관계, 웹훅도 포함됩니다. 비밀 키는 포함되지 않으므로 복원 후 다시 발급해야 합니다.",
+    "backup.restoreHelp": "복원하면 서버의 아티팩트 기록과 버전 파일이 백업 내용으로 교체됩니다. 아티팩트 전용 백업은 사용자, 세션, API 토큰, 감사 로그를 변경하지 않습니다. 전체 백업은 사용자, API 토큰, 감사 기록, 관계, 웹훅도 교체합니다. 가져온 웹훅은 비활성화되므로 비밀 키를 다시 발급해야 합니다. 복원 동의 항목을 선택하세요. 기존 계정이 있는 서버에 전체 백업을 복원할 때만 사용자 교체 항목도 선택하세요.",
+
     "update.releaseNotes": "변경 내용 보기",
     "update.checkFailed": "최신 버전을 확인하지 못했습니다. 다시 확인해 주세요.",
     "update.checkAgain": "업데이트를 진행하려면 다시 확인하여 새 동의 화면을 여세요.",
@@ -344,7 +825,7 @@ const TRANSLATIONS = {
     "update.backup": "선택한 버전을 설치하기 전에 백업을 만듭니다. 서버가 잠시 중지된 뒤 다시 시작됩니다. 이 화면을 열어 두면 다시 연결합니다.",
     "update.manual": "다른 방식으로 설치했다면 해당 설치 방식의 업데이트 안내를 따라 주세요.",
     "update.unsupported": "이 설치 환경에서는 브라우저에서 업데이트할 수 없습니다.",
-    "update.current": "현재 최신 버전입니다.",
+    "update.current": "최신 버전입니다.",
     "update.confirm": "저장소를 백업하고 서버를 다시 시작하여 이 버전을 설치하는 데 동의합니다.",
     "update.start": "백업 후 업데이트",
     "update.progress": "업데이트 상태",
@@ -662,23 +1143,25 @@ const TRANSLATIONS = {
 
 export function resolveLocale(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  if (SUPPORTED_LOCALES.includes(normalized)) {
+  if (enabledLocales().includes(normalized)) {
     return normalized;
   }
-  return DEFAULT_LOCALE;
+  return defaultLocale();
 }
 
 export function localeFromUrl(url) {
-  return resolveLocale(url.searchParams.get("lang") || process.env.ARTIFACTY_LOCALE);
+  return resolveLocale(url.searchParams.get("lang") || (languageContext.getStore() ? defaultLocale() : process.env.ARTIFACTY_LOCALE));
 }
 
 export function localeFromBodyOrUrl(body = {}, url) {
-  return resolveLocale(body.lang || url.searchParams.get("lang") || process.env.ARTIFACTY_LOCALE);
+  return resolveLocale(body.lang || url.searchParams.get("lang") || (languageContext.getStore() ? defaultLocale() : process.env.ARTIFACTY_LOCALE));
 }
 
-export function createI18n(locale = DEFAULT_LOCALE) {
+export function createI18n(locale = defaultLocale()) {
   const resolved = resolveLocale(locale);
-  const messages = TRANSLATIONS[resolved] || TRANSLATIONS[DEFAULT_LOCALE];
+  const messages = TRANSLATIONS[resolved]
+    || languageContext.getStore()?.packs.find((pack) => pack.locale === resolved)?.messages
+    || TRANSLATIONS[DEFAULT_LOCALE];
 
   return {
     locale: resolved,
@@ -691,7 +1174,7 @@ export function createI18n(locale = DEFAULT_LOCALE) {
 
 export function localizedHref(href, locale) {
   const resolved = resolveLocale(locale);
-  if (resolved === DEFAULT_LOCALE) {
+  if (resolved === DEFAULT_LOCALE && defaultLocale() === DEFAULT_LOCALE) {
     return stripLocale(href);
   }
   const url = new URL(href, "http://artifacty.local");
@@ -700,7 +1183,10 @@ export function localizedHref(href, locale) {
 }
 
 export function switchLocaleHref(currentPath, locale) {
-  return localizedHref(currentPath || "/", locale);
+  const url = new URL(currentPath || "/", "http://artifacty.local");
+  // An explicit English choice must override a saved preference or server default.
+  url.searchParams.set("lang", resolveLocale(locale));
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 export function editorMessages(locale = DEFAULT_LOCALE) {

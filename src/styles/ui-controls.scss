@@ -1,0 +1,63 @@
+// Artifacty control layer: official Bootstrap components only; no Reboot or layout reset.
+@import "bootstrap/scss/functions";
+$primary: #315ca8;
+$secondary: #58616e;
+$danger: #b42332;
+$font-family-sans-serif: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+$font-size-base: .875rem;
+$border-radius: .375rem;
+$input-btn-font-size: .8125rem;
+$input-btn-padding-y: .4375rem;
+$input-btn-padding-x: .75rem;
+$btn-font-weight: 500;
+$btn-white-space: nowrap;
+$input-btn-focus-width: .1875rem;
+$input-btn-focus-color-opacity: .2;
+$enable-shadows: false;
+@import "bootstrap/scss/variables";
+@import "bootstrap/scss/variables-dark";
+@import "bootstrap/scss/maps";
+@import "bootstrap/scss/mixins";
+@import "bootstrap/scss/root";
+@import "bootstrap/scss/forms";
+@import "bootstrap/scss/buttons";
+@import "bootstrap/scss/button-group";
+
+:root, [data-bs-theme="dark"] {
+  --bs-body-font-family: #{$font-family-sans-serif};
+  --bs-body-color: var(--text, #20242b);
+  --bs-body-bg: var(--panel, #fff);
+  --bs-secondary-color: var(--muted, #58616e);
+  --bs-border-color: var(--line-2, #b9c1cc);
+  --bs-secondary-bg: var(--panel-2, #eef0f3);
+}
+.btn { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: .375rem; }
+.btn[hidden] { display: none !important; }
+.form-control, .form-select { min-height: 38px; font-family: var(--bs-body-font-family); }
+.form-control::placeholder { color: var(--muted, #58616e); opacity: .85; }
+.form-control:focus, .form-select:focus { border-color: var(--accent, #315ca8); }
+.btn-outline-secondary, .btn-ghost {
+  --bs-btn-color: var(--text, #20242b);
+  --bs-btn-border-color: var(--line, #dfe3e8);
+  --bs-btn-hover-color: var(--text, #20242b);
+  --bs-btn-hover-bg: var(--panel-2, #eef0f3);
+  --bs-btn-hover-border-color: var(--line-2, #b9c1cc);
+  --bs-btn-active-color: var(--text, #20242b);
+  --bs-btn-active-bg: var(--panel-2, #eef0f3);
+  --bs-btn-active-border-color: var(--line-2, #b9c1cc);
+  --bs-btn-disabled-color: var(--muted, #58616e);
+  --bs-btn-disabled-border-color: var(--line, #dfe3e8);
+  --bs-btn-focus-shadow-rgb: 49, 92, 168;
+}
+.btn-ghost { --bs-btn-border-color: transparent; }
+[data-bs-theme="dark"] .btn-outline-danger {
+  --bs-btn-color: #ff9ba5;
+  --bs-btn-border-color: #73404a;
+  --bs-btn-hover-bg: #93313e;
+  --bs-btn-hover-border-color: #93313e;
+}
+.btn:focus-visible { outline: 2px solid var(--ring, #315ca8); outline-offset: 2px; }
+@media (pointer: coarse) {
+  .btn, .form-control, .form-select { min-height: 44px; }
+}
+form[data-auto-apply] [hidden] { display: none !important; }

@@ -1,0 +1,52 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { startServer } from "../src/server.js";
+import { createUser, createSession, createApiToken } from "../src/lib/storage.js";
+
+test("admin password reset shows a one-time secret, revokes browser sessions, and requires a new password", async (t) => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-password-reset-"));
+  const app = await startServer({ home, port: 0 });
+  t.after(async () => { await app.close(); await rm(home, { recursive: true, force: true }); });
+  const admin = await createUser(app.store, { email: "admin@example.com", name: "Admin", password: "password-123", role: "admin" });
+  const member = await createUser(app.store, { email: "member@example.com", name: "Member", password: "password-456", role: "user" });
+  const cookie = `artifacty_session=${(await createSession(app.store, admin.id)).token}`;
+  const memberCookie = `artifacty_session=${(await createSession(app.store, member.id)).token}`;
+  const token = (await createApiToken(app.store, member.id, { name: "Existing MCP", scopes: ["read"] })).token;
+  const reset = (headers = {}, id = member.id) => fetch(`${app.url}/admin/users/${id}/reset-password`, { method: "POST", redirect: "manual", headers: { cookie, origin: app.url, "content-type": "application/x-www-form-urlencoded", ...headers }, body: "lang=ko" });
+  for (const headers of [{ cookie: "" }, { cookie: memberCookie }, { cookie: "", authorization: `Bearer ${token}` }, { origin: "" }, { origin: "http://localhost:1" }, { origin: "https://evil.example" }]) {
+    assert.ok([401, 403].includes((await reset(headers)).status));
+  }
+  const response = await reset();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const page = await response.text();
+  assert.match(page, /<html lang="ko">/);
+  assert.match(page, /member@example\.com/);
+  const temporaryPassword = /tmp_[A-Za-z0-9_-]+/.exec(page)?.[0];
+  assert.ok(temporaryPassword);
+  assert.ok(!(response.headers.get("set-cookie") || "").includes(temporaryPassword));
+  const reload = await fetch(`${app.url}/admin/users`, { headers: { cookie } });
+  assert.ok(!(await reload.text()).includes(temporaryPassword));
+  const oldSession = await fetch(`${app.url}/account`, { headers: { cookie: memberCookie }, redirect: "manual" });
+  assert.equal(oldSession.status, 303);
+  assert.match(oldSession.headers.get("location"), /login/);
+  const login = (password) => fetch(`${app.url}/login`, { method: "POST", redirect: "manual", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ email: member.email, password }) });
+  assert.equal((await login("password-456")).status, 401);
+  const temporaryLogin = await login(temporaryPassword);
+  assert.equal(temporaryLogin.status, 303);
+  assert.equal(temporaryLogin.headers.get("location"), "/account/password?required=1");
+  const newCookie = temporaryLogin.headers.getSetCookie().find((item) => item.startsWith("artifacty_session=")).split(";")[0];
+  const forced = await fetch(`${app.url}/admin/users`, { headers: { cookie: newCookie }, redirect: "manual" });
+  assert.equal(forced.headers.get("location"), "/account/password?required=1");
+  assert.equal((await fetch(`${app.url}/api/artifacts`, { headers: { authorization: `Bearer ${token}` } })).status, 200);
+  const changed = await fetch(`${app.url}/account/password`, { method: "POST", headers: { cookie: newCookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ currentPassword: temporaryPassword, newPassword: "replacement-password-789", confirmPassword: "replacement-password-789" }) });
+  assert.equal(changed.status, 200);
+  assert.equal((await fetch(`${app.url}/account`, { headers: { cookie: newCookie }, redirect: "manual" })).status, 200);
+  const self = await reset({}, admin.id);
+  assert.equal(self.status, 200);
+  assert.match(await self.text(), /tmp_[A-Za-z0-9_-]+/);
+  assert.equal((await fetch(`${app.url}/account`, { headers: { cookie }, redirect: "manual" })).status, 303);
+});

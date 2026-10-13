@@ -81,9 +81,9 @@ export function eventFromAudit(auditRow = {}) {
  * True when `event` is visible to `access`. Mirrors storage.js's
  * canReadArtifactMeta: a falsy `access` means an internal/trusted caller
  * (or single-user mode) and always sees everything; otherwise a
- * private-visibility event is only visible to its owner or an admin.
- * Events with no recorded visibility (not tied to a private artifact, or
- * predating this field) are always visible.
+ * public events allow anonymous readers, team events require a user, and
+ * private events require their owner or an admin. Legacy events without a
+ * visibility field use team semantics.
  */
 export function eventVisibleTo(event, access) {
   if (!event) {
@@ -95,7 +95,7 @@ export function eventVisibleTo(event, access) {
   if (access.role === "admin") {
     return true;
   }
-  if (event.visibility !== "private") {
+  if (event.visibility === "public" || (event.visibility !== "private" && Boolean(access.userId))) {
     return true;
   }
   return Boolean(access.userId) && access.userId === event.ownerUserId;

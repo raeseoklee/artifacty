@@ -100,7 +100,7 @@ const nativeArtifactInputSchema = {
     visibility: {
       type: "string",
       enum: VISIBILITY_VALUES,
-      description: "'team' (default) is visible to any authenticated user; 'private' is visible only to the owner and admins."
+      description: "In public server mode, 'public' allows anonymous reading, 'team' (default) requires a signed-in user, and 'private' is owner/admin only. Private server mode always requires owner/admin or explicit sharing."
     },
     relations: relationsInputSchema
   },
@@ -264,7 +264,7 @@ const tools = [
         visibility: {
           type: "string",
           enum: VISIBILITY_VALUES,
-          description: "'team' (default) is visible to any authenticated user; 'private' is visible only to the owner and admins. Prefer artifacty_set_visibility to change visibility on its own."
+          description: "In public server mode, 'public' allows anonymous reading, 'team' (default) requires a signed-in user, and 'private' is owner/admin only. Private server mode always requires owner/admin or explicit sharing. Prefer artifacty_set_visibility to change visibility on its own."
         },
         relations: relationsInputSchema
       },
@@ -280,7 +280,7 @@ const tools = [
   {
     name: "artifacty_set_visibility",
     title: "Set Artifact Visibility",
-    description: "Change an artifact's visibility between 'team' and 'private'. Requires the artifact's owner or an admin.",
+    description: "Change an artifact's visibility to 'public', 'team', or 'private'. Requires the artifact's owner or an admin.",
     inputSchema: {
       type: "object",
       properties: {

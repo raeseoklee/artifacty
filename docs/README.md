@@ -4,11 +4,17 @@ English | [한국어](ko/README.md)
 
 Start with the [project README](../README.md) for installation, features, CLI commands, and environment variables.
 
+## Browser language
+
+Administrators enable installed languages and choose the default at `/admin/languages`. Enabled URL choices take priority over the browser cookie, then the saved default. Before settings are saved, the initial default comes from `ARTIFACTY_LOCALE` or English. Disabled choices and `Accept-Language` are ignored. See [language packs](language-packs.md) for imports and fallback rules. UI translations do not translate commands, API/MCP identifiers, or stored artifact content.
+
 ## User and operator guides
 
 | Document | English | 한국어 |
 | --- | --- | --- |
 | Installation and feature reference | [README](../README.md) | [README](../README.ko.md) |
+| Language packs | [Guide](language-packs.md) | [언어 팩](ko/language-packs.md) |
+| SMTP and password reset | [Guide](smtp.md) | [SMTP와 비밀번호 재설정](ko/smtp.md) |
 | Agent integrations | [Guide](integrations.md) | [연동 안내](ko/integrations.md) |
 | Network sharing | [Guide](network-sharing.md) | [네트워크 공유](ko/network-sharing.md) |
 | Upgrade snapshots and recovery | [Guide](upgrade-backups.md) | [업데이트 백업과 복구](ko/upgrade-backups.md) |

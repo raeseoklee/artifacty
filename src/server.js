@@ -70,6 +70,8 @@ import {
   setArtifactVisibility,
   setReviewStatus,
   setUserActive,
+  setUserRole,
+  resetUserPassword,
   updateArtifact,
   VersionConflictError,
   verifyUserPassword
@@ -78,13 +80,16 @@ import { assertNetworkAccess, getNetworkPolicy, stageNetworkPolicy, getPendingNe
 import { getShareLinkPolicy, setShareLinkPolicy, createShareLink, listShareLinks, revokeShareLink, resolveShareLink } from "./lib/share-links.js";
 import { installSamples, removeSamples } from "./lib/samples.js";
 import { createWebUpdater } from "./lib/web-update.js";
+import { getLanguageSettings, saveLanguageSettings, importLanguagePack } from "./lib/language-settings.js";
+import { getSmtpSettings, getSmtpDeliveryConfig, saveSmtpSettings } from "./lib/smtp-settings.js";
+import { sendSmtpMail } from "./lib/smtp-client.js";
 import { MAX_BACKUP_BYTES, buildStoreBackup, exportStoreToString, importStoreBundle, importStoreFromString } from "./lib/backup.js";
 import { convertAgentArtifact, decodeMediaContent, mediaContentType } from "./lib/converters.js";
 import { createLineDiff, createStructuredDiff, diffFormatFor, resolveDiffView } from "./lib/diff.js";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, viewerClientFilePath } from "./lib/editor-assets.js";
 import { createEmbeddingProvider } from "./lib/embeddings.js";
 import { EVENT_TYPES, publish, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
-import { localeFromBodyOrUrl, localeFromUrl, localizedHref } from "./lib/i18n.js";
+import { createI18n, localeFromBodyOrUrl, localeFromUrl, localizedHref, enabledLocales, defaultLocale, runWithLanguageSettings, TRANSLATIONS } from "./lib/i18n.js";
 import { paginationJson } from "./lib/listing.js";
 import { buildOpenApiDocument, renderApiDocsHtml } from "./lib/openapi.js";
 import { getRetentionPolicy, runRetention, setRetentionPolicy, startRetentionSweep } from "./lib/retention.js";
@@ -112,7 +117,10 @@ import {
   renderAccountPage,
   renderAdminBackupPage,
   renderAdminAccessPage,
+  renderAccessModePreviewPage,
   renderAdminUpdatePage,
+  renderAdminLanguagesPage,
+  renderAdminEmailPage,
   renderArtifactSharingPage,
   renderSharedArtifactPage,
   renderInboxPage,
@@ -205,7 +213,7 @@ export async function startServer(options = {}) {
     allowPortFallback,
     createServer(port) {
       const candidateServer = http.createServer((request, response) => {
-        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security, mcpHttp, webUpdater }).catch((error) => {
+        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security, mcpHttp, webUpdater, smtpSender: options.smtpSender }).catch((error) => {
           sendError(response, error);
         });
       });
@@ -310,19 +318,65 @@ function closeServer(server) {
   });
 }
 
-export async function handleRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater }) {
+function isBrowserPath(pathname) {
+  return !/^\/(?:api(?:\/|$)|mcp(?:\/|$)|assets\/|vendor\/|health$|events$|openapi\.json$)/.test(pathname)
+    && !/\/(?:raw|react-frame|export)$/.test(pathname);
+}
+
+export async function handleRequest(args) {
+  const { request, store } = args;
   await assertNetworkAccess(store, request.socket.remoteAddress);
+  const pathname = decodeURIComponent(new URL(request.url, "http://artifacty.local").pathname);
+  if (!isBrowserPath(pathname)) return handleScopedRequest(args);
+  const settings = await getLanguageSettings(store);
+  return runWithLanguageSettings(settings, () => handleScopedRequest(args));
+}
+
+async function handleScopedRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater, smtpSender = sendSmtpMail }) {
   const url = new URL(request.url, `http://${request.headers.host || `${host}:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
   const baseUrl = `http://${host}:${port}`;
   const authToken = url.searchParams.get("token") || "";
-  const locale = localeFromUrl(url);
   const currentPath = `${url.pathname}${url.search}`;
+  const browserPage = isBrowserPath(pathname);
+  let locale = localeFromUrl(url);
+  if (browserPage) {
+    const explicit = url.searchParams.get("lang");
+    const cookie = parseCookies(request.headers.cookie).artifacty_locale;
+    const enabled = enabledLocales();
+    locale = enabled.includes(explicit) ? explicit
+      : enabled.includes(cookie) ? cookie : defaultLocale();
+    // Only this request-local URL changes. Keep the original path for links,
+    // and leave API and artifact bytes independent of browser preferences.
+    url.searchParams.set("lang", locale);
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("vary", "Cookie");
+    if (enabled.includes(explicit)) {
+      response.setHeader("set-cookie", `artifacty_locale=${explicit}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${request.socket.encrypted ? "; Secure" : ""}`);
+    }
+  }
   const headOnly = request.method === "HEAD";
   const method = headOnly ? "GET" : request.method;
 
   if (method === "GET" && pathname === "/assets/update.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "update.js"), headOnly, request);
+  }
+  if (method === "GET" && pathname === "/assets/theme.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "theme.js"), headOnly, request);
+  }
+  if (method === "GET" && pathname === "/assets/auto-apply.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "auto-apply.js"), headOnly, request);
+  }
+  if (method === "GET" && pathname === "/assets/sidebar.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "sidebar.js"), headOnly, request);
+  }
+  if (method === "GET" && pathname === "/assets/ui-controls.css") {
+    const content = await readFile(path.join(PACKAGE_ROOT, "src", "client", "ui-controls.css"), "utf8");
+    response.writeHead(200, { "content-type": "text/css; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
+    return response.end(headOnly ? undefined : content);
+  }
+  if (method === "GET" && pathname === "/assets/api-docs.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "api-docs.js"), headOnly, request);
   }
 
   const publicShareMatch = /^\/s\/([^/]+)(\/raw)?$/.exec(pathname);
@@ -382,7 +436,7 @@ export async function handleRequest({ request, response, store, host, port, secu
   }
 
   if (method === "GET" && pathname === "/docs/api") {
-    return sendHtml(response, renderApiDocsHtml({ baseUrl }), 200, headOnly);
+    return sendHtml(response, renderApiDocsHtml({ baseUrl, locale, currentPath: `${url.pathname}${url.search}${url.hash}` }), 200, headOnly);
   }
 
   const userCount = await countUsers(store);
@@ -403,6 +457,7 @@ export async function handleRequest({ request, response, store, host, port, secu
   if (method === "POST" && pathname === "/login") {
     await enforceRateLimit({ store, host, request, bucket: "auth" });
     const body = await readFormBody(request);
+    const bodyLocale = localeFromBodyOrUrl(body, url);
     const email = body.email;
     const password = body.password;
     const user = userCount === 0
@@ -417,13 +472,13 @@ export async function handleRequest({ request, response, store, host, port, secu
       return sendHtml(response, renderLoginPage({
         baseUrl,
         setup: false,
-        error: "Invalid email or password.",
-        locale,
+        error: createI18n(bodyLocale).t("auth.invalidCredentials"),
+        locale: bodyLocale,
         currentPath
       }), 401);
     }
     const session = await createSession(store, user.id);
-    return sendRedirect(response, user.passwordResetRequired ? "/account/password?required=1" : "/account", {
+    return sendRedirect(response, localizedHref(user.passwordResetRequired ? "/account/password?required=1" : "/account", bodyLocale), {
       "set-cookie": sessionCookie(session.token)
     });
   }
@@ -453,13 +508,14 @@ export async function handleRequest({ request, response, store, host, port, secu
       return sendRedirect(response, "/login");
     }
     const body = await readFormBody(request);
+    const bodyLocale = localeFromBodyOrUrl(body, url);
     if (body.newPassword !== body.confirmPassword) {
       return sendHtml(response, renderPasswordPage({
         baseUrl,
         user: currentUser,
         required: currentUser.passwordResetRequired,
-        error: "New password and confirmation do not match.",
-        locale,
+        error: createI18n(bodyLocale).t("password.mismatch"),
+        locale: bodyLocale,
         currentPath
       }), 400);
     }
@@ -471,8 +527,8 @@ export async function handleRequest({ request, response, store, host, port, secu
       return sendHtml(response, renderPasswordPage({
         baseUrl,
         user: updatedUser,
-        success: "Password changed.",
-        locale,
+        success: createI18n(bodyLocale).t("password.changed"),
+        locale: bodyLocale,
         currentPath
       }));
     } catch (error) {
@@ -553,6 +609,68 @@ export async function handleRequest({ request, response, store, host, port, secu
   }
 
   const browserAccess = accessContext(request, currentUser);
+  if (pathname === "/admin/email") {
+    if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
+    requireAdmin(currentUser);
+    const emailPage = async (extra = {}) => renderAdminEmailPage({
+      baseUrl, user: currentUser, locale, currentPath: "/admin/email", settings: await getSmtpSettings(store), ...extra
+    });
+    if (method === "GET") return sendHtml(response, await emailPage(), 200, headOnly);
+    if (method === "POST") {
+      assertSameOrigin(request);
+      await enforceRateLimit({ store, host, request, bucket: "write" });
+      const body = await readFormBody(request, 16 * 1024);
+      try {
+        await saveSmtpSettings(store, {
+          enabled: body.enabled === "on" || body.enabled === "true", host: body.host || "", port: Number(body.port),
+          tlsMode: body.tlsMode, username: body.username || "", from: body.from || "", password: body.password || ""
+        }, { access: browserAccess, audit: { surface: "web", actor: currentUser.email, userId: currentUser.id } });
+        return sendRedirect(response, localizedHref("/admin/email", localeFromBodyOrUrl(body, url)));
+      } catch (error) {
+        if (error.statusCode !== 400) throw error;
+        return sendHtml(response, await emailPage({ error: createI18n(locale).t("smtp.invalidSettings") }), 400);
+      }
+    }
+    return sendJson(response, { error: "Method not allowed" }, 405, headOnly);
+  }
+  if (["/admin/languages", "/admin/languages/import", "/admin/languages/template"].includes(pathname)) {
+    if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
+    requireAdmin(currentUser);
+    if (method === "GET" && pathname === "/admin/languages/template") {
+      response.setHeader("content-disposition", 'attachment; filename="artifacty-language-template.json"');
+      return sendJson(response, { locale: "en", nativeName: "English", messages: TRANSLATIONS.en }, 200, headOnly);
+    }
+    const renderLanguages = async (extra = {}) => renderAdminLanguagesPage({
+      baseUrl, user: currentUser, locale, currentPath: "/admin/languages",
+      settings: await getLanguageSettings(store), ...extra
+    });
+    if (method === "GET" && pathname === "/admin/languages") return sendHtml(response, await renderLanguages(), 200, headOnly);
+    if (method === "POST" && pathname !== "/admin/languages/template") {
+      assertSameOrigin(request);
+      await enforceRateLimit({ store, host, request, bucket: "write" });
+      try {
+        // URL encoding can use three bytes for each byte of the JSON text.
+        const body = await readFormBody(request, 3 * 512 * 1024 + 1024);
+        const options = { access: browserAccess, audit: { surface: "web", actor: currentUser.email, userId: currentUser.id } };
+        if (pathname.endsWith("/import")) {
+          if (Buffer.byteLength(String(body.pack || ""), "utf8") > 512 * 1024) {
+            throw Object.assign(new Error(createI18n(locale).t("languageAdmin.tooLarge")), { statusCode: 413 });
+          }
+          let pack;
+          try { pack = JSON.parse(body.pack); }
+          catch { throw Object.assign(new Error(createI18n(locale).t("languageAdmin.invalidJson")), { statusCode: 400 }); }
+          await importLanguagePack(store, pack, options);
+        } else {
+          await saveLanguageSettings(store, { defaultLocale: body.defaultLocale, enabledLocales: body.enabledLocales || [] }, options);
+        }
+        return sendRedirect(response, "/admin/languages");
+      } catch (error) {
+        if (![400, 413].includes(error.statusCode)) throw error;
+        return sendHtml(response, await renderLanguages({ error: error.message }), error.statusCode);
+      }
+    }
+    return sendJson(response, { error: "Method not allowed" }, 405, headOnly);
+  }
   if (["/admin/update", "/admin/update/status", "/admin/update/check", "/admin/update/start"].includes(pathname)) {
     if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
     requireAdmin(currentUser);
@@ -591,16 +709,23 @@ export async function handleRequest({ request, response, store, host, port, secu
     if (!currentUser) return sendRedirect(response, "/login");
     requireAdmin(currentUser);
     if (method === "GET" && pathname === "/admin/access") {
-      return sendHtml(response, await adminAccessPage(), 200, headOnly);
+      const selectedMode = url.searchParams.get("mode");
+      const preview = ["public", "private"].includes(selectedMode)
+        ? await previewAccessMode(store, selectedMode, { access: browserAccess }) : null;
+      return sendHtml(response, await adminAccessPage({ preview }), 200, headOnly);
     }
     if (method === "POST") {
       assertLocalOrigin(request);
+      if (pathname.startsWith("/admin/access")) assertSameOrigin(request);
       request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, config: security, currentUser });
       await enforceRateLimit({ store, host, request, bucket: "write" });
       const body = await readFormBody(request);
       const options = { access: browserAccess, audit: browserAudit, remoteAddress: request.socket.remoteAddress };
       if (pathname === "/admin/access/preview") {
-        return sendHtml(response, await adminAccessPage({ preview: await previewAccessMode(store, body.mode, options) }), 200, headOnly);
+        return sendHtml(response, renderAccessModePreviewPage({
+          baseUrl, user: currentUser, locale: localeFromBodyOrUrl(body, url), currentPath: "/admin/access/preview",
+          ...await previewAccessMode(store, body.mode, options)
+        }), 200, headOnly);
       } else if (pathname === "/admin/access") {
         await setAccessMode(store, body.mode, options);
       } else if (pathname === "/admin/access/network") {
@@ -808,6 +933,67 @@ export async function handleRequest({ request, response, store, host, port, secu
         locale,
         currentPath: "/admin/users"
       }), error.statusCode || 400);
+    }
+  }
+
+  const userPasswordResetMatch = /^\/admin\/users\/([^/]+)\/reset-password$/.exec(pathname);
+  if (userPasswordResetMatch && method === "POST") {
+    if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
+    requireAdmin(currentUser);
+    assertSameOrigin(request);
+    await enforceRateLimit({ store, host, request, bucket: "write" });
+    const body = await readFormBody(request);
+    const resetResult = await resetUserPassword(store, userPasswordResetMatch[1], {
+      access: browserAccess, audit: { surface: "web", actor: currentUser.email, userId: currentUser.id }
+    });
+    resetResult.mailStatus = "not-configured";
+    try {
+      const smtp = await getSmtpDeliveryConfig(store);
+      if (smtp.enabled) {
+        const messages = createI18n(localeFromBodyOrUrl(body, url));
+        await smtpSender(smtp, {
+          to: resetResult.user.email,
+          subject: messages.t("smtp.resetSubject"),
+          text: messages.t("smtp.resetBody", { email: resetResult.user.email, password: resetResult.temporaryPassword })
+        });
+        resetResult.mailStatus = "sent";
+      }
+    } catch {
+      // Reset already succeeded. Keep the one-time password available for
+      // manual delivery, including when SMTP acceptance is uncertain.
+      resetResult.mailStatus = "failed";
+    }
+    response.setHeader("cache-control", "no-store");
+    return sendHtml(response, renderAdminUsersPage({
+      baseUrl, user: currentUser, users: await listUsers(store), resetResult,
+      locale: localeFromBodyOrUrl(body, url), currentPath: "/admin/users"
+    }));
+  }
+
+  const userRoleMatch = /^\/admin\/users\/([^/]+)\/role$/.exec(pathname);
+  if (userRoleMatch && method === "POST") {
+    if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
+    requireAdmin(currentUser);
+    assertLocalOrigin(request);
+    if (request.headers.origin !== `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`) {
+      throw Object.assign(new Error("An exact same-origin request is required"), { statusCode: 403, code: "ROLE_ORIGIN_REQUIRED" });
+    }
+    await enforceRateLimit({ store, host, request, bucket: "write" });
+    const body = await readFormBody(request);
+    const bodyLocale = localeFromBodyOrUrl(body, url);
+    try {
+      await setUserRole(store, userRoleMatch[1], body.role, {
+        access: browserAccess, audit: { surface: "web", actor: currentUser.email, userId: currentUser.id }
+      });
+      const destination = userRoleMatch[1] === currentUser.id && body.role === "user" ? "/account" : "/admin/users";
+      return sendRedirect(response, localizedHref(destination, bodyLocale));
+    } catch (error) {
+      if (![400, 409].includes(error.statusCode)) throw error;
+      return sendHtml(response, renderAdminUsersPage({
+        baseUrl, user: currentUser, users: await listUsers(store), locale: bodyLocale, currentPath: "/admin/users",
+        roleError: error.code === "LAST_ADMIN_REQUIRED" ? createI18n(bodyLocale).t("users.lastAdmin")
+          : error.code === "INVALID_USER_ROLE" ? createI18n(bodyLocale).t("users.invalidRole") : error.message
+      }), error.statusCode);
     }
   }
 
@@ -1932,7 +2118,7 @@ export async function readFormBody(request, limitBytes = MAX_ARTIFACT_BYTES + 10
   const params = new URLSearchParams(raw);
   const body = Object.fromEntries(params.entries());
   // Sharing checkboxes submit repeated keys; scalar form fields keep their existing shape.
-  for (const key of ["userIds", "teamIds"]) {
+  for (const key of ["userIds", "teamIds", "enabledLocales"]) {
     if (params.has(key)) body[key] = params.getAll(key);
   }
   return body;
@@ -1952,6 +2138,13 @@ export async function readBody(request, limitBytes) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+function assertSameOrigin(request) {
+  const expected = `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`;
+  if (request.headers.origin !== expected) {
+    throw Object.assign(new Error("An exact same-origin request is required"), { statusCode: 403, code: "SAME_ORIGIN_REQUIRED" });
+  }
 }
 
 export function assertLocalOrigin(request) {
@@ -2200,6 +2393,10 @@ function javascriptCorsHeaders(request) {
 }
 
 export function sendRedirect(response, location, headers = {}) {
+  const existingCookies = response.getHeader("set-cookie");
+  if (existingCookies && headers["set-cookie"]) {
+    headers = { ...headers, "set-cookie": [...[].concat(existingCookies), ...[].concat(headers["set-cookie"])] };
+  }
   response.writeHead(303, {
     location,
     "cache-control": "no-store",
@@ -2776,7 +2973,7 @@ function parseCookies(header) {
     const key = part.slice(0, index).trim();
     const value = part.slice(index + 1).trim();
     if (key) {
-      cookies[key] = decodeURIComponent(value);
+      try { cookies[key] = decodeURIComponent(value); } catch { /* Ignore malformed cookies. */ }
     }
   }
   return cookies;

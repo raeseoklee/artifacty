@@ -16,10 +16,10 @@ test("administrators switch access modes and owners grant users and teams access
       const session = await createSession(app.store, user.id);
       accounts[name] = { user, cookie: `artifacty_session=${session.token}` };
     }
-    const artifact = await createArtifact(app.store, { title: "Shared manual", format: "text", content: "First", ownerUserId: accounts.owner.user.id });
+    const artifact = await createArtifact(app.store, { title: "Shared manual", format: "text", content: "First", ownerUserId: accounts.owner.user.id, visibility: "public" });
     await updateArtifact(app.store, artifact.id, { content: "Second" });
     const get = (route, account) => fetch(`${app.url}${route}`, { redirect: "manual", headers: account ? { cookie: accounts[account].cookie } : {} });
-    const post = (route, account, body) => fetch(`${app.url}${route}`, { method: "POST", redirect: "manual", headers: { cookie: accounts[account].cookie, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body) });
+    const post = (route, account, body) => fetch(`${app.url}${route}`, { method: "POST", redirect: "manual", headers: { cookie: accounts[account].cookie, origin: app.url, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body) });
     assert.equal((await get("/")).status, 200);
     assert.equal((await get(`/artifacts/${artifact.id}/raw`)).status, 200);
     assert.equal((await get("/admin/access", "owner")).status, 403);
@@ -59,7 +59,7 @@ test("network policy administration validates ranges and gates every route using
   try {
     const admin = await createUser(app.store, { email: "admin@example.com", name: "Admin", role: "admin", password: "password-123" });
     const session = await createSession(app.store, admin.id);
-    const post = (allowedCidrs) => fetch(`${app.url}/admin/access/network`, { method: "POST", redirect: "manual", headers: { cookie: `artifacty_session=${session.token}`, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ allowedCidrs }) });
+    const post = (allowedCidrs) => fetch(`${app.url}/admin/access/network`, { method: "POST", redirect: "manual", headers: { cookie: `artifacty_session=${session.token}`, origin: app.url, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ allowedCidrs }) });
     assert.equal((await post("invalid/999")).status, 400);
     assert.equal((await post("192.0.2.0/24")).status, 400);
     assert.equal((await post("127.0.0.0/8")).status, 303);

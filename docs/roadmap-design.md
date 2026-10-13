@@ -12,8 +12,9 @@ Every feature follows these architecture rules:
 - Treat artifact content as untrusted.
 - Add no runtime dependency unless the section explicitly permits it.
 
-Status recorded on 2026-09-04: all sections below were implemented, and
-`STORE_VERSION` was `8`. The original planning text follows.
+Status recorded on 2026-09-04: the original sections 1–21 were implemented, and
+`STORE_VERSION` was `8`. Their original planning text follows. Section 22 is a
+new proposal deferred to the next version; it is not a current capability.
 
 Store schema changes increase `STORE_VERSION` (originally `4`). They use the
 existing `ensureColumn` / `CREATE TABLE IF NOT EXISTS` migration path. Older
@@ -42,6 +43,7 @@ stores upgrade on first access.
 19. [OpenAPI Specification](#19-openapi-specification)
 20. [MCP Protocol Refresh](#20-mcp-protocol-refresh)
 21. [Delivery Plan](#21-delivery-plan)
+22. [Optional Artifact Encryption at Rest — Planned](#22-optional-artifact-encryption-at-rest--planned)
 
 ---
 
@@ -987,3 +989,30 @@ If the artifact envelope changes, use a `v2` schema document. Increase
   check.
 - `/raw` always returns the stored bytes unchanged.
 - No generated MCP config hard-codes `http://127.0.0.1:8787`.
+
+
+---
+
+## 22. Optional Artifact Encryption at Rest — Planned
+
+**Status (2026-10-14): deferred to the next version. Design and implementation
+are pending.** This is a substantial storage change, not a current feature.
+Existing SMTP configuration encryption does not encrypt artifact data.
+
+An administrator should be able to opt in or turn encryption off. Each change
+must migrate the existing store between encrypted and plaintext states; a
+setting that affects only future writes is insufficient. The design must cover
+artifact/version blobs and bundle assets, metadata, and search indexes, including
+any retained plaintext copies or derived data. Cipher and storage choices remain
+open until the full design is reviewed.
+
+Before migration, create and verify a recovery backup and check available disk
+space. Hold an exclusive write lock across HTTP, CLI, MCP, and background writers.
+Verify file references, hashes, and database/index integrity before committing
+the new state. Define how failures and interrupted migrations recover without
+leaving a mixed or silently unreadable store.
+
+Keep encryption keys and recovery material separately secured. The design must
+specify key backup, restore to a new home, key-loss behavior, and whether disabling
+encryption leaves any recoverable plaintext or ciphertext copies. Review backup,
+retention, and recovery behavior before implementing the administrator control.

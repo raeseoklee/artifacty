@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createI18n, DEFAULT_LOCALE, SUPPORTED_LOCALES } from "../src/lib/i18n.js";
+import { createI18n, DEFAULT_LOCALE, SUPPORTED_LOCALES, switchLocaleHref } from "../src/lib/i18n.js";
+
+test("language switch links explicitly choose English and preserve page state", () => {
+  assert.equal(switchLocaleHref("/artifacts?q=hello&lang=ko#comments", "en"), "/artifacts?q=hello&lang=en#comments");
+  assert.equal(switchLocaleHref("/admin/update?lang=en", "ko"), "/admin/update?lang=ko");
+  assert.equal(switchLocaleHref(undefined, "en"), "/?lang=en");
+  assert.equal(switchLocaleHref("/?lang=ko", "unsupported"), "/?lang=en");
+});
 
 // Section 8 (Dashboard Filters and Saved Views) introduces filter, saved-view,
 // review-status, and grouping strings. This checks every key it added is
