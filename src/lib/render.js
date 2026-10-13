@@ -3346,7 +3346,7 @@ function mermaidFrameContent(content) {
       parent.postMessage({ __artifactyHeight: height }, "*");
     }
     try {
-      mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", layout: "dagre", theme: "default", look: "classic" });
       const result = await mermaid.render("artifacty-mermaid-svg", source);
       target.innerHTML = result.svg;
     } catch (error) {

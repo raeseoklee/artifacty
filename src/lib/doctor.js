@@ -9,7 +9,7 @@ import { securityConfig, validateServerExposure, exposureWarning } from "./secur
 import { serviceCommand } from "./service.js";
 import { checkStoreIntegrity, createStore } from "./storage.js";
 
-const MIN_NODE_VERSION = "22.5.0";
+const MIN_NODE_VERSION = "22.12.0";
 
 export async function runDoctor(options = {}) {
   const packageRoot = path.resolve(options.packageRoot || process.cwd());
