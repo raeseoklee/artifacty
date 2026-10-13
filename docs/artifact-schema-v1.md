@@ -1,6 +1,7 @@
 # Artifact Schema v1
 
-Artifacty schema v1 defines the stable envelope shared by HTTP, CLI, MCP, converters, and SQLite storage.
+Artifacty schema v1 defines the stable record structure for HTTP, CLI, MCP,
+converters, and SQLite storage.
 
 ## Artifact Record
 
@@ -45,45 +46,59 @@ Allowed `artifactType` values:
 - `table`
 - `unknown`
 
-Unknown legacy or external types should be mapped to `unknown`, not rejected during conversion. Native create/update rejects unsupported explicit types.
+Converters should map unknown legacy or external types to `unknown`. They should
+not reject those types. Native create and update operations reject unsupported
+explicit types.
 
 `sourceAgent` identifies the tool or model surface that produced the artifact,
 such as `codex` or `claude`. `publisherId` identifies who published it to the
-Artifacty store. For authenticated central servers this is the personal token
-owner's email; `publisherName` and `publisherUserId` are included when the
-server can map the request to a local user record. Legacy artifacts are
-best-effort backfilled from the first `create` or `import` audit actor.
+Artifacty store. On an authenticated central server, this is the personal token
+owner's email. If the server maps the request to a local user record, it also
+includes `publisherName` and `publisherUserId`. For legacy artifacts, the server
+tries to fill these fields from the first `create` or `import` audit actor.
 Known source-agent aliases are canonicalized before storage. For example,
 `claude-code`, `Claude Code`, and `anthropic` become `claude`;
 `github-copilot` becomes `copilot`; and `gemini-cli` becomes `gemini`.
 Existing `unknown` rows are upgraded only when version metadata, audit data, or
 source-agent tags provide one of the known agent identities.
 
-`visibility` is `"private"` or `"team"` (default `"team"`) and `ownerUserId`
-identifies the artifact's owner. Once any user account exists, `team`
-artifacts are readable and writable by any authenticated principal (writes
-can be restricted to the owner or an admin with `ARTIFACTY_TEAM_WRITE=owner`);
-`private` artifacts are readable and writable only by their owner or an
-admin. Archiving, restoring, and changing visibility or ownership always
-require the owner or an admin. In single-user mode (no user accounts) these
-checks do not apply. `ownerUserId` defaults to the creating user (from
-`publisherUserId`) and is backfilled the same way on migration for older
-rows. See the Security Model section of the README for the full rule table.
+`visibility` is `"private"` or `"team"` (default `"team"`). `ownerUserId`
+identifies the owner. In public site mode, `private` artifacts require the owner
+or an administrator through normal artifact routes. Anonymous browser visitors can read `team` artifacts.
+Authenticated principals can write them. API authentication requirements still
+apply. Set `ARTIFACTY_TEAM_WRITE=owner` to restrict these writes to the owner
+or an administrator.
+
+Private site mode requires a personal identity. Owners and administrators retain
+access. Other users need a direct or team grant with read, comment, or edit
+permission. Artifacty applies the strongest matching grant. Archiving, restoring,
+sharing, and changes to visibility or ownership require the owner or an
+administrator in both modes. Token scopes can further restrict access.
+
+Owner-created share links provide a separate read-only access path. In private
+site mode, these links require administrator opt-in. See
+[Public share links](threat-model.md#public-share-links-and-network-restrictions) for their expiry and revocation rules.
+
+In public mode with no user accounts, user access checks do not apply.
+`ownerUserId` defaults to the creating user, from `publisherUserId`. Migration
+uses the same rule to fill this field in older records. See the README Security
+Model section for the full rule table.
 
 `reviewStatus` is one of `none` (default), `pending`, `changes-requested`, or
-`approved`. It is set explicitly via `POST /api/artifacts/:id/review-status`
-(or `artifacty_set_review_status`, or `artifacty review-status`), which
-requires the artifact's owner or an admin, and resets to `pending`
-automatically — noted in that `update` audit row's metadata as
-`reviewStatusReset: { from: "approved", to: "pending" }` — whenever a new
-version is appended after an `approved` status.
+`approved`. The owner or an administrator can set it through
+`POST /api/artifacts/:id/review-status`, `artifacty_set_review_status`, or
+`artifacty review-status`.
+
+If a new version follows an `approved` version, Artifacty resets the status to
+`pending`. The `update` audit row records
+`reviewStatusReset: { from: "approved", to: "pending" }` in its metadata.
 
 ## Version Record
 
-Normal create and update flows append versions, and each version points at one
-content file. Administrator repair/delete actions are exceptional maintenance
-operations for correcting accidental or sensitive historical versions; they
-write `version-repair` or `version-delete` audit events.
+Normal create and update operations append versions. Each version points to one
+content file. Administrators can repair or delete historical versions to correct
+accidental or sensitive content. These exceptional maintenance operations write
+`version-repair` or `version-delete` audit events.
 
 ```json
 {
@@ -107,8 +122,8 @@ Common `artifactType` values include `document`, `handoff`, `code-review`,
 
 ## Renderer Policy
 
-Storage preserves artifact source as immutable content. Browser rendering is a
-viewer concern and must treat all source as untrusted:
+Storage preserves artifact source as immutable content. The browser viewer must
+treat all source as untrusted:
 
 - `code`: read-only CodeMirror viewer with escaped source fallback.
 - `svg`: scriptless sandboxed iframe after viewer-side sanitization; `/raw`
@@ -197,10 +212,10 @@ updated. `getArtifact` responses include:
 }
 ```
 
-`artifact` is a summary of the other side of the link, or `null` with
-`missing: true` when the target artifact no longer exists — a dangling
-relation is reported, not silently dropped. Self-links (`fromId === toId`) and
-relation names outside the closed set are rejected.
+`artifact` contains a summary of the linked artifact. If the target no longer
+exists, `artifact` is `null` and `missing` is `true`. The response keeps the
+dangling relation. Artifacty rejects self-links (`fromId === toId`) and relation
+names outside the closed set.
 
 `GET /api/artifacts` and `artifacty_list` accept `relatedTo=<id>` (and
 optionally `relation=<name>`) to restrict results to artifacts linked, in
@@ -233,23 +248,24 @@ Comments are lightweight, version-anchored notes stored in an
 ```
 
 - `version` defaults to the artifact's `latestVersion` when omitted.
-- `body` is Markdown, rendered through the same sanitized Markdown pipeline as
-  markdown-format artifact content, and capped at 16 KB (`MAX_COMMENT_BYTES`).
+- `body` is Markdown with a 16 KB limit (`MAX_COMMENT_BYTES`). The viewer uses
+  the same sanitized Markdown renderer as markdown-format artifacts.
 - `anchor` is optional and format-specific — `{ "line": 42 }` for text
   formats, `{ "path": "$.runs[0].results[3]" }` for JSON/SARIF, `{ "row": 7 }`
   for CSV — and is a rendering hint only, not validated against the
   artifact's actual content.
-- Threads are one level deep: `parentId`, when set, must point to a comment
-  that itself has no `parentId` (a root comment); replying to a reply is
-  rejected with `code: "THREAD_TOO_DEEP"`.
+- Threads are one level deep. If supplied, `parentId` must identify a root
+  comment, which has no `parentId`. A reply to another reply returns
+  `code: "THREAD_TOO_DEEP"`.
 - `status` is `"open"` or `"resolved"`, set via the resolve action
   (`resolvedAt`/`resolvedBy` are then populated).
-- Deleting a comment is a soft delete: `deletedAt` is set and the row is
-  hidden from `listComments`/`GET .../comments` by default (pass
-  `includeDeleted: true` to see it), but the comment row and its
-  `comment-delete` audit-log entry are both kept.
-- Comments on a `private` artifact are readable and writable under the same
-  owner/admin rules as the artifact itself (see Visibility above).
+- Comment deletion is a soft delete. Artifacty sets `deletedAt` and hides the
+  row from `listComments` and `GET .../comments` by default. Pass
+  `includeDeleted: true` to include it. Artifacty keeps the comment row and its
+  `comment-delete` audit entry.
+- Comment reads require access to the artifact. In private site mode, new
+  comments require comment or edit permission, or the owner or administrator
+  role. Comment grants allow users to resolve their own comments.
 - `author_label` is derived from the caller's audit context (the
   authenticated user's display name/email, falling back to the publisher id,
   the `sourceAgent`, or `"anonymous"`).
@@ -264,11 +280,16 @@ no HTTP equivalent flag — fetch `GET /api/artifacts/:id/comments` separately).
 
 ## Archive Semantics
 
-Artifacts are not deleted by P0 behavior. Archive sets `archivedAt` and hides the artifact from default list results. `includeArchived=true` includes archived records. Restore clears `archivedAt`. Regular archive/restore leaves versions and content files unchanged. Administrators may repair or delete individual versions from `/admin/artifacts/:id/versions`; the last remaining version cannot be deleted.
+Archive sets `archivedAt` and hides the artifact from default list results.
+Use `includeArchived=true` to include archived records. Restore clears
+`archivedAt`. Normal archive and restore operations do not delete artifacts or
+change version files. Administrators may repair or delete individual versions
+from `/admin/artifacts/:id/versions`. They cannot delete the last version.
 
 ## Bundle Format
 
-Bundles are JSON artifacts with `artifactType: "bundle"` and content type `application/vnd.artifacty.bundle+json; charset=utf-8`.
+Bundles are JSON artifacts with `artifactType: "bundle"`. Their content type is
+`application/vnd.artifacty.bundle+json; charset=utf-8`.
 
 ```json
 {
@@ -329,14 +350,16 @@ The viewer renders PDF entries in a sandboxed iframe (no `allow-same-origin`,
 no scripts) pointing at `GET /artifacts/:id/raw?file=<path>`; other document
 types show metadata and a download link to the same route. That route
 responds with the entry's `contentType`, `X-Content-Type-Options: nosniff`,
-`Cache-Control: private`, and `Content-Disposition: inline` for PDFs or
-`attachment` otherwise. It honors the same `access` rules as other artifact
-reads (private-artifact non-owners get 404), and returns 404 for an unknown
-`file` name.
+`Cache-Control: no-store`, and `Content-Disposition: inline` for PDFs or
+`attachment` otherwise. It applies the same `access` rules as other artifact
+reads. It returns 404 when the caller cannot read the artifact or the `file`
+name is unknown.
 
 ## Asset Policy
 
-Base64 assets are preserved inline inside bundle JSON with `encoding: "base64"`, `mimeType`, `sizeBytes`, and `sha256`. Consumers must treat decoded assets as untrusted.
+Bundle JSON preserves base64 assets inline. Each asset has `encoding: "base64"`,
+`mimeType`, `sizeBytes`, and `sha256`. Consumers must treat decoded assets as
+untrusted.
 
 First-class `image` and `video` artifacts store base64 content in the immutable
 version file. Importers should set `metadata.encoding: "base64"` and

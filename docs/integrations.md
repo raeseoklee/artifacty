@@ -8,7 +8,7 @@ Artifacty exposes one shared MCP stdio server and one local browser server.
 npm start
 ```
 
-The dashboard prefers `http://127.0.0.1:8787`. If that port is busy and no explicit port is configured, the server starts on the next available local port and records the actual URL in the store. The store defaults to `~/.artifacty`; set `ARTIFACTY_HOME` to share a different local directory.
+The dashboard prefers `http://127.0.0.1:8787`. If that port is busy and you did not configure a port, the server uses the next available local port. It records the actual URL in the store. The default store is `~/.artifacty`. To use a different local directory, set `ARTIFACTY_HOME`.
 
 Use a generated startup token when running a protected foreground server:
 
@@ -20,7 +20,7 @@ npm start -- --generate-token
 
 Foreground runs print the generated token with ready-to-open create and import URLs. Background runs return the same values in JSON.
 
-For prompt-friendly local background runs, use the lifecycle commands:
+To run the local server in the background, use these lifecycle commands:
 
 ```bash
 node src/cli.js serve --port 8787
@@ -29,13 +29,13 @@ node src/cli.js status
 node src/cli.js stop
 ```
 
-`serve`, `serve --detach`, and `start` use the same detached-process path. They write `server.pid`, `server.json`, and logs under `ARTIFACTY_HOME` (default `~/.artifacty`). `serve --generate-token` and `start --generate-token` generate the API token in the parent CLI process and return it in JSON along with ready-to-open create/import URLs. Use `serve --foreground` when you want attached logs for debugging.
+`serve`, `serve --detach`, and `start` use the same detached-process path. They write `server.pid`, `server.json`, and logs under `ARTIFACTY_HOME` (default `~/.artifacty`). With `--generate-token`, `serve` and `start` generate the API token in the parent CLI process. The JSON response contains the token and create/import URLs. To see attached logs during debugging, use `serve --foreground`.
 
 The lifecycle commands are intended to be cross-platform:
 
 - macOS and Linux: `stop` signals the detached process group first, then falls back to the server process id.
-- Windows: `start` hides the child console window, and `stop` uses `taskkill /PID <pid> /T`, falling back to `/F` when Windows requires forceful termination. `--force` uses `/F` immediately.
-- All platforms: `status` combines the managed pid file with the HTTP `/health` endpoint, so a stale pid alone is not reported as healthy.
+- Windows: `start` hides the child console window. `stop` uses `taskkill /PID <pid> /T`. If Windows requires forceful termination, `stop` retries with `/F`. `--force` uses `/F` immediately.
+- All platforms: `status` checks the managed PID file and the HTTP `/health` endpoint. A stale PID alone does not produce a healthy status.
 
 Run diagnostics when setup behaves unexpectedly:
 
@@ -52,7 +52,7 @@ Create artifacts directly in the browser at `http://127.0.0.1:8787/new`.
 
 For LAN or VPN sharing, keep the default local binding unless you intentionally need another machine to reach the server. See [network-sharing.md](network-sharing.md) before using `--host 0.0.0.0`.
 
-The browser create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, source-like text, SVG, Mermaid, React, SARIF, CSV, image, and video artifact editing. Editor and renderer assets are served from local npm dependencies through `/assets/*.js` and allowlisted `/vendor/npm/*` module routes. For sandboxed iframe imports, `Origin: null` requests receive `Access-Control-Allow-Origin: null`, which lets opaque-origin iframes import local ESM without `allow-same-origin`.
+The browser create/import/edit screens use CodeMirror 6. They support Markdown, HTML, JSON, source-like text, SVG, Mermaid, React, SARIF, CSV, image, and video artifacts. Artifacty serves editor and renderer assets from local npm dependencies. It uses `/assets/*.js` and allowlisted `/vendor/npm/*` module routes. For sandboxed iframe imports, `Origin: null` requests receive `Access-Control-Allow-Origin: null`. This lets opaque-origin iframes import local ESM without `allow-same-origin`.
 
 The browser UI defaults to English. Add `?lang=ko` to browser routes to use Korean UI labels; API and MCP payloads are not localized.
 
@@ -116,12 +116,12 @@ admin2@example.com,Admin Two,admin,temporary-password,true
 artifacty users import --file users.csv
 ```
 
-Rows without a password receive a generated temporary password. Generated
-passwords are shown only in the import result, and imported users must change
-their password before they can continue to `/account` and issue MCP/API tokens.
+If a row has no password, Artifacty generates a temporary password. It shows
+this password only in the import result. Imported users must change their
+password before they can open `/account` and issue MCP/API tokens.
 
-- Claude: writes project `.mcp.json`. Claude Code's startup timeout is controlled by the parent `MCP_TIMEOUT` environment variable and defaults to 30 seconds, so Artifacty does not add a per-server `.mcp.json` `timeout` field.
-- Codex: writes or replaces the `[mcp_servers.artifacty]` block in `~/.codex/config.toml` unless `--config` is provided. The generated block uses a 30 second startup timeout so slower Windows or cold-start environments can load the MCP server reliably.
+- Claude: writes project `.mcp.json`. The parent `MCP_TIMEOUT` environment variable controls the startup timeout. The default is 30 seconds. Artifacty does not add a per-server `.mcp.json` `timeout` field.
+- Codex: writes or replaces `[mcp_servers.artifacty]` in `~/.codex/config.toml`. To use another file, pass `--config`. The generated block uses a 30-second startup timeout for slower Windows or cold-start environments.
 - Gemini: writes project `.gemini/settings.json` with a 30 second timeout.
 - GitHub Copilot in VS Code: writes workspace `.vscode/mcp.json` using the VS Code `servers` shape. Pass `--config` to target a user-profile `mcp.json` instead.
 - Cursor: writes project `.cursor/mcp.json` using the Cursor `mcpServers` shape. Pass `--config ~/.cursor/mcp.json` for global Cursor setup.
@@ -129,7 +129,7 @@ their password before they can continue to `/account` and issue MCP/API tokens.
 - `--mcp-url <url>` installs stdio bridge mode for central Artifacty. If the URL has no path, `/mcp` is appended.
 - `--api-token <token>` is written into the generated MCP environment for bridge mode. For central servers, prefer a personal token issued from `/account`.
 - `--url <url>` remains a browser-link override and does not enable central MCP by itself.
-- `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change Claude Code startup behavior; set `MCP_TIMEOUT` before launching Claude Code if you need a larger value there.
+- `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change the Claude Code startup timeout. To increase that timeout, set `MCP_TIMEOUT` before launching Claude Code.
 - Do not use `artifacty install all --config <path>`. Each MCP client uses a
   different config file shape, so shared config overrides are rejected. Use
   `artifacty install <agent> --config <path>` only when targeting one agent.
@@ -163,9 +163,9 @@ artifacty install codex \
 | GitHub Copilot in VS Code | `.vscode/mcp.json` `servers` | workspace or user profile | client-managed | reload VS Code MCP server | tools are the primary tested surface |
 | Cursor | `.cursor/mcp.json` `mcpServers` | workspace or global | client-managed | restart/reload Cursor MCP | tools are the primary tested surface |
 
-All clients should support MCP tools. Resource and prompt display varies by
-client, so Artifacty's core workflows continue to work through tools even when a
-client does not expose resources or prompts in its UI.
+All clients should support MCP tools. Each client displays resources and
+prompts differently. Artifacty's core workflows use tools and still work when a
+client does not display resources or prompts.
 
 Generate a token for protected HTTP routes:
 
@@ -238,8 +238,8 @@ Markdown:
 
 For structured continuation payloads, use `artifacty_import` with `agent:
 "codex"`. Artifacty converts handoffs, file bundles, diff walkthroughs, code
-reviews, and verification reports into the shared schema while preserving
-changed files, commands, tests, blockers, and next steps in metadata.
+reviews, and verification reports into the shared schema. Metadata preserves
+changed files, commands, tests, blockers, and next steps.
 
 ## Gemini CLI
 
@@ -321,7 +321,7 @@ Supported converter inputs:
 - Gemini: `returnDisplay`, `llmContent`, text blocks, or local markdown/text/json files.
 - Generic: file extension, content type, HTML doctype/fragments, JSON shape, media data URLs, and markdown headings are used to infer format and title. Generic `text/plain` uploads are upgraded to a more specific format, such as `html`, when filename or content makes that clear.
 
-The converter canonicalizes source-agent aliases, adds `imported` and source-agent tags, preserves the raw content as an immutable Artifacty version, and records source details under `metadata.artifactyImport`. For example, `claude-code` and `Claude Code` are stored as `claude`.
+The converter normalizes source-agent aliases. For example, it stores `claude-code` and `Claude Code` as `claude`. It adds `imported` and source-agent tags. It preserves the raw content as an immutable Artifacty version and records source details under `metadata.artifactyImport`.
 
 Fixture examples for Copilot/Cursor PR review, screenshot, demo recording, and
 visual evidence bundle live under `test/fixtures/` and are covered by converter
@@ -356,7 +356,7 @@ tests.
 - `POST /admin/artifacts/:id/versions/:version/repair`: administrator-only replacement of one version's content and format.
 - `POST /admin/artifacts/:id/versions/:version/delete`: administrator-only deletion of one version. The last remaining version cannot be deleted.
 
-When `ARTIFACTY_API_TOKEN` is configured, `/api/*` routes require either `Authorization: Bearer <token>` or `x-artifacty-token: <token>`. When users exist, personal tokens issued from `/account` also authenticate API and MCP requests, set created artifacts' `publisherId` to the token owner's email, and map audit `actor` to the same identity. Browser forms can also carry `?token=<token>` in the URL, which is copied to hidden form fields for local team workflows.
+If `ARTIFACTY_API_TOKEN` is configured, `/api/*` routes require `Authorization: Bearer <token>` or `x-artifacty-token: <token>`. If users exist, personal tokens from `/account` also authenticate API and MCP requests. New artifacts record the token owner's email as `publisherId`. Audit entries use the same identity as `actor`. Browser forms can also accept `?token=<token>` in the URL. Artifacty copies the token to hidden form fields for local team workflows.
 
 Renderer notes:
 
@@ -388,7 +388,7 @@ node src/cli.js service uninstall --dry-run
 
 Use `--platform macos|linux|windows` when preparing a definition for another host. Use `--path` to choose the output path, or the platform-specific aliases `--plist`, `--unit`, and `--script`.
 
-The generated service runs `src/server.js` with explicit `--host` and `--home` arguments. It includes `--port` only when you configure a port, which keeps the default port fallback available. `--api-token`, `--share-mode`, and `--allow-secrets` are preserved in the generated definition when explicitly provided.
+The generated service runs `src/server.js` with explicit `--host` and `--home` arguments. If you configure a port, it also includes `--port`. Otherwise, the default port fallback remains available. If you provide `--api-token`, `--share-mode`, or `--allow-secrets`, the generated definition preserves those values.
 
 Activation is still delegated to the OS service manager:
 
@@ -396,7 +396,7 @@ Activation is still delegated to the OS service manager:
 - Linux: `sudo loginctl enable-linger $USER`, then `systemctl --user enable --now com.artifacty.server.service`
 - Windows: run the generated PowerShell script, which registers and starts the `ArtifactyServer` scheduled task.
 
-On Linux central servers, user services stop when the user's systemd manager exits unless lingering is enabled. Verify durable operation with `loginctl show-user $USER -p Linger`; it should report `Linger=yes`. Without lingering, Artifacty may be unavailable after logout and appear to recover only after the user logs back in.
+On Linux central servers, user services stop when the user's systemd manager exits unless lingering is enabled. Run `loginctl show-user $USER -p Linger` to check this setting. The result should be `Linger=yes`. Without lingering, Artifacty may stop after logout and become available only after the user signs in again.
 
 For background services, prefer a stable `ARTIFACTY_API_TOKEN` or `--api-token` value. `serve --generate-token` is intended for temporary interactive sessions; the parent CLI returns the generated token in JSON.
 
@@ -413,8 +413,8 @@ node src/cli.js export --file ./artifacty-backup.json
 node src/cli.js import-store --file ./artifacty-backup.json
 ```
 
-Backups include artifact metadata plus immutable version file contents in one
-JSON bundle. They do not include users, sessions, API token records, or audit
-logs. Importing a store replaces the target artifact records and prunes
-unreferenced version files, so run it against a new or intentionally chosen
+The default backup contains artifact metadata and immutable version contents
+in one JSON bundle. It excludes users, sessions, API token records, and audit
+logs. A store import replaces the target artifact records and removes
+unreferenced version files. Before importing, select a new or intended
 `ARTIFACTY_HOME`.

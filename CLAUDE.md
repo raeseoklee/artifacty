@@ -2,9 +2,11 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
-Artifacty is a local, agent-to-agent artifact exchange for LLM workflows. One agent publishes an artifact once; others list, read, import, update, and continue from it without copying content through chat. It exposes one shared store over HTTP/browser, CLI, and MCP stdio surfaces.
+Artifacty is a local, agent-to-agent artifact exchange for LLM workflows. One agent publishes an artifact. Other agents can list, read, import, update, and continue from it without copying content through chat. HTTP, the browser, the CLI, and MCP stdio use the same store.
 
 See `AGENTS.md` for repository structure, coding-style conventions, and commit/PR guidelines.
+
+For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Use clear sentences and consistent terms. Keep technical vocabulary precise. Write Korean in natural, fluent Korean rather than translating English sentence patterns.
 
 ## Commands
 
@@ -39,7 +41,7 @@ The store lives at `ARTIFACTY_HOME` or `~/.artifacty` by default.
 - `server.json` records the currently running browser server URL so CLI and MCP responses keep working when the default port falls back.
 - Legacy `index.json` stores migrate automatically on first access.
 
-Versions are append-only. Do not mutate prior content files, except through the audited admin repair (`replaceArtifactVersion`) and delete (`deleteArtifactVersion`) paths, which exist specifically to correct bad historical versions and record every change in the audit log.
+Versions are append-only. To correct a historical version, use the admin repair (`replaceArtifactVersion`) or delete (`deleteArtifactVersion`) path. These paths record every change in the audit log. Do not modify prior content files through other paths.
 
 ### Security Model
 
@@ -51,7 +53,7 @@ Versions are append-only. Do not mutate prior content files, except through the 
 
 ### Browser Editor
 
-The create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, and text editing. CodeMirror assets are served locally through allowlisted `/vendor/npm/*` routes, not from a CDN. UI text defaults to English and supports Korean with `?lang=ko`; documentation stays English-only.
+The create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, and text editing. CodeMirror assets are served locally through allowlisted `/vendor/npm/*` routes, not from a CDN. UI text defaults to English and supports Korean with `?lang=ko`. Keep each document in its existing language unless a translation is requested.
 
 ### MCP Server
 

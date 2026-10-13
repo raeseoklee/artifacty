@@ -1,10 +1,10 @@
 # MCP Public API
 
-Artifacty's MCP server is the primary agent-to-agent integration surface. It
-supports local stdio MCP by default, a token-protected HTTP `/mcp` endpoint when
-enabled on the browser server, and stdio bridge mode for clients that need local
-stdio config but should write to a central Artifacty server. The server
-currently targets MCP protocol `2025-06-18`.
+Artifacty's MCP server is the primary interface for agent-to-agent integration.
+It uses local stdio MCP by default. The browser server can also expose a
+token-protected HTTP `/mcp` endpoint. Stdio bridge mode lets a client use local
+stdio configuration to write to a central Artifacty server. The server targets
+MCP protocol `2025-06-18`.
 
 ## Capabilities
 
@@ -16,23 +16,40 @@ currently targets MCP protocol `2025-06-18`.
 
 ## Visibility and Access Control
 
-Once any user account exists on the server, every tool call and resource read
-is scoped by artifact `visibility` and `ownerUserId`: over the streamable-HTTP
-transport, a personal API token or session scopes access to that user; the
-shared `ARTIFACTY_API_TOKEN` (or any connection before the first user is
-created) has no personal identity and is treated as an anonymous team
-principal that can read/write `team` artifacts but never sees `private` ones.
-The local stdio transport is a fully trusted process: it is scoped to a
-personal user only when the local `ARTIFACTY_API_TOKEN` resolves to a
-personal API token, and is otherwise anonymous once the store has users. A
-`private` artifact a caller cannot see 404s (`ARTIFACT_NOT_FOUND`) from
-`artifacty_get`, resource reads, and list results, to avoid leaking its
-existence; write and manage operations (`artifacty_update`,
-`artifacty_archive`/`artifacty_restore`, `artifacty_set_visibility`) on an
-artifact the caller can see but does not own return
-`structuredContent.code === "forbidden"`. In single-user mode (no user
-accounts) none of this applies. See the README Security Model section for
-the full rule table.
+Administrators can select a site-wide `public` or `private` access mode
+at `/admin/access`. Public mode preserves the visibility rules below. Private
+mode requires a personal identity: artifact reads are limited to the owner,
+administrators, and explicitly shared users or team members; shared recipients
+have read, comment, or edit grants. Artifacty applies the strongest permission
+from the user's direct and team grants.
+Comment grants permit feedback and resolution of the caller's own comments;
+edit grants also permit new versions. Sharing, archive/restore, and review-status
+management stay owner/admin-only. Token scopes are an additional restriction:
+a read-scoped token cannot mutate even when its user has an edit grant.
+In private mode, a shared server token or an anonymous stdio connection cannot
+read or create artifacts. Use a personal API token for
+agent access. Revoking shares or team membership affects subsequent resource
+reads, searches, and live notifications. The HTTP transport also obeys the
+administrator's IP/CIDR allowlist, using the TCP peer address, not forwarding
+headers; local stdio has no HTTP source address.
+
+In public mode, artifact `visibility` and `ownerUserId` control access after the
+server has a user account. A personal API token identifies the user. The shared
+`ARTIFACTY_API_TOKEN` has no personal identity. Artifacty treats it as an
+anonymous team principal: it can read and write `team` artifacts, but cannot
+read `private` artifacts.
+
+Local stdio uses a personal identity only when `ARTIFACTY_API_TOKEN` resolves to
+a personal token in the local store. Otherwise, it is anonymous after the store
+has users. Before the store has users, public mode does not apply these user
+access checks.
+
+If a caller cannot read an artifact, `artifacty_get` and resource reads return
+`ARTIFACT_NOT_FOUND`. List results omit the artifact. These rules prevent
+disclosure of its existence. If a caller can read the artifact but lacks the
+required write or management permission, the tool result contains
+`structuredContent.code === "forbidden"`. See the README Security Model section
+for the full rule table.
 
 ## Tools
 
@@ -56,17 +73,17 @@ Stable tool names:
 - `artifacty_info`: return store, browser URL, transport, and protocol information, plus `embeddings: { provider, model } | null` reporting whether a semantic-search embedding provider is configured.
 - `artifacty_wait`: `{ artifactId?, tag?, type?, timeoutMs }` blocks up to `timeoutMs` (default 30000, max 120000) for the first change event matching the filter, and returns it as `structuredContent.event`, or `{ timedOut: true }` if none arrived in time. Works over any transport, including the stateless HTTP transport where `resources/subscribe` cannot push notifications (see Resources below) — it is a long-poll primitive for clients that cannot receive pushed notifications.
 
-Tool schemas use Artifacty schema v1 formats and artifact types. New optional
-properties may be added during 0.x releases; existing names should not be
-renamed without a documented migration.
+Tool schemas use Artifacty schema v1 formats and artifact types. During 0.x releases, maintainers may add optional
+properties. They should not rename existing properties without a documented
+migration.
 
-Storage-layer validation and not-found errors (relation and comment errors
-included) carry a machine-readable `code`. `tools/call` surfaces those as an
-`isError: true` tool result with `structuredContent.code` set (for example
-`INVALID_RELATION`, `SELF_RELATION`, `ARTIFACT_NOT_FOUND`,
-`RELATION_NOT_FOUND`, `COMMENT_NOT_FOUND`, `THREAD_TOO_DEEP`,
-`COMMENT_TOO_LARGE`, `INVALID_REVIEW_STATUS`) instead of a JSON-RPC protocol
-error, so clients can branch on the code without inspecting error text.
+Storage validation errors and not-found errors carry a machine-readable `code`.
+This includes relation and comment errors. `tools/call` returns an
+`isError: true` tool result with `structuredContent.code`, rather than a
+JSON-RPC protocol error. Example codes include `INVALID_RELATION`,
+`SELF_RELATION`, `ARTIFACT_NOT_FOUND`, `RELATION_NOT_FOUND`,
+`COMMENT_NOT_FOUND`, `THREAD_TOO_DEEP`, `COMMENT_TOO_LARGE`, and
+`INVALID_REVIEW_STATUS`. Clients can use the code without parsing error text.
 
 ## Resources
 
@@ -91,16 +108,16 @@ matching change event sends `notifications/resources/updated` with the same
 `{ uri }`. `resources/unsubscribe` accepts the same `{ uri }` shape and stops
 delivery.
 
-Subscriptions only deliver over the **stdio transport**, where one MCP
-context lives for the whole process and notifications are written directly
-to stdout. The streamable-HTTP `/mcp` transport (and the stdio bridge that
-proxies to it, `ARTIFACTY_MCP_MODE=bridge`) builds a fresh, stateless
-JSON-RPC context per POST request/response cycle — there is no open
-connection left to push a notification over once the response is sent, so
-`resources/subscribe` there is accepted (as the protocol requires) but never
-delivers anything. Clients on that transport should poll with `artifacty_list`
-or, better, use the `artifacty_wait` tool, which works as a bounded long-poll
-within a single request regardless of transport.
+Subscriptions deliver notifications only over the **stdio transport**. One MCP
+context lasts for the whole process and writes notifications to stdout.
+
+The streamable-HTTP `/mcp` transport creates a stateless JSON-RPC context for
+each POST request. The stdio bridge (`ARTIFACTY_MCP_MODE=bridge`) uses the same
+HTTP transport. After the server sends a response, no connection remains for
+push notifications. These transports accept `resources/subscribe`, as the
+protocol requires, but do not deliver notifications. Clients should use
+`artifacty_wait` for a bounded long-poll within one request. Alternatively,
+clients can poll with `artifacty_list`.
 
 ## Prompts
 
@@ -112,23 +129,24 @@ Prompt names:
 - `artifacty_visual_qa`
 - `artifacty_release_notes`
 
-Each prompt returns one user message that instructs an agent to create or update
-an Artifacty artifact with discoverable `artifactType`, `sourceAgent`, and tags.
+Each prompt returns one user message. The message instructs an agent to create
+or update an artifact with searchable `artifactType`, `sourceAgent`, and tags.
 Prompts accept optional context arguments such as `artifactId`, `goal`, `scope`,
 `target`, or `version`. `artifacty_handoff` and `artifacty_review` additionally
 instruct the agent to pass `relations` on the create/update call so the graph
 stays populated automatically: `artifacty_handoff` recommends
 `relations: [{ toId: <source artifact ID>, relation: "derived-from" }]`, and
 `artifacty_review` recommends `relations: [{ toId: <reviewed artifact ID>, relation: "reviews" }]`.
-`artifacty_review` also prefers `artifacty_comment` (with `artifacty_set_review_status`
-to record the verdict) over publishing a separate review artifact when the
-review is short — a handful of findings — reserving a full review artifact
-for longer or multi-file reviews.
+For a short review with a few findings, `artifacty_review` recommends
+`artifacty_comment`. It recommends `artifacty_set_review_status` to record the
+verdict. Longer reviews and reviews of multiple files use a separate review
+artifact.
 
 ## OpenAPI
 
-Every `/api/*` HTTP route (artifacts, versions, import, audit, admin backup)
-plus the `/mcp` JSON-RPC endpoint is described by an OpenAPI 3.1 document:
+An OpenAPI 3.1 document describes every `/api/*` HTTP route and the `/mcp`
+JSON-RPC endpoint. The HTTP routes include artifacts, versions, import, audit,
+and admin backup:
 
 - `GET /openapi.json`: the machine-readable document. No authentication
   required; served with `cache-control: no-store` so it always reflects the
@@ -138,11 +156,11 @@ plus the `/mcp` JSON-RPC endpoint is described by an OpenAPI 3.1 document:
 - `artifacty_info` (MCP tool) and `artifacty doctor` both report the
   document's URL as `<serverUrl>/openapi.json`.
 
-The document reuses the same JSON Schemas as the MCP tool `outputSchema`
-definitions (see `src/lib/schemas.js`), so an artifact summary, a full
-artifact-with-content record, a version, an audit event, a relation entry,
-and the standard `{ error, code?, details? }` error shape mean the same thing
-whether you're calling the HTTP API or an MCP tool. `test/openapi.test.js`
+The document uses the JSON Schemas from the MCP tool `outputSchema`
+definitions (see `src/lib/schemas.js`). The HTTP API and MCP tools therefore
+use the same artifact summaries, full artifact records, versions, audit events,
+and relation entries. They also use the same `{ error, code?, details? }`
+error shape. `test/openapi.test.js`
 keeps the document's route table in sync with `src/server.js`'s dispatch.
 
 ## Compatibility Notes
@@ -163,8 +181,8 @@ keeps the document's route table in sync with `src/server.js`'s dispatch.
 - On central servers, use a personal token from `/account` so created artifacts
   include the token owner's email as `publisherId` and audit logs record the
   same identity as `actor`.
-- Remote MCP currently uses bearer/header token auth. OAuth and per-user scoped
-  tokens are future hardening work.
+- Remote MCP uses bearer or header token authentication. Personal tokens support
+  `read`, `write`, and `admin` scopes. OAuth is not supported.
 - Binary media resources return stored base64 text through MCP; browser `/raw`
   decodes first-class `image` and `video` artifacts into bytes.
 - Clients may display resources and prompts differently. Tools remain the most

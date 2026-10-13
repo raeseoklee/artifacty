@@ -1,38 +1,37 @@
 # SARIF and CSV Artifact Support
 
-Artifacty supports SARIF and CSV as **output artifacts** that Codex and other
-agents can hand off for downstream review. This scope excludes Codex input
-context, appshots, thread state, and client-specific UI state.
+Artifacty supports SARIF and CSV as **output artifacts**. Codex and other agents
+can share these artifacts for review. This scope excludes Codex input context,
+appshots, thread state, and client-specific UI state.
 
 ## Implemented Behavior
 
-- `sarif` and `csv` are first-class `format` values across HTTP, CLI, MCP,
-  storage, and browser forms.
+- HTTP, CLI, MCP, storage, and browser forms support `sarif` and `csv` as
+  `format` values.
 - `.sarif`, `.sarif.json`, `application/sarif+json`, `.csv`, and `text/csv`
-  inputs are detected during import.
-- SARIF top-level objects with `version` and `runs[]` are imported as
+  inputs are detected by the importer.
+- The importer stores SARIF top-level objects with `version` and `runs[]` as
   `analysis-report` artifacts.
-- CSV inputs default to `table`; CSV files that look like security or review
-  findings infer `analysis-report`.
+- CSV inputs default to `table`. If a CSV file appears to contain security
+  or review findings, the importer selects `analysis-report`.
 - `/raw` always returns the original stored source, unaffected by rendering,
   sort/filter, or export.
 
 ## Browser Rendering
 
-- SARIF renders a bounded findings summary with run, result, error, warning,
-  and note counts.
+- The SARIF viewer limits the findings summary size. The summary includes run,
+  result, error, warning, and note counts.
 - SARIF result rows show level, rule id, message, first location, and tool name.
 - The full formatted SARIF JSON remains available in a details panel.
 - CSV renders as an escaped table with bounded rows and columns.
-- Malformed CSV or non-SARIF JSON fails closed to escaped source or formatted
-  JSON fallback.
+- If CSV is malformed or JSON is not SARIF, the viewer displays escaped source
+  or formatted JSON. It does not render an unsafe table.
 
 ## Sort, Filter, and Download (roadmap section 7)
 
-- The rendered SARIF and CSV tables are progressively enhanced client-side in
-  `src/client/viewer.js`, over the data already in the bounded server-rendered
-  set; the server output is fully correct and readable with JavaScript
-  disabled.
+- The server renders a limited set of SARIF results or CSV rows.
+  `src/client/viewer.js` adds controls to that data in the browser. The server
+  output remains correct and readable when JavaScript is disabled.
   - SARIF: level filter chips (`error`, `warning`, `note`), a rule id text
     filter, and click-to-sort on the Level/Rule/Location columns, plus a
     visible result count.
@@ -47,17 +46,17 @@ context, appshots, thread state, and client-specific UI state.
     comma-separated subset of `error`, `warning`, `note`, `none`; `rule` is a
     case-insensitive rule id substring match. The exported document keeps
     only the matching results per run and stays structurally valid SARIF.
-  - The route re-parses the stored original content (never `/raw` itself),
-    streams the result with `Content-Disposition: attachment` and the
-    matching content type, and is capped at the store's max artifact byte
-    size (trailing rows/results are dropped deterministically once the cap
-    would be exceeded).
+  - The route parses the original stored content again. It does not read
+    `/raw`. It streams the result with `Content-Disposition: attachment` and
+    the matching content type. The export cannot exceed the store's maximum
+    artifact byte size. The route removes trailing rows or results in a fixed
+    order when they would exceed that limit.
   - Invalid parameters (unknown format, unknown sort/filter column, bad
     `dir`, unknown SARIF level, or an artifact whose stored format doesn't
     match `format`) return HTTP 400 with `code: "invalid_export"`.
-  - Shared filter/sort/serialization logic lives in
-    `src/lib/sarif-csv-export.js`, independent of the presentation-focused
-    parsing in `src/lib/render.js`.
+  - Shared filter, sort, and serialization functions are in
+    `src/lib/sarif-csv-export.js`. They are separate from the display parsing
+    functions in `src/lib/render.js`.
 
 ## Verification Coverage
 
@@ -76,4 +75,4 @@ context, appshots, thread state, and client-specific UI state.
 
 ## Future Extensions
 
-- None currently planned; see roadmap-design.md for the broader roadmap.
+- No extensions are currently planned. See roadmap-design.md for the full roadmap.

@@ -1,7 +1,7 @@
 # Threat Model
 
-Artifacty is a local artifact exchange for LLM agents. It is designed for one
-operator, one local store, and trusted local MCP clients by default.
+Artifacty is a local artifact exchange for LLM agents. Its default deployment
+uses one operator, one local store, and trusted local MCP clients.
 
 ## Assets
 
@@ -14,8 +14,8 @@ operator, one local store, and trusted local MCP clients by default.
 
 ## Trust Boundaries
 
-- **HTTP browser server**: local by default, optionally reachable on LAN/team
-  networks when explicitly configured.
+- **HTTP browser server**: local by default. An operator can configure access
+  from LAN or team networks.
 - **MCP stdio server**: local process launched by an MCP client. It inherits the
   local user account's filesystem permissions. In bridge mode, it forwards
   JSON-RPC to a configured central `/mcp` endpoint instead of touching local
@@ -58,8 +58,11 @@ Controls:
 - Personal API tokens are stored only as hashes.
 - Browser sessions use `HttpOnly` and `SameSite=Lax` cookies.
 
-Guidance: rotate tokens after sharing sessions, prefer header-based tokens for
-scripts, and use generated startup tokens only for temporary interactive shares.
+Guidance:
+
+- Rotate tokens after sharing sessions.
+- Use token headers in scripts.
+- Use generated startup tokens only for temporary interactive shares.
 
 ### Cross-Site Request Forgery
 
@@ -97,12 +100,12 @@ Risk: agents may accidentally publish API keys or private keys into artifacts.
 
 Controls:
 
-- Common API key and private key patterns are scanned before storage.
+- Artifacty scans common API key and private key patterns before storage.
 - Writes fail unless `allowSecrets` or `ARTIFACTY_ALLOW_SECRETS=true` is set.
-- Stored scan status is recorded in version metadata.
+- Artifacty records the scan status in version metadata.
 
-Limitations: pattern scanning is best-effort and does not prove content is free
-of sensitive data.
+Limitation: pattern scanning can miss sensitive data. A successful scan does
+not prove that content is safe to share.
 
 ### MCP Tool Abuse
 
@@ -120,23 +123,25 @@ Controls:
 - MCP writes go through the same secret scan and audit paths as CLI/HTTP writes.
 - MCP resources are read-only.
 
-Guidance: install Artifacty MCP only in clients and workspaces you trust. For
-central deployments, prefer TLS through a reverse proxy and rotate shared tokens
-after team changes.
+Guidance:
+
+- Install Artifacty MCP only in trusted clients and workspaces.
+- For central deployments, use TLS through a reverse proxy.
+- Rotate shared tokens after team changes.
 
 ### Personal API Token Scopes
 
-Risk: a personal API token leaked from one integration (e.g. a read-only
-reporting bot) should not also let the leaker create, modify, or delete
-artifacts or reach admin-only routes (backup, webhooks).
+Risk: an attacker can use a leaked personal API token. A read-only reporting
+token should not permit artifact changes or access to admin routes, such as
+backup and webhooks.
 
 Controls:
 
 - Each personal token carries a `scopes_json` list drawn from `read`,
   `write`, `admin` (default `["read", "write"]` for both new tokens and
   tokens created before scopes existed).
-- `admin` can only be requested for a token owned by a user with the admin
-  role; `createApiToken` rejects the request otherwise.
+- Only a user with the admin role can own a token with the `admin` scope.
+  `createApiToken` rejects other requests for this scope.
 - `requireScope` (`src/lib/security.js`) is called on every `/api/*` HTTP
   route: read routes need `read`, mutating routes need `write`, and
   admin-only routes (`/api/webhooks*`, `/api/admin/backup*`) need `admin` in
@@ -145,22 +150,20 @@ Controls:
   throttled to one per token per minute.
 - The shared `ARTIFACTY_API_TOKEN` and browser sessions always have full
   scopes — scoping only narrows a *personal* token.
-- Over MCP, `tools/list` omits every tool without a `readOnlyHint`
-  annotation (create, publish, import, update, archive, restore, link,
-  unlink) when the connection's token lacks `write`; calling one of those
-  tools directly anyway returns an `isError` tool result with
-  `structuredContent.code: "scope_denied"` instead of executing it. This
-  only applies to the streamable-HTTP MCP transport, where the connection is
-  tied to an authenticated token — local stdio MCP connections are treated
-  as fully trusted, matching every other local write path.
+- For HTTP MCP, `tools/list` omits write tools when the token lacks `write`.
+  A direct call to one of these tools returns an `isError` result with
+  `structuredContent.code: "scope_denied"`. The tool does not execute.
+- Local stdio is a trusted local process and does not enforce token scopes.
+  If its configured token identifies a personal account, artifact access rules
+  still apply to that account. Private site mode requires that personal identity.
 
-Guidance: issue read-only tokens to reporting/analytics integrations, and
-reserve `admin` scope tokens for operator tooling only.
+Guidance: issue read-only tokens to reporting and analytics integrations.
+Reserve tokens with the `admin` scope for operator tools.
 
 ### HTTP and MCP Rate Limiting
 
-Risk: a compromised or misbehaving token/client could flood the server with
-writes or searches, or brute-force `/login`.
+Risk: a compromised or faulty client could send excessive writes or searches.
+An attacker could also send repeated password guesses to `/login`.
 
 Controls:
 
@@ -184,29 +187,28 @@ Controls:
 - The limiter is in-memory and per-process; it resets on restart and does
   not coordinate across multiple server processes sharing one store.
 
-Guidance: raise the `*_PER_MIN` env vars for legitimate high-throughput
-integrations rather than disabling rate limiting outright on a
-non-loopback bind.
+Guidance: increase the `*_PER_MIN` environment variables for integrations that
+need higher throughput. Keep rate limiting enabled on non-loopback interfaces.
 
 ### Request and Content Size Limits
 
-Artifacty enforces the following byte limits, all in-process and independent
-of any reverse proxy's own limits:
+Artifacty enforces the following byte limits in its server process. These
+limits are independent of reverse proxy limits:
 
 | Limit | Value | Constant / env |
 | --- | --- | --- |
 | Artifact version content | 16 MiB | `MAX_ARTIFACT_BYTES` (`src/lib/storage.js`) |
 | Backup import body | see `src/lib/backup.js` | `MAX_BACKUP_BYTES` |
-| Comment body (reserved; no comments feature yet) | 16 KiB | `MAX_COMMENT_BYTES` (`src/lib/storage.js`) |
+| Comment body | 16 KiB | `MAX_COMMENT_BYTES` (`src/lib/storage.js`) |
 | Generic JSON/form request body | `MAX_ARTIFACT_BYTES + 1024` | default `limitBytes` in `readJsonBody`/`readFormBody` (`src/server.js`) |
 
-A request body over its limit is rejected with `413` before being parsed.
+Artifacty rejects a request body over its limit with `413` before parsing it.
 
 ### Webhook SSRF and Secret Handling
 
-Risk: a webhook target URL is an attacker-influenceable outbound HTTP request
-from the Artifacty server's network position; a leaked webhook secret would let
-an attacker forge signed deliveries.
+Risk: an attacker who controls a webhook URL can influence outbound HTTP
+requests from the Artifacty server. A leaked webhook secret lets an attacker
+forge signed deliveries.
 
 Controls:
 
@@ -234,9 +236,8 @@ Controls:
   records changed after the webhook was created) is not caught by this
   control. Treat webhook creation as an admin-only, trusted-input operation,
   not as safe to expose to untrusted callers.
-- Deliveries use `redirect: "manual"` and never follow a redirect, so a
-  webhook target cannot use a 3xx response to retarget delivery at an
-  otherwise-blocked address.
+- Deliveries use `redirect: "manual"` and never follow redirects. A webhook
+  target cannot use a 3xx response to send delivery to a blocked address.
 - The webhook secret is shown once, in the create response, and never stored
   or returned again in plaintext. What is persisted is `secretHash =
   sha256(secret)`, and every delivery is signed as
@@ -249,74 +250,97 @@ Controls:
   single-user mode (no accounts configured) it is available to whoever holds
   the configured API token, matching every other write route's trust
   boundary.
-- After 20 consecutive delivery failures a webhook is automatically disabled
-  and a `webhook-deliver-failed` audit row is written; it stays disabled
-  until deleted and recreated.
+- After 20 consecutive delivery failures, Artifacty disables the webhook and
+  writes a `webhook-deliver-failed` audit row. The webhook stays disabled until
+  an administrator deletes and recreates it.
 
-Guidance: only register webhook endpoints you control or trust, prefer HTTPS
-targets, and treat a leaked webhook secret as a credential (delete and
-recreate the webhook if you suspect exposure — that also rotates the
-`secretHash` used for signing).
+Guidance:
+
+- Register only webhook endpoints that you control or trust.
+- Prefer HTTPS targets.
+- If you suspect secret exposure, delete the webhook.
+- Recreate the webhook with a new secret. This also rotates its signing
+  `secretHash`.
 
 ### Artifact Visibility and Ownership
 
-Risk: in team mode, any authenticated user could read or modify any other
-user's artifacts, including sensitive drafts or work-in-progress content
-that was never meant to be shared server-wide.
+Risk: one user could read or change another user's artifacts without permission.
+This includes sensitive drafts that the owner did not intend to share.
 
 Controls:
 
-- Every artifact carries a `visibility` (`private` or `team`, default
-  `team`) and an `ownerUserId`. `private` artifacts are readable and
-  writable only by their owner or an admin; `team` artifacts are readable
-  and writable by any authenticated principal, or restricted to the owner
-  and admins for writes with `ARTIFACTY_TEAM_WRITE=owner`.
-- Archiving, restoring, and changing visibility or ownership always require
-  the artifact's owner or an admin, independent of the write rule above.
-- A read of a `private` artifact by anyone other than its owner or an admin
-  returns `404`/`ARTIFACT_NOT_FOUND` rather than `403`, so the artifact's
-  existence is not leaked to callers who cannot see it. Writes and manage
-  actions on an artifact the caller can see but does not own return `403`
-  with `code: "forbidden"`.
-- The access predicate is applied at the SQL layer for list queries (both
-  the metadata and FTS search paths), not filtered after the fact, and
-  relation entries pointing at a target the caller cannot see are returned
-  as `{ restricted: true }` instead of the target's summary.
-- A shared `ARTIFACTY_API_TOKEN` (or any request before the first user
-  account exists) has no personal identity and is treated as an anonymous
-  team principal: it can read and write `team` artifacts but never sees
-  `private` ones, even though it is admin-equivalent for server
-  administration routes elsewhere.
-- In single-user mode (no user accounts configured at all) every check is
-  bypassed, matching pre-Section-10 behavior, since there is no second
-  identity to protect against.
+- Administrators select public or private site mode at `/admin/access`.
+- In public mode, every artifact has `visibility` (`private` or `team`, default
+  `team`) and an `ownerUserId`. Only the owner or an administrator can read or
+  write `private` artifacts through normal artifact routes. Anonymous browser
+  visitors can read `team` artifacts. Authenticated principals can write them.
+  API authentication requirements still apply. `ARTIFACTY_TEAM_WRITE=owner` restricts these writes to owners and
+  administrators.
+- Private site mode requires a personal identity. Owners and administrators
+  retain access. Other users need a direct or team grant. Grants permit
+  reading, commenting, or editing. Artifacty applies the strongest matching
+  grant. Token scopes impose an additional restriction.
+- Archiving, restoring, sharing, and changes to visibility or ownership require
+  the owner or an administrator. These rules apply in both site modes.
+- If a caller cannot read an artifact, the server returns
+  `404`/`ARTIFACT_NOT_FOUND`. This prevents disclosure of the artifact's
+  existence. If the caller can read it but lacks the required write or management
+  permission, the server returns `403` with `code: "forbidden"`.
+- List queries apply access checks in SQL for both metadata and FTS search.
+  Relations to unreadable targets return `{ restricted: true }` without the
+  target summary.
+- A shared `ARTIFACTY_API_TOKEN` has no personal identity. In public mode, it can
+  read and write `team` artifacts but cannot see `private` artifacts. In private
+  mode, it cannot read or create artifacts. Its administrative privileges on
+  other server routes do not grant a personal artifact identity.
+- In public mode with no user accounts, user access checks do not apply.
 
-Guidance: treat `private` as a convenience boundary between cooperating,
-already-authenticated users on one server, not a substitute for running
-separate stores for genuinely untrusted parties — an admin account can
-always read, write, and reassign ownership of any artifact.
+Guidance: use separate stores for mutually untrusted parties. Administrators can
+read, write, and reassign any artifact in their store.
+
+### Public Share Links and Network Restrictions
+
+Risk: a copied share link can disclose an artifact to anyone who holds the link.
+An incorrect network policy can either expose the server or lock out its
+administrator.
+
+Controls:
+
+- Share links provide read-only access. The owner or an administrator creates
+  and revokes them. A link can select the latest version or one fixed version.
+- Links expire. Private site mode disables them unless an administrator enables
+  them. The server stores token hashes and shows the raw token only at creation.
+- Share pages omit artifact ownership, tags, history, and internal artifact URLs.
+  They use `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
+- All HTTP requests, including share links, obey the configured IP/CIDR allowlist.
+  The server checks the TCP peer address and ignores forwarding headers.
+- A network change must include the administrator's current address. It remains
+  pending until confirmed. If it expires without confirmation, Artifacty restores
+  the previous policy. Administrators can also roll back a pending change.
+
+Guidance: treat share links as credentials. Revoke a link if it reaches an
+unintended recipient. When using a reverse proxy, account for its TCP peer
+address in the network policy.
 
 ### Retention Purge Gate
 
-Risk: a misconfigured or overly broad retention policy (e.g. a low
-`purgeArchivedAfterDays` set by mistake, or applied before reviewing what it
-would affect) could hard-delete artifacts and their version files with no
-way to recover them — the only irreversible action any retention setting
-can trigger.
+Risk: an incorrect retention policy can permanently delete artifacts and their
+version files. For example, an operator could set `purgeArchivedAfterDays` too
+low or apply it without reviewing the affected artifacts. Purge is the only
+irreversible action that retention settings can trigger.
 
 Controls:
 
-- Retention policy changes (`archiveAfterDays`, `purgeArchivedAfterDays`,
-  `auditRetentionDays`, `eventRetentionRows`, `keepTags`) themselves never
-  delete anything; they only take effect on the next sweep or explicit
-  `artifacty retention run`.
+- Changing `archiveAfterDays`, `purgeArchivedAfterDays`, `auditRetentionDays`,
+  `eventRetentionRows`, or `keepTags` does not delete data. The new policy takes
+  effect on the next sweep or explicit `artifacty retention run`.
 - `artifacty retention run` and `POST /api/admin/retention/run` default to
   `dryRun: true`, returning a report of what would be archived/purged/pruned
   without changing the store. `/admin/retention` renders that same report so
   an admin can review it before applying anything.
-- Archiving (moving an artifact out of active listings) is reversible via
-  `artifacty restore` and never deletes content, so it carries no
-  additional gate beyond the existing owner/admin check on `archiveArtifact`.
+- Archiving removes an artifact from active lists without deleting content.
+  `artifacty restore` reverses it. The existing owner or administrator check
+  on `archiveArtifact` is the only access requirement.
 - Purging is irreversible and additionally requires
   `ARTIFACTY_RETENTION_ALLOW_PURGE=true` in the server's environment. A
   policy with purge candidates but no allow-purge gate set records them as
@@ -340,11 +364,8 @@ Controls:
 ## Out of Scope
 
 - Public internet hosting without a separate TLS/auth proxy.
-- Multi-user browser write access.
-- OAuth or per-user remote MCP authorization beyond the `read`/`write`/`admin`
-  personal API token scopes described below.
-- Group- or team-scoped ACLs beyond the single owner + team/private model
-  (see Artifact Visibility and Ownership above).
+- OAuth. Personal API token scopes and direct or team artifact grants are
+  supported, as described above.
 - Encrypted-at-rest storage.
 - Malware analysis of arbitrary artifact content.
 

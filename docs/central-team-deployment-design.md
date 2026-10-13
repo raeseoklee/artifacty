@@ -1,21 +1,22 @@
 # Central Team Deployment Design
 
-This document defines the design for running Artifacty as a shared internal
-service, where many users connect Claude Code, Codex, Gemini, GitHub Copilot,
-Cursor, or another MCP client to one central Artifacty server.
+This document defines the design for a shared internal Artifacty service.
+Users connect Claude Code, Codex, Gemini, GitHub Copilot, Cursor, or another MCP
+client to one central Artifacty server.
 
 ## Problem
 
-Artifacty is local-first by default. The HTTP server can listen on a LAN
-address, and the MCP server can either read and write the local `ARTIFACTY_HOME`
-store directly or run as a stdio bridge to a central `/mcp` endpoint. The
-installer `--url` option only controls the browser URL returned in MCP
-responses; central MCP mode is selected with `--mcp-url`.
+Artifacty uses a local store by default. The HTTP server can listen on a LAN
+address. The MCP server can read and write the local `ARTIFACTY_HOME` store
+directly. It can also run as a stdio bridge to a central `/mcp` endpoint.
+
+The installer `--url` option controls only the browser URL in MCP responses.
+Use `--mcp-url` to select central MCP mode.
 
 For a central deployment, every MCP client must write through the central
-service instead of touching local SQLite or shared network files. The preferred
-central surface is the native HTTP `/mcp` endpoint. A local stdio bridge remains
-the default installer path for broad client compatibility.
+service. Clients must not write to local SQLite or shared network files. Use
+the native HTTP `/mcp` endpoint when the client supports it. The installer
+uses a local stdio bridge by default for compatibility with more clients.
 
 ## Goals
 
@@ -24,9 +25,10 @@ the default installer path for broad client compatibility.
 - Per-user local stdio bridge compatibility for clients that only support local
   stdio MCP configuration.
 - Stable install commands that can target a central server.
-- Token-authenticated HTTP writes with no token leakage through query strings.
+- HTTP writes authenticated by tokens. Query strings must not contain tokens.
 - Clear audit attribution for user, agent, host, and client surface.
-- Safe defaults for LAN/team operation without weakening local-first behavior.
+- Safe defaults for LAN and team operation. Local operation must retain its
+  existing protections.
 
 ## Non-Goals
 
@@ -50,10 +52,10 @@ MCP client with stdio-only support
   -> same central MCP handler
 ```
 
-The central MCP handler is the canonical team integration surface. HTTP JSON API
-routes remain useful for scripts, browser workflows, and compatibility, but MCP
-tool semantics should not be reimplemented separately in a REST-only bridge.
-Both stdio and Streamable HTTP should share the same tool/resource/prompt
+The central MCP handler is the main team integration interface. HTTP JSON API
+routes remain available for scripts, browser workflows, and compatibility.
+A REST-only bridge should not implement a separate set of MCP tool behavior.
+Both stdio and Streamable HTTP should use the same tool, resource, and prompt
 dispatcher.
 
 ## Runtime Modes
@@ -66,9 +68,9 @@ Artifacty supports these explicit MCP operation modes:
 - `bridge`: local stdio process forwards MCP JSON-RPC to a remote `/mcp`
   endpoint for clients that cannot connect to remote MCP directly.
 
-Mode selection should be explicit. `ARTIFACTY_URL` must remain the public
-browser URL override for backwards compatibility. New variables should define
-remote MCP behavior:
+Select the mode explicitly. For backward compatibility, `ARTIFACTY_URL` must
+remain the public browser URL override. Use new variables to define remote
+MCP behavior:
 
 ```bash
 ARTIFACTY_MCP_MODE=bridge
@@ -76,8 +78,8 @@ ARTIFACTY_MCP_URL=https://artifacty.internal/mcp
 ARTIFACTY_API_TOKEN=...
 ```
 
-`ARTIFACTY_URL` may default to the central browser URL when not set, but browser
-links and MCP transport URLs should stay separate in the code and documentation.
+If `ARTIFACTY_URL` is not set, it may default to the central browser URL. Keep
+browser links separate from MCP transport URLs in the code and documentation.
 
 ## Installer UX
 
@@ -106,8 +108,8 @@ The installer should continue to support `--url` for link-only overrides.
 
 ## Central Server Operation
 
-A minimal LAN deployment should bind to a specific internal interface and require
-token auth:
+For a minimal LAN deployment, bind to a specific internal interface. Require
+token authentication:
 
 ```bash
 ARTIFACTY_API_TOKEN="$(artifacty token --raw)"
@@ -121,20 +123,23 @@ artifacty serve \
 
 Open `/login` after the server starts. If no users exist, the first successful
 login form creates an administrator. Administrators can create users from
-`/admin/users`, paste-import users from CSV, and every user can create or
-revoke personal API tokens from `/account`. CSV imports support
-`email,name,role,password,password_reset_required`; blank passwords are
-generated once and require a password change on first sign-in. Use personal
-tokens for `artifacty install ... --api-token` so MCP and API audit logs record
-the user's email as `actor` and created artifacts record the same email as
-`publisherId`.
+`/admin/users` or paste CSV data to import users. Each user can create or revoke
+personal API tokens from `/account`.
 
-Production-like internal deployments should run Artifacty behind a TLS reverse
-proxy, keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled unless the team trusts
-all artifact authors, and store `ARTIFACTY_HOME` on local server disk with
-regular backups. Administrators can export and restore artifact backup bundles
-from `/admin/backup`; large migrations can use `artifacty backup` on the old
-server and `artifacty import-store --file <backup.json>` on the new server.
+CSV imports support `email,name,role,password,password_reset_required`. If a
+password is blank, the importer generates it once. The user must change that
+password at first sign-in. Use personal tokens with
+`artifacty install ... --api-token`. MCP and API audit logs then record the
+user's email as `actor`. Created artifacts record the same email as `publisherId`.
+
+For internal production deployments, run Artifacty behind a TLS reverse proxy.
+Keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled unless the team trusts all
+artifact authors. Store `ARTIFACTY_HOME` on the server's local disk and make
+regular backups.
+
+Administrators can export and restore artifact backup bundles from
+`/admin/backup`. For large migrations, run `artifacty backup` on the old server.
+Then run `artifacty import-store --file <backup.json>` on the new server.
 
 For Linux user-service deployments, enable systemd lingering for the service
 account:
@@ -145,13 +150,13 @@ loginctl show-user artifacty -p Linger
 ```
 
 Use the actual service account name. Without lingering, `systemctl --user`
-services are tied to the user's login manager and can stop after logout, making
-the central dashboard and `/mcp` endpoint unavailable until that user logs in
-again. A system-level unit is another valid option for central servers.
+services depend on the user's login manager. They can stop after logout. The
+central dashboard and `/mcp` endpoint then remain unavailable until that user
+logs in again. A system-level unit is another option for central servers.
 
-The central server exposes `/mcp` only when explicitly enabled. This keeps the
-local browser/API server behavior unchanged while making team MCP exposure an
-intentional operating mode.
+The central server exposes `/mcp` only when explicitly enabled. This requirement
+keeps the local browser and API behavior unchanged. Operators must choose to
+enable MCP access for a team.
 
 ## MCP Requirements
 
@@ -161,12 +166,11 @@ Remote MCP mode needs complete parity with local MCP tools:
 - resources: recent artifact list, artifact by ID, schema
 - prompts: handoff, review, test report, visual QA, release notes
 
-The stdio server and `/mcp` HTTP endpoint call the same dispatcher so tool
-schemas, resources, prompts, validation, and audit behavior cannot drift.
+The stdio server and `/mcp` HTTP endpoint call the same dispatcher. This keeps
+tool schemas, resources, prompts, validation, and audit behavior consistent.
 
 All remote MCP requests must send `Authorization: Bearer` or an equivalent
-header accepted by the central endpoint. Remote MCP should never place tokens in
-URLs.
+header that the central endpoint accepts. Remote MCP must not put tokens in URLs.
 
 ## Audit and Identity
 
@@ -184,8 +188,8 @@ remains a compatibility fallback for the bootstrap/global token path.
 
 ## Security Model
 
-Central mode increases the trust boundary from one machine to a team network.
-Required safeguards:
+Central mode extends access from one machine to a team network. It requires
+these safeguards:
 
 - non-loopback binding still requires `ARTIFACTY_SHARE_MODE=lan|team`
 - central API always requires `ARTIFACTY_API_TOKEN`
@@ -194,8 +198,8 @@ Required safeguards:
 - browser-origin protections remain in place
 - artifact renderers continue treating stored content as untrusted
 
-For larger organizations, the next step after personal tokens is scoped tokens,
-token rotation policy, and SSO/OIDC.
+For larger organizations, the planned next steps after personal tokens are
+scoped tokens, a token rotation policy, and SSO/OIDC.
 
 ## Current Implementation
 
