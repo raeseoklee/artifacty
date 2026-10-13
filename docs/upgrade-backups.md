@@ -29,6 +29,22 @@ The command uses POSIX Linux shell syntax. After a successful update, it puts `~
 
 The `latest` tag must resolve to version 0.14.0 or newer to include the updater.
 
+### Update from the browser
+
+Sign in with an administrator browser session. Open **Administration → Server update** (`/admin/update`). API tokens do not replace that session for these routes.
+
+1. Select **Check for updates**. This checks the latest npm release without installing or restarting the service.
+2. If browser updates are supported and a newer version is available, review the displayed target version.
+3. Select the confirmation checkbox for backup and restart.
+4. Select **Back up and update**.
+5. Keep the page open while the server restarts. Read the update result after reconnection.
+
+Confirmation expires after ten minutes and belongs to the browser session that checked the version. If it expires or the installed version changes, check again. Form submissions require the exact same origin as the server. No password re-entry is required.
+
+Browser installation requires this server to be the non-root Linux systemd user service. Other installations can check the latest release, but cannot start the update from this page. The worker runs in an independent systemd transient service, so stopping the Artifacty server does not stop the update worker. Status is stored outside the artifact store under `~/.local/share/artifacty/update-jobs`.
+
+Opening the page or reading status does not contact npm or install a package. Status checks can inspect systemd to identify a stopped worker. If dispatch is uncertain, the job remains reserved. An interrupted worker or incomplete recovery requires manual inspection before another update; it is not reported as success. Keep the retained snapshot and releases until recovery is verified.
+
 ### Automatic installation limits
 
 Automatic installation and restart support Linux with the systemd user service `com.artifacty.server`. Run the updater as the service's user. The unit must use the simple `ExecStart` form produced by Artifacty's installer and must explicitly pass `--home` for the selected store. Unsupported command expansion or quoting stops the update before service shutdown. Automatic updates reject root execution. Do not run the updater as root to replace a root-owned global package.

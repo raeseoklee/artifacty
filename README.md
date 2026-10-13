@@ -140,6 +140,8 @@ On any supported CLI platform, check for a release without changing the installa
 artifacty update --check
 ```
 
+Administrators can also open **Administration → Server update** (`/admin/update`). Select **Check for updates** to check the latest release. If this server supports browser updates, confirm the displayed version and select **Back up and update**. The server briefly stops; keep the page open to reconnect and read the result. Opening the page does not check npm or start an update.
+
 On Linux, the updater can install a release and restart the systemd user service `com.artifacty.server`:
 
 ```bash
@@ -452,7 +454,7 @@ A frequently used filter combination can be saved as a **view**:
 - `POST /api/views` with `{ name, filters, shared }` creates one; `GET /api/views` lists views visible to the caller; `DELETE /api/views/:id` removes one. `filters` is validated against an allowlist (`query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `includeArchived`, `mode`) and rejects any other key with `code: "invalid_filter"`.
 - In single-user mode (no user accounts) views are global. In team mode a view belongs to its creator and is visible only to them unless `shared: true`, in which case every user sees it.
 - `?view=<name-or-id>` on `/` or `GET /api/artifacts` expands the saved filters first; any other query parameter passed alongside `view` overrides that one filter. `artifacty_list` and `artifacty list --view <name-or-id>` work the same way.
-- The dashboard sidebar lists views with delete buttons and a "Save current filters" form. `artifacty views`, `artifacty views save <name> [--shared] [filters...]`, and `artifacty views delete <id>` manage them from the CLI.
+- In the main dashboard, open **Saved views** to find the view list, delete buttons, and "Save current filters" form. **Advanced filters** and **Saved views** start collapsed. Search stays visible. Collapsing these sections preserves the selected filters. `artifacty views`, `artifacty views save <name> [--shared] [filters...]`, and `artifacty views delete <id>` manage them from the CLI.
 - `groupBy=artifactType|sourceAgent|day` (dashboard query param, `--group-by` on the CLI) renders the already-fetched page grouped under section headers. It is purely presentational and does not change which artifacts are fetched or their sort order.
 
 ```bash
@@ -536,6 +538,8 @@ curl -s http://127.0.0.1:8787/api/import \
   }'
 ```
 
+On desktop, use the navigation rail. On narrower screens, open **Menu**. **Artifacts** and **Inbox** lead to your work; **New** and **Import** create or bring in content. Administrators use **Administration** for Access (`/admin/access`), Users (`/admin/users`), Backup (`/admin/backup`), Retention (`/admin/retention`), Webhooks (`/admin/webhooks`), and Server update (`/admin/update`). **Account** contains Account & API tokens (`/account`), password changes (`/account/password`), and sign-out. API docs and language selection are also in the navigation.
+
 Browser routes:
 
 - `/`: list artifacts with search, tag, and source filters.
@@ -605,7 +609,7 @@ Schema and storage:
 This feature upgrades the SQLite store to version 10. Older builds reject the
 upgraded store rather than ignoring its access policy.
 
-Administrators can open **Account → Access** (`/admin/access`) to change the
+Administrators can open **Administration → Access** (`/admin/access`) to change the
 server's access mode without restarting it. Existing installations default to
 **public** mode, preserving anonymous dashboard access to team-visible artifacts;
 artifacts marked private remain restricted to their owner and administrators.

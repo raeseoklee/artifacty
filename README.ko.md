@@ -147,6 +147,8 @@ CLI를 지원하는 플랫폼에서는 설치나 저장소를 변경하지 않�
 artifacty update --check
 ```
 
+관리자는 **관리 → 서버 업데이트**(`/admin/update`)에서도 업데이트할 수 있습니다. **업데이트 확인**을 누르면 최신 릴리스를 조회합니다. 이 서버가 브라우저 업데이트를 지원하면 표시된 버전을 확인하고 **백업 후 업데이트**를 선택하세요. 서버가 잠시 중지되므로 화면을 열어 두고 재연결 후 결과를 확인하세요. 화면을 여는 것만으로 npm을 조회하거나 업데이트를 시작하지는 않습니다.
+
 Linux에서는 업데이트 도구가 새 릴리스를 설치하고 systemd 사용자 서비스 `com.artifacty.server`를 다시 시작할 수 있습니다.
 
 ```bash
@@ -450,7 +452,7 @@ ARTIFACTY_RETENTION_ALLOW_PURGE=true artifacty retention run --allow-purge
 - `{ name, filters, shared }`를 담은 `POST /api/views`로 생성하고, `GET /api/views`로 현재 사용자가 볼 수 있는 뷰를 조회하며, `DELETE /api/views/:id`로 삭제합니다. `filters`에는 `query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `includeArchived`, `mode`만 허용합니다. 다른 키는 `code: "invalid_filter"`로 거부합니다.
 - 계정이 없는 단일 사용자 모드에서는 뷰가 전역으로 적용됩니다. 팀 모드에서는 만든 사용자만 볼 수 있으며, `shared: true`이면 모든 사용자에게 보입니다.
 - `/` 또는 `GET /api/artifacts`의 `?view=<name-or-id>`는 저장된 필터를 먼저 적용합니다. `view`와 함께 보낸 다른 쿼리 매개변수는 해당 필터만 덮어씁니다. `artifacty_list`와 `artifacty list --view <name-or-id>`도 같습니다.
-- 대시보드 사이드바에는 뷰 목록, 삭제 버튼, “현재 필터 저장” 폼이 있습니다. CLI에서는 `artifacty views`, `artifacty views save <name> [--shared] [filters...]`, `artifacty views delete <id>`로 관리합니다.
+- 대시보드 본문에서 **저장된 뷰**를 펼치면 뷰 목록, 삭제 버튼, “현재 필터 저장” 폼이 나타납니다. **상세 필터**와 **저장된 뷰**는 처음에 접혀 있으며 검색은 항상 보입니다. 이 영역을 접어도 선택한 필터는 유지됩니다. CLI에서는 `artifacty views`, `artifacty views save <name> [--shared] [filters...]`, `artifacty views delete <id>`로 관리합니다.
 - `groupBy=artifactType|sourceAgent|day`는 가져온 페이지를 유형·에이전트·날짜별로 묶어 표시합니다. 대시보드 쿼리 매개변수나 CLI의 `--group-by`로 지정합니다. 표시 방식만 바꾸며 조회 대상이나 정렬 순서는 바꾸지 않습니다.
 
 ```bash
@@ -541,6 +543,8 @@ curl -s http://127.0.0.1:8787/api/import \
 ```
 
 
+데스크톱에서는 왼쪽 탐색 메뉴를 사용하세요. 화면이 좁으면 **메뉴**를 펼치세요. **아티팩트**와 **알림함**에서 작업을 확인하고, **새로 만들기**와 **가져오기**로 콘텐츠를 추가합니다. 관리자는 **관리**에서 접근 관리(`/admin/access`), 사용자(`/admin/users`), 백업(`/admin/backup`), 보존 정책(`/admin/retention`), Webhook(`/admin/webhooks`), 서버 업데이트(`/admin/update`)를 엽니다. **계정**에는 계정 및 API 토큰(`/account`), 비밀번호 변경(`/account/password`), 로그아웃이 있습니다. API 문서와 언어 선택도 탐색 메뉴에 있습니다.
+
 브라우저 관련 경로는 다음과 같습니다.
 
 - `/`: 검색어, 태그, 생성 에이전트 필터로 아티팩트를 조회합니다.
@@ -612,7 +616,7 @@ curl -s http://127.0.0.1:8787/api/artifacts/<id> \
 
 이 기능은 SQLite 저장소를 버전 10으로 업그레이드합니다. 이전 빌드는 접근 정책을 무시하는 대신 업그레이드된 저장소를 열지 않습니다.
 
-관리자는 **Account → 접근 관리**(`/admin/access`)에서 재시작 없이 서버 접근 모드를 변경할 수 있습니다. 기존 설치의 기본값은 **퍼블릭**입니다. 팀 공개 아티팩트는 로그인 없이 대시보드에서 볼 수 있고, 비공개 아티팩트는 소유자와 관리자만 접근합니다. 퍼블릭 모드에서도 API 인증과 쓰기 보호는 적용됩니다.
+관리자는 **관리 → 접근 관리**(`/admin/access`)에서 재시작 없이 서버 접근 모드를 변경할 수 있습니다. 기존 설치의 기본값은 **퍼블릭**입니다. 팀 공개 아티팩트는 로그인 없이 대시보드에서 볼 수 있고, 비공개 아티팩트는 소유자와 관리자만 접근합니다. 퍼블릭 모드에서도 API 인증과 쓰기 보호는 적용됩니다.
 
 **프라이빗** 모드에서는 브라우저 방문자가 로그인해야 합니다. 소유자·관리자 또는 직접이나 팀을 통해 권한을 받은 사용자만 아티팩트를 읽을 수 있습니다. 기존 `team` 공개 범위가 모든 사용자에게 접근을 허용하지는 않습니다. 공유 권한은 **읽기**, **댓글**, **편집**을 지원합니다. 댓글 권한은 피드백 작성과 자신의 댓글 해결을 허용하며, 편집 권한은 버전 추가도 허용합니다. 직접 부여한 권한과 팀 권한 중 가장 높은 권한이 적용됩니다. 소유권, 공유, 아카이브, 리뷰 상태 관리는 소유자와 관리자에게 남습니다. 관리자는 소유자가 없는 기존 아티팩트에도 접근해 소유자를 지정하거나 공유할 수 있습니다.
 

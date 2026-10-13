@@ -14,6 +14,11 @@ test("serves HTTP API and browser artifact pages", async () => {
   const app = await startServer({ port: 0, home });
 
   try {
+    const defaultDashboard = await fetch(app.url, { headers: { "accept-language": "ko-KR,ko;q=0.9,en;q=0.8" } });
+    const defaultPage = await defaultDashboard.text();
+    assert.match(defaultPage, /<html lang="en">/);
+    assert.match(defaultPage, /Advanced filters/);
+
     const createResponse = await fetch(`${app.url}/api/artifacts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -58,7 +63,7 @@ test("serves HTTP API and browser artifact pages", async () => {
     const page = await pageResponse.text();
     assert.equal(pageResponse.status, 200);
     assert.match(page, /Artifacty|Demo/);
-    assert.match(page, /<main class="artifact-view artifact-view-wide">/);
+    assert.match(page, /<main\b[^>]*class="artifact-view artifact-view-wide"/);
 
     const rawResponse = await fetch(created.rawUrl);
     assert.equal(await rawResponse.text(), "<h1>Hello</h1>");
@@ -146,7 +151,7 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.equal(sarifArtifact.artifactType, "analysis-report");
     const sarifPage = await (await fetch(sarifArtifact.url)).text();
     assert.match(sarifPage, /artifact-sarif/);
-    assert.match(sarifPage, /<main class="artifact-view artifact-view-wide">/);
+    assert.match(sarifPage, /<main\b[^>]*class="artifact-view artifact-view-wide"/);
     assert.match(sarifPage, /js\/path-injection/);
     assert.match(sarifPage, /Validate the path before use\./);
     assert.match(sarifPage, /src\/app\.js:42:7/);
@@ -199,7 +204,7 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.equal(csvArtifact.artifactType, "table");
     const csvPage = await (await fetch(csvArtifact.url)).text();
     assert.match(csvPage, /artifact-csv/);
-    assert.match(csvPage, /<main class="artifact-view artifact-view-wide">/);
+    assert.match(csvPage, /<main\b[^>]*class="artifact-view artifact-view-wide"/);
     assert.match(csvPage, /Validate, then open/);
     assert.match(csvPage, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
     assert.doesNotMatch(csvPage, /<script>alert\(1\)<\/script>/);
@@ -815,6 +820,15 @@ test("supports login, user token management, and admin users", async () => {
     const cookie = setupResponse.headers.get("set-cookie");
     assert.match(cookie, /artifacty_session=/);
 
+    for (const route of ["/", "/new", "/import", "/admin/access"]) {
+      const response = await fetch(`${app.url}${route}?lang=ko`, { headers: { cookie } });
+      assert.equal(response.status, 200);
+      const page = await response.text();
+      for (const destination of ["access", "users", "backup", "retention", "webhooks"]) {
+        assert.ok(page.includes(`href="/admin/${destination}?lang=ko"`), `${route} should retain administrator navigation and locale`);
+      }
+    }
+
     const accountResponse = await fetch(`${app.url}/account`, {
       headers: { cookie }
     });
@@ -1041,6 +1055,15 @@ test("supports login, user token management, and admin users", async () => {
     });
     assert.equal(loginUserResponse.status, 303);
     assert.match(loginUserResponse.headers.get("set-cookie"), /artifacty_session=/);
+    for (const session of [null, loginUserResponse.headers.get("set-cookie")]) {
+      for (const route of ["/", "/new", "/import"]) {
+        const response = await fetch(`${app.url}${route}?lang=ko`, { headers: session ? { cookie: session } : {} });
+        assert.equal(response.status, 200);
+        const page = await response.text();
+        assert.doesNotMatch(page, /href="\/admin\//);
+        assert.ok(page.includes('href="/import?lang=ko"'));
+      }
+    }
   } finally {
     await app.close();
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -1928,7 +1951,7 @@ test("saved views: create, list, delete over /api/views, and ?view= expansion wi
   }
 });
 
-test("dashboard renders groupBy section headers and the saved-views sidebar", async () => {
+test("dashboard renders groupBy section headers and collapsed saved views", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-groupby-"));
   const app = await startServer({ port: 0, home });
 
@@ -1958,7 +1981,7 @@ test("dashboard renders groupBy section headers and the saved-views sidebar", as
 
     const dashboardPage = await (await fetch(`${app.url}/`)).text();
     assert.match(dashboardPage, /My View/);
-    assert.match(dashboardPage, /dashboard-sidebar/);
+    assert.match(dashboardPage, /<details class="dashboard-saved-views">/);
   } finally {
     await app.close();
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });

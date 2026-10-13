@@ -331,28 +331,83 @@ function invalidJsonMessage(error) {
   return messages.invalidJson.replaceAll("{message}", error.message);
 }
 
+// Deliberately renders a small, escaped Markdown subset. Links and raw HTML
+// remain text; previewing a document must not activate its URLs or scripts.
 function markdownPreview(content) {
-  return String(content || "")
-    .split(/\r?\n/)
-    .map((line) => {
-      if (/^###\s+/.test(line)) {
-        return `<h3>${escapeHtml(line.replace(/^###\s+/, ""))}</h3>`;
+  const lines = String(content || "").split(/\r?\n/);
+  const output = [];
+  let paragraph = [];
+  let list = "";
+  const inline = (value) => escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
+  const flush = () => {
+    if (paragraph.length) {
+      output.push(`<p>${inline(paragraph.join(" "))}</p>`);
+      paragraph = [];
+    }
+    if (list) {
+      output.push(`</${list}>`);
+      list = "";
+    }
+  };
+  const cells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  const tableRow = (line = "") => /^\s*\|.*\|\s*$/.test(line);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      flush();
+      const language = /^[a-zA-Z0-9+#_.-]+$/.test(fence[2].trim()) ? fence[2].trim().toLowerCase() : "";
+      const source = [];
+      const closing = new RegExp(`^ {0,3}${fence[1][0]}{${fence[1].length},}\\s*$`);
+      while (++index < lines.length && !closing.test(lines[index])) source.push(lines[index]);
+      output.push(`<pre><code${language ? ` class="language-${language}"` : ""}>${escapeHtml(source.join("\n"))}</code></pre>`);
+      continue;
+    }
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    const headers = cells(line);
+    const separators = cells(lines[index + 1] || "");
+    if (tableRow(line) && headers.length === separators.length && separators.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+      flush();
+      const alignment = (column) => {
+        const value = separators[column];
+        return value.endsWith(":") ? (value.startsWith(":") ? "center" : "right") : "left";
+      };
+      const row = (values, tag) => `<tr>${headers.map((_, column) => `<${tag} style="text-align:${alignment(column)}">${inline(values[column] || "")}</${tag}>`).join("")}</tr>`;
+      output.push(`<div class="artifact-table-scroll"><table class="artifact-table"><thead>${row(headers, "th")}</thead><tbody>`);
+      index += 1;
+      while (tableRow(lines[index + 1])) output.push(row(cells(lines[++index]), "td"));
+      output.push("</tbody></table></div>");
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      flush();
+      output.push(`<h${heading[1].length}>${inline(heading[2])}</h${heading[1].length}>`);
+      continue;
+    }
+    const item = /^([-*+] |\d+[.)] )\s*(.+)$/.exec(line);
+    if (item) {
+      const type = /^\d/.test(item[1]) ? "ol" : "ul";
+      if (paragraph.length || (list && list !== type)) flush();
+      if (!list) {
+        output.push(`<${type}>`);
+        list = type;
       }
-      if (/^##\s+/.test(line)) {
-        return `<h2>${escapeHtml(line.replace(/^##\s+/, ""))}</h2>`;
-      }
-      if (/^#\s+/.test(line)) {
-        return `<h1>${escapeHtml(line.replace(/^#\s+/, ""))}</h1>`;
-      }
-      if (/^[-*]\s+/.test(line)) {
-        return `<p>• ${escapeHtml(line.replace(/^[-*]\s+/, ""))}</p>`;
-      }
-      if (!line.trim()) {
-        return "<br>";
-      }
-      return `<p>${escapeHtml(line)}</p>`;
-    })
-    .join("");
+      const task = /^\[([ xX])\]\s+(.+)$/.exec(item[2]);
+      output.push(task
+        ? `<li class="task-list-item"><label><input type="checkbox" disabled${task[1].toLowerCase() === "x" ? " checked" : ""}> ${inline(task[2])}</label></li>`
+        : `<li>${inline(item[2])}</li>`);
+      continue;
+    }
+    if (list) flush();
+    paragraph.push(line.trim());
+  }
+  flush();
+  return output.join("\n");
 }
 
 function escapeHtml(value) {

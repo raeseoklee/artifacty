@@ -197,6 +197,18 @@ async function waitHealthy(run, home, health, sleep, identity, args) {
   throw failure("The updated service did not pass its PID and HTTP health checks", "UPDATE_HEALTH_FAILED");
 }
 
+/** Verify that a web administrator is operating the managed service itself. */
+export async function inspectWebUpdateService({ home, pid = process.pid }, injected = {}) {
+  if ((injected.platform || process.platform) !== "linux" || (injected.uid ?? process.geteuid?.()) === 0) {
+    throw failure("Web updates require a non-root Linux systemd user service", "UNSUPPORTED_SERVICE");
+  }
+  const run = injected.run || ((command, args) => execute(command, args, { timeout: 10000, maxBuffer: 1024 * 1024 }));
+  const service = await discoverService(run, path.resolve(home));
+  if (!service.active || service.pid !== pid) throw failure("This server is not the managed Artifacty service", "SERVICE_IDENTITY_MISMATCH");
+  await (injected.verifyServiceIdentity || verifyServiceIdentity)(pid, service.args);
+  return { currentVersion: service.version };
+}
+
 /** Update the managed Linux user service. Dependencies are injectable for offline tests. */
 export async function updateApplication(options = {}, injected = {}) {
   const env = injected.env || process.env;

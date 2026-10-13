@@ -77,6 +77,7 @@ import {
 import { assertNetworkAccess, getNetworkPolicy, stageNetworkPolicy, getPendingNetworkPolicy, confirmNetworkPolicy, rollbackNetworkPolicy } from "./lib/network-policy.js";
 import { getShareLinkPolicy, setShareLinkPolicy, createShareLink, listShareLinks, revokeShareLink, resolveShareLink } from "./lib/share-links.js";
 import { installSamples, removeSamples } from "./lib/samples.js";
+import { createWebUpdater } from "./lib/web-update.js";
 import { MAX_BACKUP_BYTES, buildStoreBackup, exportStoreToString, importStoreBundle, importStoreFromString } from "./lib/backup.js";
 import { convertAgentArtifact, decodeMediaContent, mediaContentType } from "./lib/converters.js";
 import { createLineDiff, createStructuredDiff, diffFormatFor, resolveDiffView } from "./lib/diff.js";
@@ -111,6 +112,7 @@ import {
   renderAccountPage,
   renderAdminBackupPage,
   renderAdminAccessPage,
+  renderAdminUpdatePage,
   renderArtifactSharingPage,
   renderSharedArtifactPage,
   renderInboxPage,
@@ -189,6 +191,7 @@ export async function startServer(options = {}) {
     options.portFallback === true ||
     (!explicitPort && options.portFallback !== false);
   const store = createStore({ home: options.home });
+  const webUpdater = options.webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT });
   const security = securityConfig(options);
   const mcpHttp = Boolean(options.mcpHttp || process.env.ARTIFACTY_MCP_HTTP === "true");
   validateServerExposure({ host, config: security });
@@ -202,7 +205,7 @@ export async function startServer(options = {}) {
     allowPortFallback,
     createServer(port) {
       const candidateServer = http.createServer((request, response) => {
-        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security, mcpHttp }).catch((error) => {
+        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security, mcpHttp, webUpdater }).catch((error) => {
           sendError(response, error);
         });
       });
@@ -307,7 +310,7 @@ function closeServer(server) {
   });
 }
 
-export async function handleRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false }) {
+export async function handleRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater }) {
   await assertNetworkAccess(store, request.socket.remoteAddress);
   const url = new URL(request.url, `http://${request.headers.host || `${host}:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
@@ -317,6 +320,10 @@ export async function handleRequest({ request, response, store, host, port, secu
   const currentPath = `${url.pathname}${url.search}`;
   const headOnly = request.method === "HEAD";
   const method = headOnly ? "GET" : request.method;
+
+  if (method === "GET" && pathname === "/assets/update.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "update.js"), headOnly, request);
+  }
 
   const publicShareMatch = /^\/s\/([^/]+)(\/raw)?$/.exec(pathname);
   if (publicShareMatch && method === "GET") {
@@ -546,6 +553,31 @@ export async function handleRequest({ request, response, store, host, port, secu
   }
 
   const browserAccess = accessContext(request, currentUser);
+  if (["/admin/update", "/admin/update/status", "/admin/update/check", "/admin/update/start"].includes(pathname)) {
+    if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
+    requireAdmin(currentUser);
+    response.setHeader("cache-control", "no-store");
+    const updater = webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT });
+    const session = sessionTokenFromRequest(request);
+    if (method === "GET" && pathname === "/admin/update/status") return sendJson(response, await updater.status(session), 200, headOnly);
+    if (method === "GET" && pathname === "/admin/update") {
+      return sendHtml(response, renderAdminUpdatePage({ baseUrl, user: currentUser, locale, currentPath, status: await updater.status(session) }), 200, headOnly);
+    }
+    if (method === "POST" && ["/admin/update/check", "/admin/update/start"].includes(pathname)) {
+      assertLocalOrigin(request);
+      const expectedOrigin = `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`;
+      if (request.headers.origin !== expectedOrigin) throw Object.assign(new Error("An exact same-origin request is required"), { statusCode: 403, code: "UPDATE_ORIGIN_REQUIRED" });
+      await enforceRateLimit({ store, host, request, bucket: "write" });
+      const body = await readFormBody(request);
+      if (pathname.endsWith("/check")) {
+        const status = await updater.check(session);
+        return sendHtml(response, renderAdminUpdatePage({ baseUrl, user: currentUser, locale: localeFromBodyOrUrl(body, url), currentPath: "/admin/update", status }));
+      }
+      await updater.start({ session, confirmationId: body.confirmationId, targetVersion: body.targetVersion, confirmUpdate: body.confirmUpdate });
+      return sendRedirect(response, localizedHref("/admin/update", localeFromBodyOrUrl(body, url)));
+    }
+    return sendJson(response, { error: "Method not allowed" }, 405, headOnly);
+  }
   const browserAudit = { surface: "web", actor: currentUser?.email, userId: currentUser?.id };
   const adminAccessPage = async (extra = {}) => renderAdminAccessPage({
     baseUrl, user: currentUser, mode: await getAccessMode(store),
@@ -1048,7 +1080,7 @@ export async function handleRequest({ request, response, store, host, port, secu
   }
 
   if (method === "GET" && pathname === "/new") {
-    return sendHtml(response, renderNewArtifactPage({ baseUrl, authToken, locale, currentPath }), 200, headOnly);
+    return sendHtml(response, renderNewArtifactPage({ baseUrl, authToken, user: currentUser, locale, currentPath }), 200, headOnly);
   }
 
   if (method === "POST" && pathname === "/new") {
@@ -1075,7 +1107,7 @@ export async function handleRequest({ request, response, store, host, port, secu
   }
 
   if (method === "GET" && pathname === "/import") {
-    return sendHtml(response, renderImportArtifactPage({ baseUrl, authToken, locale, currentPath }), 200, headOnly);
+    return sendHtml(response, renderImportArtifactPage({ baseUrl, authToken, user: currentUser, locale, currentPath }), 200, headOnly);
   }
 
   if (method === "POST" && pathname === "/import") {
@@ -1342,6 +1374,7 @@ export async function handleRequest({ request, response, store, host, port, secu
       access: accessContext(request, currentUser)
     });
     return sendHtml(response, renderArtifactFormPage({
+      user: currentUser,
       mode: "edit",
       baseUrl,
       artifact,
@@ -1388,6 +1421,7 @@ export async function handleRequest({ request, response, store, host, port, secu
           tags: splitTags(body.tags)
         };
         return sendHtml(response, renderArtifactFormPage({
+          user: currentUser,
           mode: "edit",
           baseUrl,
           artifact: unsavedArtifact,
@@ -1419,6 +1453,7 @@ export async function handleRequest({ request, response, store, host, port, secu
       ? createStructuredDiff(from.content, to.content, { format: diffFormat })
       : null;
     return sendHtml(response, renderDiffPage({
+      user: currentUser,
       artifact: latest,
       fromVersion: from.version,
       toVersion: to.version,

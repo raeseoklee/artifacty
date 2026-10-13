@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
 import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, switchLocaleHref } from "./i18n.js";
 import { ARTIFACT_FORMATS, ARTIFACT_TYPES, REVIEW_STATUSES, SAVED_VIEW_FILTER_KEYS, VISIBILITY_VALUES } from "./storage.js";
@@ -12,62 +13,62 @@ import {
 import { isNotebookObject } from "./converters.js";
 import { GROUP_BY_VALUES, groupKeyFor } from "./listing.js";
 
+const APP_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
+
 export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/", user = null, savedViews = [], embeddingsAvailable = false }) {
   const view = viewContext(locale, currentPath);
   const total = pagination?.total ?? artifacts.length;
   const start = artifacts.length ? (pagination?.offset ?? 0) + 1 : 0;
   const end = artifacts.length ? (pagination?.offset ?? 0) + artifacts.length : 0;
-  const searchBackend = pagination?.search?.backend;
   const pager = renderDashboardPager({ pagination, filters, view });
   const rowsHtml = renderArtifactRows(artifacts, filters.groupBy, view);
-  const sidebar = renderSavedViewsSidebar({ savedViews, filters, view });
+  const activeFilters = [
+    ["tag", "filter.tag"], ["sourceAgent", "filter.source"], ["artifactType", "filter.artifactType"],
+    ["publisher", "filter.publisher"], ["createdAfter", "filter.createdAfter"], ["createdBefore", "filter.createdBefore"],
+    ["reviewStatus", "filter.reviewStatus"], ["mode", "filter.mode"], ["groupBy", "filter.groupBy"],
+    ["relatedTo", "filter.relatedTo"], ["relation", "filter.relation"], ["includeArchived", "filter.archived"]
+  ].filter(([key]) => filters[key]);
+  const field = (key, label, type = "text") => `<label class="dashboard-field"><span>${view.text(label)}</span><input type="${type}" name="${key}" value="${escapeAttribute(filters[key] || "")}"></label>`;
+  const selectField = (label, select) => `<label class="dashboard-field"><span>${view.text(label)}</span>${select}</label>`;
 
   return pageShell({
     title: "Artifacty",
     body: `
-      <header class="topbar">
-        <a class="brand" href="${view.href("/")}">
-          ${brandMark()}
-          <span class="brand-text">
-            <span class="brand-name">artifacty</span>
-            <span class="brand-tag">local artifact exchange · ${escapeHtml(baseUrl)}</span>
-          </span>
-        </a>
-        <nav>
-          <a href="${view.href("/new")}">${view.text("nav.new")}</a>
-          <a href="${view.href("/import")}">${view.text("nav.import")}</a>
-          <a href="/api/artifacts">${view.text("nav.api")}</a>
-          ${authNav(user, view)}
-          ${languageSwitcher(view)}
-        </nav>
-      </header>
+      ${workspaceHeader(user, view)}
       <div class="dashboard-layout">
-        ${sidebar}
-        <main class="dashboard">
-          <section class="toolbar">
-            <span>${view.text("dashboard.range", { start, end, total })}</span>
-            ${searchBackend ? `<span>${view.text("dashboard.searchBackend", { backend: searchBackend })}</span>` : ""}
-          </section>
+        <main class="dashboard" id="main-content">
+          <div class="dashboard-heading"><h1>${view.text("nav.artifacts")}</h1><nav><a class="button-link" href="${view.href("/new")}">${view.text("nav.new")}</a><a href="${view.href("/import")}">${view.text("nav.import")}</a></nav></div>
           <form class="filter-form" method="get" action="/">
             ${localeInput(view.locale)}
             ${filters.limit ? `<input type="hidden" name="limit" value="${escapeAttribute(filters.limit)}">` : ""}
-            <input name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("filter.search")}">
-            <input name="tag" value="${escapeAttribute(filters.tag || "")}" placeholder="${view.attr("filter.tag")}">
-            <input name="sourceAgent" value="${escapeAttribute(filters.sourceAgent || "")}" placeholder="${view.attr("filter.source")}">
-            ${filterArtifactTypeSelect(filters.artifactType, view)}
-            <input name="publisher" value="${escapeAttribute(filters.publisher || "")}" placeholder="${view.attr("filter.publisher")}">
-            <input type="date" name="createdAfter" value="${escapeAttribute(filters.createdAfter || "")}" title="${view.attr("filter.createdAfter")}">
-            <input type="date" name="createdBefore" value="${escapeAttribute(filters.createdBefore || "")}" title="${view.attr("filter.createdBefore")}">
-            ${filterReviewStatusSelect(filters.reviewStatus, view)}
-            ${embeddingsAvailable ? filterModeSelect(filters.mode, view) : ""}
-            ${filterGroupBySelect(filters.groupBy, view)}
-            <label class="checkbox-field"><input type="checkbox" name="includeArchived" value="true"${filters.includeArchived ? " checked" : ""}> ${view.text("filter.archived")}</label>
-            <button type="submit">${view.text("filter.submit")}</button>
-            <a href="${view.href("/")}">${view.text("filter.clear")}</a>
+            ${!embeddingsAvailable && filters.mode ? `<input type="hidden" name="mode" value="${escapeAttribute(filters.mode)}">` : ""}
+            <div class="dashboard-search-row">
+              <label class="dashboard-search"><span class="dashboard-sr-only">${view.text("filter.search")}</span><input type="search" name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("dashboard.searchPlaceholder")}"></label>
+              <button type="submit">${view.text("filter.search")}</button>
+              <a class="dashboard-clear" href="${view.href("/")}">${view.text("filter.clear")}</a>
+            </div>
+            <details class="dashboard-advanced">
+              <summary>${view.text("dashboard.advanced")}${activeFilters.length ? `<span class="dashboard-filter-count">${view.text("dashboard.activeFilters", { count: activeFilters.length })}</span>` : ""}</summary>
+              <div class="dashboard-filter-grid">
+                ${field("tag", "filter.tag")}${field("sourceAgent", "filter.source")}
+                ${selectField("filter.artifactType", filterArtifactTypeSelect(filters.artifactType, view))}
+                ${field("publisher", "filter.publisher")}
+                ${field("createdAfter", "filter.createdAfter", "date")}${field("createdBefore", "filter.createdBefore", "date")}
+                ${selectField("filter.reviewStatus", filterReviewStatusSelect(filters.reviewStatus, view))}
+                ${embeddingsAvailable ? selectField("filter.mode", filterModeSelect(filters.mode, view)) : ""}
+                ${selectField("filter.groupBy", filterGroupBySelect(filters.groupBy, view))}
+                ${field("relatedTo", "filter.relatedTo")}${field("relation", "filter.relation")}
+                <label class="checkbox-field"><input type="checkbox" name="includeArchived" value="true"${filters.includeArchived ? " checked" : ""}> ${view.text("filter.archived")}</label>
+                <div class="dashboard-filter-actions"><button type="submit">${view.text("filter.submit")}</button></div>
+              </div>
+            </details>
+            ${activeFilters.length ? `<p class="dashboard-active-filters">${activeFilters.map(([key, label]) => `<span>${view.text(label)}${key === "includeArchived" ? "" : `: ${escapeHtml(filters[key])}`}</span>`).join("")}</p>` : ""}
           </form>
-          <section class="artifact-list">
-            ${rowsHtml || `<div class="empty">${view.text("dashboard.empty")}</div>`}
+          ${renderSavedViewsSidebar({ savedViews, filters, view })}
+          <section class="toolbar dashboard-results">
+            <span>${view.text("dashboard.range", { start, end, total })}</span>
           </section>
+          <section class="artifact-list">${rowsHtml || `<div class="empty">${view.text("dashboard.empty")}</div>`}</section>
           ${pager}
         </main>
       </div>
@@ -88,14 +89,11 @@ function renderArtifactRow(artifact, view) {
     <a class="artifact-row" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">
       <span class="row-main">
         <strong>${escapeHtml(artifact.title)}</strong>
-        <span>${escapeHtml(artifact.id)}</span>
+        <span class="dashboard-sr-only">${escapeHtml(artifact.id)}</span>
         ${snippet}
       </span>
-      <span>${escapeHtml(artifact.sourceAgent)}</span>
-      <span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>
-      ${typeBadge(artifact.artifactType || "document")}
-      ${formatBadge(artifact.format || "text")}
-      <span>v${artifact.latestVersion}</span>
+      <span class="row-agent"><span>${escapeHtml(artifact.sourceAgent)}</span>${artifact.publisherId || artifact.publisherName ? `<span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>` : ""}</span>
+      <span class="row-formats">${typeBadge(artifact.artifactType || "document")}${formatBadge(artifact.format || "text")}<span>v${artifact.latestVersion}</span></span>
       <span class="tags">${status}${visibility}${tags}</span>
     </a>
   `;
@@ -188,17 +186,19 @@ function renderSavedViewsSidebar({ savedViews, filters, view }) {
     : `<li class="empty">${view.text("views.empty")}</li>`;
 
   return `
-    <aside class="dashboard-sidebar">
-      <h2>${view.text("views.title")}</h2>
+    <details class="dashboard-saved-views">
+      <summary>${view.text("views.title")} <span class="dashboard-filter-count">${savedViews.length}</span></summary>
+      <div class="dashboard-saved-content">
       <ul class="saved-view-list">${items}</ul>
       <form method="post" action="${view.href("/views")}" class="saved-view-form">
         ${localeInput(view.locale)}
         ${savedViewFilterHiddenInputs(filters)}
-        <input name="name" placeholder="${view.attr("views.namePlaceholder")}" required>
+        <label class="dashboard-field"><span>${view.text("views.namePlaceholder")}</span><input name="name" placeholder="${view.attr("views.namePlaceholder")}" required></label>
         <label class="checkbox-field"><input type="checkbox" name="shared" value="true"> ${view.text("views.shared")}</label>
         <button type="submit">${view.text("views.save")}</button>
       </form>
-    </aside>
+      </div>
+    </details>
   `;
 }
 
@@ -260,7 +260,7 @@ function dashboardPageHref(filters, offset) {
   return query ? `/?${query}` : "/";
 }
 
-export function renderArtifactFormPage({ mode, baseUrl, artifact, version, content, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", expectedVersion, conflict = null }) {
+export function renderArtifactFormPage({ user, mode, baseUrl, artifact, version, content, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", expectedVersion, conflict = null }) {
   const view = viewContext(locale, currentPath);
   const isEdit = mode === "edit";
   const title = isEdit ? view.raw("form.editTitle", { title: artifact.title }) : view.raw("form.newTitle");
@@ -281,6 +281,7 @@ export function renderArtifactFormPage({ mode, baseUrl, artifact, version, conte
   return pageShell({
     title,
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>${escapeHtml(title)}</h1>
@@ -288,10 +289,10 @@ export function renderArtifactFormPage({ mode, baseUrl, artifact, version, conte
         </div>
         <nav>
           <a href="${view.href(isEdit ? `/artifacts/${encodeURIComponent(artifact.id)}` : "/")}">${view.text("nav.cancel")}</a>
-          ${languageSwitcher(view)}
+
         </nav>
       </header>
-      <main class="artifact-editor">
+      <main id="main-content" class="artifact-editor">
         ${conflictBanner}
         <form class="editor-form" method="post" action="${action}">
           ${hiddenToken(authToken)}
@@ -340,8 +341,8 @@ export function renderArtifactFormPage({ mode, baseUrl, artifact, version, conte
   });
 }
 
-export function renderNewArtifactPage({ baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/new" }) {
-  return renderArtifactFormPage({ mode: "new", baseUrl, authToken, locale, currentPath });
+export function renderNewArtifactPage({ user, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/new" }) {
+  return renderArtifactFormPage({ mode: "new", baseUrl, authToken, locale, currentPath, user });
 }
 
 export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, content, baseUrl, user, error = "", locale = DEFAULT_LOCALE, currentPath = "/" }) {
@@ -371,19 +372,20 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
   return pageShell({
     title: `Manage versions · ${artifact.title}`,
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>Manage versions</h1>
           <p>${escapeHtml(artifact.title)} · ${escapeHtml(artifact.id)} · ${escapeHtml(baseUrl)}</p>
         </div>
         <nav>
-          <a href="${view.href(artifactPath)}">Artifact</a>
+          <a href="${view.href(artifactPath)}">${view.text("nav.artifact")}</a>
           <a href="${view.href(`${artifactPath}/diff`)}">${view.text("nav.diff")}</a>
-          ${authNav(user, view)}
-          ${languageSwitcher(view)}
+
+
         </nav>
       </header>
-      <main class="artifact-editor">
+      <main id="main-content" class="artifact-editor">
         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
         <section class="meta-card">
           <h2>Versions</h2>
@@ -421,23 +423,21 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
   });
 }
 
-export function renderImportArtifactPage({ baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/import" }) {
+export function renderImportArtifactPage({ user, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/import" }) {
   const view = viewContext(locale, currentPath);
   const title = view.raw("form.importTitle");
   return pageShell({
     title,
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>${escapeHtml(title)}</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-editor">
+      <main id="main-content" class="artifact-editor">
         <form class="editor-form" method="post" action="/import">
           ${hiddenToken(authToken)}
           ${localeInput(view.locale)}
@@ -490,17 +490,15 @@ export function renderLoginPage({ baseUrl, setup = false, error = "", locale = D
   return pageShell({
     title,
     body: `
+      ${workspaceHeader(null, view)}
       <header class="topbar">
         <div>
           <h1>${escapeHtml(title)}</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-editor auth-panel">
+      <main id="main-content" class="artifact-editor auth-panel">
         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
         ${setup ? `<p class="muted">No users exist yet. The first account becomes an administrator.</p>` : ""}
         <form class="editor-form auth-form" method="post" action="/login">
@@ -556,20 +554,15 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
   return pageShell({
     title: "Account",
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>Account</h1>
           <p>${escapeHtml(user.email)} · ${escapeHtml(user.role)} · ${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          ${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>` : ""}
-          <a href="/account/password">Password</a>
-          <form class="nav-form" method="post" action="/logout"><button type="submit">Sign out</button></form>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-view">
+      <main id="main-content" class="settings-page artifact-view">
         ${createdToken ? `<section class="token-once">
           <h2>New API token</h2>
           <p>Copy this token now. Artifacty stores only its hash and cannot show it again.</p>
@@ -619,19 +612,15 @@ export function renderPasswordPage({ baseUrl, user, required = false, error = ""
   return pageShell({
     title: "Change Password",
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>Change Password</h1>
           <p>${escapeHtml(user.email)} · ${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          ${required ? "" : `<a href="/account">Account</a>`}
-          <form class="nav-form" method="post" action="/logout"><button type="submit">Sign out</button></form>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-editor auth-panel">
+      <main id="main-content" class="settings-page artifact-editor auth-panel">
         ${required ? `<p class="auth-warning">Password change is required before continuing.</p>` : ""}
         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
         ${success ? `<p class="auth-success">${escapeHtml(success)}</p>` : ""}
@@ -670,25 +659,20 @@ function renderFullImportSummary(tableCounts) {
   return parts ? ` (${parts})` : "";
 }
 
-export function renderAdminBackupPage({ baseUrl, integrity, importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/backup" }) {
+export function renderAdminBackupPage({ user, baseUrl, integrity, importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/backup" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({
     title: "Backup",
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>Backup</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/users">Users</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
-          <a href="/admin/retention">${view.text("retention.navLabel")}</a>
-          <a href="/account">Account</a>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-view">
+      <main id="main-content" class="settings-page artifact-view">
         ${importResult ? `<p class="auth-success">Restore complete. ${escapeHtml(importResult.artifactCount)} artifacts imported${importResult.scope === "full" ? renderFullImportSummary(importResult.tableCounts) : ""}.</p>` : ""}
         ${importError ? `<p class="auth-error">${escapeHtml(importError)}</p>` : ""}
         <section class="meta-card">
@@ -737,14 +721,57 @@ export function renderAdminBackupPage({ baseUrl, integrity, importResult = null,
   });
 }
 
+export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEFAULT_LOCALE, currentPath = "/admin/update" }) {
+  const view = viewContext(locale, currentPath);
+  const check = status.check;
+  const run = status.run;
+  const active = ["queued", "running"].includes(run?.state);
+  const canStart = check?.supported && !check.errorCode && check.targetVersion && check.updateAvailable && check.confirmationId && Date.parse(check.expiresAt) > Date.now() && !active && run?.state !== "interrupted" && status.currentVersion !== check.targetVersion;
+  const states = Object.fromEntries(["queued", "running", "succeeded", "failed", "interrupted"].map((state) => [state, view.raw(`update.${state}`)]));
+  const messages = { ...states, reconnect: view.raw("update.reconnect"), signIn: view.raw("update.signIn") };
+  return pageShell({
+    title: view.text("update.title"), locale: view.locale,
+    body: `${workspaceHeader(user, view)}
+      <header class="topbar"><div><h1>${view.text("update.title")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
+      <main id="main-content" class="settings-page artifact-view">
+        <section class="meta-card"><h2>${view.text("update.installed")}</h2><p>Artifacty <strong data-update-version>${escapeHtml(status.currentVersion || APP_VERSION)}</strong></p>
+          <p>${view.text("update.help")}</p>
+          <form method="post" action="/admin/update/check">${localeInput(view.locale)}<button type="submit"${active ? " disabled" : ""}>${view.text("update.check")}</button></form>
+        </section>
+        ${check ? `<section class="meta-card"><h2>${view.text("update.latest")}</h2>
+          <p>${escapeHtml(status.currentVersion || APP_VERSION)} → <strong>${escapeHtml(check.targetVersion || "—")}</strong></p>
+          ${check.targetVersion ? `<p><a href="https://github.com/raeseoklee/artifacty/releases/tag/v${escapeAttribute(encodeURIComponent(check.targetVersion))}" target="_blank" rel="noopener noreferrer">${view.text("update.releaseNotes")}</a></p>` : ""}
+          ${check.errorCode ? `<p role="alert">${view.text("update.checkFailed")}</p>` : !check.supported ? `<p>${view.text("update.unsupported")}</p><p>${view.text("update.manual")}</p>` : !check.updateAvailable && !check.errorCode && check.targetVersion ? `<p>${view.text("update.current")}</p>` : ""}
+          ${check.supported && check.updateAvailable && !canStart && !active && !check.errorCode && status.currentVersion !== check.targetVersion ? `<p>${view.text("update.checkAgain")}</p>` : ""}
+          ${canStart ? `<p>${view.text("update.available", { version: check.targetVersion })}</p><p>${view.text("update.backup")}</p>
+            <form class="editor-form" method="post" action="/admin/update/start">${localeInput(view.locale)}
+              <input type="hidden" name="confirmationId" value="${escapeAttribute(check.confirmationId)}">
+              <input type="hidden" name="targetVersion" value="${escapeAttribute(check.targetVersion)}">
+              <label><input type="checkbox" name="confirmUpdate" value="true" required> ${view.text("update.confirm")}</label>
+              ${check.expiresAt ? `<p class="muted">${view.text("update.expires")}: ${`<time datetime="${escapeAttribute(check.expiresAt)}" title="${escapeAttribute(check.expiresAt)}">${escapeHtml(new Intl.DateTimeFormat(view.locale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(new Date(check.expiresAt)))} UTC</time>`}</p>` : ""}
+              <button type="submit">${view.text("update.start")}</button>
+            </form>` : ""}
+        </section>` : ""}
+        ${run ? `<section class="meta-card" data-update-status data-active="${active}" data-messages="${escapeAttribute(JSON.stringify(messages))}"><h2>${view.text("update.progress")}</h2>
+          <p>${view.text("update.latest")}: ${escapeHtml(run.targetVersion || "—")}</p>
+          <p role="status" aria-live="polite" data-update-state>${escapeHtml(states[run.state] || states.running)}</p>
+          <p data-update-error>${escapeHtml(run.error || "")}</p>
+          <a href="${view.href("/admin/update")}">${view.text("update.refresh")}</a> <a data-update-login hidden href="${view.href("/login")}">${view.text("nav.signIn")}</a>
+        </section>` : ""}
+      </main>`,
+    afterBody: active ? '<script type="module" src="/assets/update.js"></script>' : ""
+  });
+}
+
 export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users = [], networkPolicy = { allowedCidrs: [] }, currentIp = "", preview = null, pendingNetworkPolicy = null, shareLinkPolicy = {}, locale = DEFAULT_LOCALE, currentPath = "/admin/access" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({
     title: view.text("access.title"),
     locale: view.locale,
-    body: `<header class="topbar"><div><h1>${view.text("access.title")}</h1><p>${escapeHtml(baseUrl)}</p></div>
-      <nav><a href="${view.href("/")}">${view.text("nav.index")}</a>${authNav(user, view)}${languageSwitcher(view)}</nav></header>
-      <main class="artifact-view">
+    body: `${workspaceHeader(user, view)}
+      <header class="topbar"><div><h1>${view.text("access.title")}</h1><p>${escapeHtml(baseUrl)}</p></div>
+      </header>
+      <main id="main-content" class="settings-page artifact-view">
         <section class="meta-card"><h2>${view.text("access.mode")}</h2>
           <form class="editor-form" method="post" action="/admin/access/preview">${localeInput(view.locale)}
             <label><input type="radio" name="mode" value="public"${mode === "public" ? " checked" : ""}> ${view.text("access.public")}</label>
@@ -768,8 +795,6 @@ export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users =
             <button type="submit">${view.text("access.saveNetwork")}</button>
           </form>
         </section>
-        <section class="meta-card"><h2>${view.text("access.samples")}</h2><p>${view.text("access.samplesHelp")}</p>
-          ${["install", "remove"].map((action) => `<form method="post" action="/admin/samples/${action}">${localeInput(view.locale)}<button type="submit">${view.text(`access.samples.${action}`)}</button></form>`).join("")}</section>
         <section class="meta-card"><h2>${view.text("access.teams")}</h2>
           <form class="editor-form auth-form" method="post" action="/admin/teams">${localeInput(view.locale)}
             <label class="field"><span>${view.text("access.teamName")}</span><input name="name" required></label>
@@ -781,6 +806,8 @@ export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users =
               <button type="submit">${view.text("access.saveMembers")}</button>
             </form></section>`).join("") : `<p class="muted">${view.text("access.noTeams")}</p>`}
         </section>
+        <section class="meta-card"><h2>${view.text("access.samples")}</h2><p>${view.text("access.samplesHelp")}</p>
+          ${["install", "remove"].map((action) => `<form method="post" action="/admin/samples/${action}">${localeInput(view.locale)}<button type="submit">${view.text(`access.samples.${action}`)}</button></form>`).join("")}</section>
       </main>`
   });
 }
@@ -790,9 +817,10 @@ export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = {
   return pageShell({
     title: view.text("sharing.title"),
     locale: view.locale,
-    body: `<header class="topbar"><div><h1>${view.text("sharing.title")}: ${escapeHtml(artifact.title)}</h1><p>${escapeHtml(baseUrl)}</p></div>
-      <nav><a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">${view.text("nav.artifact")}</a>${authNav(user, view)}${languageSwitcher(view)}</nav></header>
-      <main class="artifact-view"><section class="meta-card">
+    body: `${workspaceHeader(user, view)}
+      <header class="topbar"><div><h1>${view.text("sharing.title")}: ${escapeHtml(artifact.title)}</h1><p>${escapeHtml(baseUrl)}</p></div>
+      <nav><a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">${view.text("nav.artifact")}</a></nav></header>
+      <main id="main-content" class="settings-page artifact-view"><section class="meta-card">
         <p>${view.text("sharing.help")}</p>
         <form class="editor-form" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/sharing">${localeInput(view.locale)}
           <fieldset><legend>${view.text("sharing.users")}</legend>${accessCheckboxes(users, "userIds", sharing.userIds || [], view, sharing.userPermissions || {})}</fieldset>
@@ -821,8 +849,9 @@ function accessCheckboxes(items, name, selectedIds, view, permissions = null) {
 export function renderInboxPage({ baseUrl, user, notifications = [], unreadCount = 0, locale = DEFAULT_LOCALE, currentPath = "/inbox" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({ title: view.text("inbox.title"), locale: view.locale,
-    body: `<header class="topbar"><div><h1>${view.text("inbox.title")}</h1><p>${escapeHtml(baseUrl)}</p></div><nav><a href="${view.href("/")}">${view.text("nav.index")}</a>${authNav(user, view)}${languageSwitcher(view)}</nav></header>
-      <main class="artifact-view"><section class="meta-card"><p>${view.text("inbox.unread", { count: unreadCount })}</p>
+    body: `${workspaceHeader(user, view)}
+      <header class="topbar"><div><h1>${view.text("inbox.title")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
+      <main id="main-content" class="artifact-view"><section class="meta-card"><p>${view.text("inbox.unread", { count: unreadCount })}</p>
         <form method="post" action="/inbox/read-all">${localeInput(view.locale)}<button type="submit">${view.text("inbox.readAll")}</button></form>
         ${notifications.length ? notifications.map((item) => `<section><h2><a href="${view.href(`/artifacts/${encodeURIComponent(item.artifactId)}`)}">${escapeHtml(item.title)}</a></h2><p>${escapeHtml(item.type)} · ${escapeHtml(item.createdAt)}</p>
           ${item.readAt ? `<p>${view.text("inbox.read")}</p>` : `<form method="post" action="/inbox/${encodeURIComponent(item.id)}/read">${localeInput(view.locale)}<button type="submit">${view.text("inbox.markRead")}</button></form>`}</section>`).join("") : `<p>${view.text("inbox.empty")}</p>`}
@@ -842,7 +871,7 @@ export function renderSharedArtifactPage({ artifact, version, content, locale = 
     });
   const needsViewer = ["code", "markdown", "notebook", "sarif", "csv"].includes(version.format);
   return pageShell({ title: artifact.title, locale: view.locale,
-    body: `<header class="topbar"><div><h1>${escapeHtml(artifact.title)}</h1><p>${view.text("sharing.readOnly")} · v${Number(version.version)}</p></div></header><main class="artifact-view">${rendered}</main>`,
+    body: `<header class="topbar"><div><h1>${escapeHtml(artifact.title)}</h1><p>${view.text("sharing.readOnly")} · v${Number(version.version)}</p></div></header><main id="main-content" class="artifact-view">${rendered}</main>`,
     head: needsViewer ? editorHead() : "",
     afterBody: `${frameResizeScript()}${needsViewer ? viewerScript() : ""}` });
 }
@@ -899,20 +928,15 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
   return pageShell({
     title: "Users",
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>Users</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
-          <a href="/admin/retention">${view.text("retention.navLabel")}</a>
-          <a href="/account">Account</a>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-view">
+      <main id="main-content" class="settings-page artifact-view">
         <section class="meta-card">
           <h2>Create user</h2>
           <form class="editor-form auth-form" method="post" action="/admin/users">
@@ -952,7 +976,7 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
   });
 }
 
-export function renderAdminWebhooksPage({ baseUrl, webhooks = [], createdSecret = null, createdWebhookId = null, locale = DEFAULT_LOCALE, currentPath = "/admin/webhooks" }) {
+export function renderAdminWebhooksPage({ user, baseUrl, webhooks = [], createdSecret = null, createdWebhookId = null, locale = DEFAULT_LOCALE, currentPath = "/admin/webhooks" }) {
   const view = viewContext(locale, currentPath);
   const rows = webhooks.map((webhook) => `
     <tr>
@@ -981,21 +1005,15 @@ export function renderAdminWebhooksPage({ baseUrl, webhooks = [], createdSecret 
   return pageShell({
     title: view.text("webhooks.title"),
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>${view.text("webhooks.title")}</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
-          <a href="/admin/users">Users</a>
-          <a href="/admin/retention">${view.text("retention.navLabel")}</a>
-          <a href="/account">Account</a>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-view">
+      <main id="main-content" class="settings-page artifact-view">
         ${secretBanner}
         <section class="meta-card">
           <h2>${view.text("webhooks.createTitle")}</h2>
@@ -1020,7 +1038,7 @@ export function renderAdminWebhooksPage({ baseUrl, webhooks = [], createdSecret 
   });
 }
 
-export function renderAdminRetentionPage({ baseUrl, policy, lastSweep = null, report = null, locale = DEFAULT_LOCALE, currentPath = "/admin/retention" }) {
+export function renderAdminRetentionPage({ user, baseUrl, policy, lastSweep = null, report = null, locale = DEFAULT_LOCALE, currentPath = "/admin/retention" }) {
   const view = viewContext(locale, currentPath);
   const byTypeText = Object.entries(policy.archiveAfterDays.byType || {})
     .map(([type, days]) => `${type}=${days}`)
@@ -1070,20 +1088,15 @@ export function renderAdminRetentionPage({ baseUrl, policy, lastSweep = null, re
   return pageShell({
     title: view.text("retention.title"),
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>${view.text("retention.title")}</h1>
           <p>${escapeHtml(baseUrl)}</p>
         </div>
-        <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
-          <a href="/admin/users">Users</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
-          <a href="/account">Account</a>
-          ${languageSwitcher(view)}
-        </nav>
+
       </header>
-      <main class="artifact-view">
+      <main id="main-content" class="settings-page artifact-view">
         <section class="meta-card">
           <h2>${view.text("retention.policyTitle")}</h2>
           <form class="editor-form" method="post" action="/admin/retention">
@@ -1168,33 +1181,36 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
   return pageShell({
     title: artifact.title,
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>${escapeHtml(artifact.title)}</h1>
           <p>${escapeHtml(artifact.id)} · ${escapeHtml(artifact.sourceAgent)} · ${escapeHtml(baseUrl)}</p>
         </div>
         <nav>
-          <a href="${view.href("/")}">${view.text("nav.index")}</a>
+
           ${canEdit ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit`)}">${view.text("nav.edit")}</a>` : ""}
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
-          ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">Versions</a>` : ""}
+          ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
           <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
           ${user && canManageVisibility ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/sharing`)}">${view.text("sharing.title")}</a>` : ""}
-          ${authNav(user, view)}
-          ${languageSwitcher(view)}
+
+
         </nav>
       </header>
-      <main class="${viewClass}">
-        <section class="meta-strip">
-          ${formatBadge(version.format)}
-          ${typeBadge(artifact.artifactType || "document")}
-          <span>${view.text("artifact.schema", { version: artifact.schemaVersion || 1 })}</span>
+      <main id="main-content" class="${viewClass}">
+        <section class="meta-strip artifact-overview">
+          <span>${escapeHtml(version.format)} · v${version.version}</span>
           ${artifact.archivedAt ? statusBadge(view.text("artifact.archived", { date: artifact.archivedAt })) : ""}
           ${visibilityBadge(artifact, view)}
-          <span title="${escapeAttribute(publisherTitle(artifact, view))}">${view.text("artifact.publisher", { publisher })}</span>
-          <span>${view.text("artifact.bytes", { size: version.sizeBytes })}</span>
-          <span>${escapeHtml(version.createdAt)}</span>
-          <span>${escapeHtml(version.sha256.slice(0, 12))}</span>
+          <details class="artifact-details"><summary>${view.text("artifact.details")}</summary><div class="meta-strip">
+            ${typeBadge(artifact.artifactType || "document")}
+            <span>${view.text("artifact.schema", { version: artifact.schemaVersion || 1 })}</span>
+            <span title="${escapeAttribute(publisherTitle(artifact, view))}">${view.text("artifact.publisher", { publisher })}</span>
+            <span>${view.text("artifact.bytes", { size: version.sizeBytes })}</span>
+            <span>${escapeHtml(version.createdAt)}</span>
+            <span>${escapeHtml(version.sha256.slice(0, 12))}</span>
+          </div></details>
         </section>
         ${canArchive ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${archiveAction}">
           ${hiddenToken(authToken)}
@@ -1456,7 +1472,7 @@ function artifactViewClass({ artifact, version }) {
   return classes.join(" ");
 }
 
-export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, toContent, diffRows, view: diffView = "lines", structuredDiff, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+export function renderDiffPage({ user, artifact, fromVersion, toVersion, fromContent, toContent, diffRows, view: diffView = "lines", structuredDiff, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/" }) {
   const view = viewContext(locale, currentPath);
   const title = view.raw("diff.title", { title: artifact.title });
   const versionOptions = artifact.versions
@@ -1504,6 +1520,7 @@ export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, 
   return pageShell({
     title,
     body: `
+      ${workspaceHeader(user, view)}
       <header class="topbar">
         <div>
           <h1>${escapeHtml(title)}</h1>
@@ -1511,10 +1528,10 @@ export function renderDiffPage({ artifact, fromVersion, toVersion, fromContent, 
         </div>
         <nav>
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">${view.text("nav.artifact")}</a>
-          ${languageSwitcher(view)}
+
         </nav>
       </header>
-      <main class="artifact-view">
+      <main id="main-content" class="artifact-view">
         <form class="diff-form" method="get" action="/artifacts/${encodeURIComponent(artifact.id)}/diff">
           ${localeInput(view.locale)}
           <input type="hidden" name="view" value="${escapeAttribute(resolvedView)}">
@@ -1915,20 +1932,20 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
   <style>
     :root {
       color-scheme: light dark;
-      --bg: #eef1f5;
+      --bg: #f5f6f8;
       --grid: rgba(31, 58, 99, 0.05);
       --panel: #ffffff;
-      --panel-2: #f3f6f9;
-      --text: #151b24;
-      --muted: #586273;
-      --faint: #828c9b;
-      --line: #e0e5ec;
-      --line-2: #cfd6df;
-      --accent: #0e7490;
-      --accent-2: #0b5e75;
+      --panel-2: #eef0f3;
+      --text: #20242b;
+      --muted: #58616e;
+      --faint: #626c79;
+      --line: #dfe3e8;
+      --line-2: #b9c1cc;
+      --accent: #315ca8;
+      --accent-2: #264a89;
       --accent-ink: #ffffff;
-      --accent-soft: rgba(14, 116, 144, 0.10);
-      --ring: rgba(14, 116, 144, 0.32);
+      --accent-soft: #eaf0fb;
+      --ring: #315ca8;
       --code: #0e1320;
       --code-text: #e6edf3;
       --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
@@ -1936,20 +1953,20 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #0b0f14;
+        --bg: #15171b;
         --grid: rgba(120, 160, 200, 0.06);
-        --panel: #12171f;
-        --panel-2: #171d27;
+        --panel: #1c1f24;
+        --panel-2: #25292f;
         --text: #e6edf3;
-        --muted: #9aa6b3;
-        --faint: #6b7686;
-        --line: #222a35;
-        --line-2: #2d3744;
-        --accent: #22b8cf;
-        --accent-2: #3ccbdd;
-        --accent-ink: #04161c;
-        --accent-soft: rgba(34, 184, 207, 0.14);
-        --ring: rgba(34, 184, 207, 0.40);
+        --muted: #adb5c0;
+        --faint: #9aa5b2;
+        --line: #343b44;
+        --line-2: #596575;
+        --accent: #9cbcf5;
+        --accent-2: #bbd1f8;
+        --accent-ink: #18253d;
+        --accent-soft: #29374e;
+        --ring: #9cbcf5;
         --code: #080c12;
         --code-text: #e6edf3;
       }
@@ -1959,13 +1976,10 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       margin: 0;
       min-height: 100vh;
       background-color: var(--bg);
-      background-image:
-        linear-gradient(var(--grid) 1px, transparent 1px),
-        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-      background-size: 28px 28px;
-      background-position: center top;
+
       color: var(--text);
       font-family: var(--sans);
+      font-size: 14px;
       line-height: 1.55;
       letter-spacing: 0;
       -webkit-font-smoothing: antialiased;
@@ -1973,28 +1987,28 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     a { color: var(--accent); text-decoration: none; }
     a:hover { color: var(--accent-2); text-decoration: underline; }
     .topbar {
-      position: sticky;
-      top: 0;
-      z-index: 10;
+      position: relative;
+      width: min(1440px, calc(100% - 64px));
+      margin: 28px auto 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 24px;
-      padding: 15px 28px;
+      padding: 0 0 20px;
       border-bottom: 1px solid var(--line);
-      background: color-mix(in srgb, var(--panel) 86%, transparent);
-      backdrop-filter: saturate(150%) blur(10px);
+      background: transparent;
     }
     .topbar h1 {
       margin: 0;
-      font-size: 20px;
-      line-height: 1.25;
+      font-size: 25px;
+      font-weight: 650;
+      line-height: 1.3;
       letter-spacing: -0.01em;
     }
     .topbar p {
       margin: 5px 0 0;
       color: var(--muted);
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 12px;
       overflow-wrap: anywhere;
     }
@@ -2008,14 +2022,14 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .brand-mark { display: inline-flex; color: var(--accent); }
     .brand-text { display: grid; gap: 2px; }
     .brand-name {
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 19px;
       font-weight: 600;
       letter-spacing: -0.01em;
     }
     .brand-tag {
       color: var(--muted);
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 12px;
       overflow-wrap: anywhere;
     }
@@ -2024,7 +2038,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       align-items: center;
       gap: 3px;
       flex-wrap: wrap;
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 13px;
     }
     .topbar nav > a {
@@ -2058,17 +2072,17 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .dashboard,
     .artifact-view,
     .artifact-editor {
-      width: min(1180px, calc(100vw - 32px));
+      width: min(1440px, calc(100% - 64px));
       margin: 28px auto 72px;
     }
     .artifact-view-wide {
-      width: min(1760px, calc(100vw - 24px));
+      width: min(1760px, calc(100% - 64px));
     }
     .toolbar {
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 12px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      letter-spacing: 0;
+      text-transform: none;
       color: var(--faint);
     }
     .toolbar,
@@ -2096,34 +2110,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .filter-form select {
       min-width: 120px;
     }
-    .dashboard-layout {
-      display: flex;
-      align-items: flex-start;
-      gap: 24px;
-      width: min(1180px, calc(100vw - 32px));
-      margin: 28px auto 72px;
-    }
-    .dashboard-layout .dashboard {
-      flex: 1;
-      min-width: 0;
-      width: auto;
-      margin: 0;
-    }
-    .dashboard-sidebar {
-      width: 240px;
-      flex: none;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: var(--panel);
-      padding: 14px;
-    }
-    .dashboard-sidebar h2 {
-      margin: 0 0 10px;
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--faint);
-    }
+    .dashboard-layout { width: min(1440px, calc(100% - 64px)); margin: 28px auto 48px; }
+    .dashboard-layout .dashboard { min-width: 0; width: 100%; margin: 0; }
     .saved-view-list {
       list-style: none;
       margin: 0 0 14px;
@@ -2160,8 +2148,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       margin: 0;
       padding: 10px 14px;
       font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      text-transform: none;
+      letter-spacing: 0;
       color: var(--faint);
       background: var(--panel-2);
       border-bottom: 1px solid var(--line);
@@ -2226,10 +2214,10 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     .artifact-list {
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
       background: var(--panel);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      box-shadow: none;
     }
     .pager {
       display: flex;
@@ -2342,8 +2330,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       color: var(--faint);
       font-family: var(--mono);
       font-size: 11.5px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      letter-spacing: 0;
+      text-transform: none;
     }
     .data-table form {
       margin: 0;
@@ -2363,8 +2351,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .field > span {
       font-family: var(--mono);
       font-size: 11.5px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      letter-spacing: 0;
+      text-transform: none;
       color: var(--faint);
     }
     .check-field {
@@ -2380,7 +2368,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       min-height: 0;
       padding: 0;
     }
-    input,
+    input:not([type="checkbox"]):not([type="radio"]),
     select,
     textarea {
       width: 100%;
@@ -2393,13 +2381,13 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     input::placeholder,
     textarea::placeholder { color: var(--faint); }
-    input,
+    input:not([type="checkbox"]):not([type="radio"]),
     select {
       min-height: 38px;
       padding: 7px 10px;
     }
     textarea {
-      min-height: 52vh;
+      min-height: 120px;
       padding: 14px;
       resize: vertical;
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
@@ -2408,6 +2396,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       white-space: pre;
       overflow: auto;
     }
+    textarea[data-artifacty-editor] { min-height: 52vh; }
+    .comments textarea { min-height: 96px; white-space: pre-wrap; }
     .compact-textarea {
       min-height: 160px;
     }
@@ -2570,7 +2560,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       overflow-wrap: anywhere;
     }
     .artifact-row > span:not(.row-main):not(.tags):not(.badge) {
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 12.5px;
       color: var(--muted);
     }
@@ -2596,7 +2586,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       border-radius: 999px;
       background: var(--panel-2);
       color: var(--muted);
-      font-family: var(--mono);
+      font-family: var(--sans);
       font-size: 11.5px;
     }
     .badge {
@@ -2604,10 +2594,10 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       align-items: center;
       padding: 3px 9px;
       border-radius: 999px;
-      border: 1px solid color-mix(in srgb, var(--bh, var(--muted)) 38%, var(--line));
-      background: color-mix(in srgb, var(--bh, var(--muted)) 13%, transparent);
-      color: color-mix(in srgb, var(--bh, var(--muted)) 62%, var(--text));
-      font-family: var(--mono);
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--muted);
+      font-family: var(--sans);
       font-size: 11.5px;
       line-height: 1.45;
       white-space: nowrap;
@@ -2694,9 +2684,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       width: 100%;
       min-height: 320px;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       background: var(--panel);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      box-shadow: none;
     }
     .split-preview {
       display: grid;
@@ -2790,12 +2780,12 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .artifact-code {
       margin: 0;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       background: var(--panel);
     }
     .artifact-doc {
       padding: 32px;
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      box-shadow: none;
     }
     .artifact-doc h1,
     .artifact-doc h2,
@@ -2831,10 +2821,16 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       border-radius: 10px;
       overflow: hidden;
     }
-    .artifact-doc-codemirror .cm-editor {
-      background: var(--code);
-      color: var(--code-text);
-    }
+    .artifact-doc-codemirror .cm-editor,
+    .artifact-code-viewer .cm-editor { min-height: 0; background: #f8f9fb; color: #20242b; }
+    .artifact-doc-codemirror .cm-editor .cm-content,
+    .artifact-code-viewer .cm-editor .cm-content { min-height: 0; }
+    .artifact-doc-codemirror .cm-editor .cm-gutters,
+    .artifact-code-viewer .cm-editor .cm-gutters { background: #eef0f3; color: #626c79; border-color: #dfe3e8; }
+    .artifact-doc-codemirror .cm-editor .cm-activeLine,
+    .artifact-doc-codemirror .cm-editor .cm-activeLineGutter,
+    .artifact-code-viewer .cm-editor .cm-activeLine,
+    .artifact-code-viewer .cm-editor .cm-activeLineGutter { background: transparent; }
     .artifact-doc-codemirror .cm-scroller {
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       font-size: 13px;
@@ -2887,7 +2883,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     .artifact-notebook-cell-code {
       padding: 14px;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       background: var(--panel);
     }
     .artifact-notebook-execcount {
@@ -2976,8 +2972,8 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       color: var(--muted);
       font-family: var(--mono);
       font-size: 11.5px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      text-transform: none;
+      letter-spacing: 0;
     }
     .summary-card strong {
       font-size: 20px;
@@ -3070,7 +3066,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     .artifact-raw-details {
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       background: var(--panel);
       overflow: hidden;
     }
@@ -3092,9 +3088,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       margin: 0;
       padding: 14px;
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       background: var(--panel);
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+      box-shadow: none;
     }
     .artifact-media img,
     .artifact-media video {
@@ -3123,25 +3119,17 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     }
     .artifact-code-viewer {
       border: 1px solid var(--line);
-      border-radius: 12px;
+      border-radius: 8px;
       overflow: hidden;
       background: var(--code);
     }
-    .artifact-code-viewer .cm-editor {
-      min-height: 50vh;
-      background: var(--code);
-      color: var(--code-text);
-    }
+
     .artifact-code-viewer .cm-scroller {
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       font-size: 13px;
       line-height: 1.55;
     }
-    .artifact-code-viewer .cm-gutters {
-      background: color-mix(in srgb, var(--code) 84%, white);
-      color: var(--muted);
-      border-color: rgba(255, 255, 255, 0.08);
-    }
+
     .artifact-react-disabled {
       display: grid;
       gap: 12px;
@@ -3160,11 +3148,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       font-size: 13px;
     }
     @media (max-width: 760px) {
-      .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-        padding: 20px;
-      }
+      .topbar { align-items: flex-start; flex-direction: column; gap: 12px; }
+      .topbar, .dashboard-layout, .artifact-view, .artifact-editor, .artifact-view-wide { width: calc(100% - 32px); margin-top: 20px; }
+      input:not([type="checkbox"]):not([type="radio"]), select, button { min-height: 44px; }
       .artifact-row {
         grid-template-columns: 1fr;
         gap: 6px;
@@ -3185,6 +3171,114 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       .artifact-doc {
         padding: 18px;
       }
+    }
+    .artifact-editor { max-width: 1000px; }
+    .auth-panel { max-width: 520px; }
+    .meta-card { padding: 24px; }
+    .meta-card h2 { font-size: 16px; font-weight: 650; }
+    .meta-card table { display: block; max-width: 100%; overflow-x: auto; }
+    .artifact-doc { font-size: 15px; line-height: 1.7; }
+    .workspace-header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .workspace-brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 19px; font-weight: 700; letter-spacing: -.04em; }
+    .workspace-brand svg { width: 27px; height: 27px; color: var(--accent); }
+    .workspace-desktop { display: none; }
+    .workspace-mobile > summary { cursor: pointer; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: 6px; }
+    .workspace-mobile[open] { flex-basis: 100%; }
+    .workspace-header:has(.workspace-mobile[open]) { flex-wrap: wrap; }
+    .workspace-mobile nav { padding-top: 16px; }
+    .workspace-primary, .workspace-actions { display: grid; gap: 4px; }
+    .workspace-primary { padding-bottom: 16px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+    .workspace-header nav a, .workspace-dropdown summary, .workspace-dropdown .nav-form button { display: block; min-height: 38px; padding: 8px 10px; color: var(--muted); border-radius: 6px; font-size: 14px; text-align: left; }
+    .workspace-header nav a:hover, .workspace-dropdown summary:hover { background: var(--panel-2); color: var(--text); text-decoration: none; }
+    .workspace-header [aria-current="page"], .workspace-header .is-current { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+    .workspace-dropdown summary { cursor: pointer; list-style: none; }
+    .workspace-dropdown summary::-webkit-details-marker { display: none; }
+    .workspace-dropdown summary::after { content: "⌄"; float: right; margin-left: 8px; }
+    .workspace-dropdown[open] > summary::after { content: "⌃"; }
+    .workspace-version { color: var(--faint); font-size: 12px; padding: 10px; }
+    .settings-page { max-width: 1100px; }
+    .settings-page .meta-card { gap: 16px; }
+    .settings-page .meta-card p { margin: 0; }
+    .settings-page form > button { justify-self: start; width: fit-content; }
+    .settings-page form:not(.editor-form) { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .settings-page .field { min-width: 0; }
+    .settings-page textarea[name="allowedCidrs"] { min-height: 120px; height: 140px; }
+    .settings-page .editor-form { gap: 12px; }
+    .workspace-dropdown-content { display: grid; padding-left: 10px; border-left: 1px solid var(--line); margin: 4px 0 8px 10px; }
+    .workspace-dropdown-content .nav-form { display: block; }
+    .workspace-identity { overflow-wrap: anywhere; font-size: 12px; color: var(--faint); padding: 8px 10px; }
+    .workspace-header .language-switcher { border: 0; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; font-size: 12px; }
+    .workspace-header .language-switcher a, .workspace-header .language-switcher .active { min-height: 38px; padding: 8px 10px; }
+    .workspace-skip { position: absolute; left: 16px; top: -100px; z-index: 100; background: var(--panel); padding: 8px 16px; }
+    .workspace-skip:focus { top: 8px; }
+    :focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+    .dashboard-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+    .dashboard-heading h1 { font-size: 25px; font-weight: 650; line-height: 1.3; margin: 0; letter-spacing: -.025em; }
+    .dashboard-heading nav { display: flex; align-items: center; gap: 16px; }
+    .dashboard-heading .button-link { padding: 8px 14px; background: var(--accent); color: var(--accent-ink); border-radius: 6px; }
+    .dashboard .filter-form { display: block; width: 100%; margin-bottom: 0; }
+    .dashboard-search-row { display: flex; align-items: center; gap: 12px; }
+    .dashboard-search { flex: 1; min-width: 0; }
+    .dashboard-search input { width: 100%; min-width: 0; background: var(--panel); }
+    .dashboard-clear { white-space: nowrap; padding: 8px 0; font-size: 13px; }
+    .dashboard-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+    .dashboard-advanced, .dashboard-saved-views { margin: 0; border-bottom: 1px solid var(--line); }
+    .dashboard-advanced > summary, .dashboard-saved-views > summary { padding: 10px 0; cursor: pointer; color: var(--muted); font-size: 13px; }
+    .dashboard-filter-count { color: var(--faint); margin-left: 8px; font-size: 12px; }
+    .dashboard-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 12px 0 20px; }
+    .dashboard-field { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
+    .dashboard-field input, .dashboard-field select { min-width: 0; width: 100%; font-size: 14px; }
+    .dashboard-filter-actions { grid-column: 1 / -1; }
+    .dashboard-active-filters { display: flex; gap: 4px 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 10px 0; overflow-wrap: anywhere; }
+    .dashboard-saved-content { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 8px 0 20px; }
+    .dashboard-saved-content .empty { padding: 0; }
+    .dashboard .saved-view-form { align-content: start; }
+    .dashboard .saved-view-list { margin: 0; }
+    .dashboard .saved-view-item { min-width: 0; }
+    .artifact-overview { align-items: flex-start; }
+    .artifact-details { min-width: 0; }
+    .artifact-details > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+    .artifact-details > .meta-strip { padding: 12px 0 0; max-width: 100%; overflow-wrap: anywhere; }
+    .dashboard-results { margin: 18px 0 10px; display: flex; justify-content: space-between; }
+    .dashboard-results > span + span { color: var(--faint); font-size: 12px; }
+    .dashboard .row-main strong { white-space: normal; overflow-wrap: anywhere; font-size: 15px; line-height: 1.45; font-weight: 600; }
+    .dashboard .row-agent, .dashboard .row-formats { display: grid; gap: 2px; min-width: 0; font-size: 12px; color: var(--muted); }
+    .dashboard .row-formats { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+    .dashboard .row-formats .badge { border: 0; padding: 0; background: transparent; color: var(--muted); font: inherit; border-radius: 0; }
+    .dashboard .artifact-row .tag { border: 0; background: transparent; padding: 0; border-radius: 0; font-family: var(--sans); font-size: 12px; }
+    .dashboard .artifact-row .tag + .tag::before { content: "·"; margin-right: 6px; color: var(--faint); }
+    .dashboard .tags { min-width: 0; overflow-wrap: anywhere; }
+    .dashboard .row-agent .publisher-cell { font-size: 12px; color: var(--faint); }
+    .dashboard .artifact-row { grid-template-columns: minmax(180px, 1fr) minmax(100px, 150px) minmax(100px, 145px) minmax(80px, 150px); min-height: 76px; padding: 14px 16px; gap: 16px; }
+    @media (min-width: 1100px) {
+      body:has(> .workspace-header) { padding-left: 196px; }
+      .workspace-header { position: fixed; inset: 0 auto 0 0; width: 196px; padding: 24px 12px; border-bottom: 0; border-right: 1px solid var(--line); display: block; overflow-y: auto; z-index: 20; }
+      .workspace-brand { padding: 0 10px 26px; }
+      .workspace-desktop { display: block; }
+      .workspace-mobile { display: none; }
+    }
+    @media (max-width: 1099px) {
+      .dashboard-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 899px) {
+      .dashboard .artifact-row { grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; }
+      .dashboard .row-main, .dashboard .tags { grid-column: 1 / -1; }
+      .dashboard .row-agent { max-width: 42vw; }
+      .dashboard .row-agent, .dashboard .row-formats { display: flex; gap: 8px; flex-wrap: wrap; }
+      .dashboard .row-agent .publisher-cell { max-width: 100%; }
+      .dashboard .tags { gap: 6px; }
+    }
+    @media (max-width: 640px) {
+      .workspace-header { padding: 12px 16px; }
+      .workspace-header nav a, .workspace-dropdown summary, .workspace-dropdown .nav-form button { min-height: 44px; }
+      .dashboard-filter-grid, .dashboard-saved-content { grid-template-columns: 1fr; }
+      .dashboard-heading h1 { font-size: 22px; }
+      .dashboard-heading nav { gap: 12px; font-size: 13px; }
+      .dashboard-search-row { gap: 8px; }
+      .dashboard-search-row button { padding: 8px 12px; }
+      .dashboard-advanced > summary, .dashboard-saved-views > summary { min-height: 44px; }
+      .dashboard .artifact-row { padding: 14px; }
+      .dashboard .row-main strong { font-size: 14px; }
     }
   </style>
 </head>
@@ -3418,12 +3512,24 @@ function languageSwitcher(view) {
   return `<span class="language-switcher">${english}${korean}</span>`;
 }
 
-function authNav(user, view) {
-  if (!user) {
-    return `<a href="/login">Sign in</a>`;
-  }
-  return `${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>` : ""}<a href="/account">Account</a><a href="${view.href("/inbox")}">${view.text("inbox.title")}</a>`;
+function workspaceHeader(user, view) {
+  const pathname = new URL(view.currentPath, "http://artifacty.local").pathname;
+  const link = (href, key, active = pathname === href, className = "") => `<a href="${view.href(href)}"${active ? ' aria-current="page"' : ""}${className ? ` class="${className}"` : ""}>${view.text(key)}</a>`;
+  const artifactActive = pathname === "/" || pathname.startsWith("/artifacts/");
+  const adminLinks = user?.role === "admin" ? `<details class="workspace-dropdown"${pathname.startsWith("/admin/") ? " open" : ""}><summary${pathname.startsWith("/admin/") ? ' class="is-current"' : ""}>${view.text("nav.administration")}</summary><div class="workspace-dropdown-content">
+    ${link("/admin/access", "access.title")}${link("/admin/users", "nav.users")}${link("/admin/backup", "nav.backup")}${link("/admin/retention", "retention.navLabel")}${link("/admin/webhooks", "nav.webhooks")}${link("/admin/update", "update.title")}<span class="workspace-version">Artifacty v${escapeHtml(APP_VERSION)}</span>
+  </div></details>` : "";
+  const account = user ? `<details class="workspace-dropdown"${pathname.startsWith("/account") ? " open" : ""}><summary${pathname.startsWith("/account") ? ' class="is-current"' : ""}>${view.text("nav.account")}</summary><div class="workspace-dropdown-content">
+    <span class="workspace-identity">${escapeHtml(user.name || user.email || "")}</span>${link("/account", "nav.accountTokens")}${link("/account/password", "nav.password")}
+    <form method="post" action="/logout" class="nav-form">${localeInput(view.locale)}<button type="submit">${view.text("nav.signOut")}</button></form>
+  </div></details>` : user === null ? link("/login", "nav.signIn") : "";
+  const links = `<div class="workspace-primary">${link("/", "nav.artifacts", artifactActive)}${user ? link("/inbox", "inbox.title") : ""}</div><div class="workspace-actions">${link("/new", "nav.new", pathname === "/new", "workspace-create")}${link("/import", "nav.import")}${adminLinks}${account}${link("/docs/api", "nav.apiDocs")}${languageSwitcher(view)}</div>`;
+  return `<a class="workspace-skip" href="#main-content">${view.text("nav.skip")}</a><header class="workspace-header"><a class="workspace-brand" href="${view.href("/")}">${brandMark()}<span>artifacty</span></a>
+    <nav class="workspace-desktop" aria-label="${view.attr("dashboard.navigation")}">${links}</nav>
+    <details class="workspace-mobile"><summary>${view.text("dashboard.more")}</summary><nav aria-label="${view.attr("dashboard.navigation")}">${links}</nav></details>
+  </header>`;
 }
+
 
 export function escapeHtml(value) {
   return String(value)
