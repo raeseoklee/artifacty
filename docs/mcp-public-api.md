@@ -1,5 +1,7 @@
 # MCP Public API
 
+English | [한국어](ko/mcp-public-api.md)
+
 Artifacty's MCP server is the primary interface for agent-to-agent integration.
 It uses local stdio MCP by default. The browser server can also expose a
 token-protected HTTP `/mcp` endpoint. Stdio bridge mode lets a client use local

@@ -1,5 +1,7 @@
 # Documentation writing style
 
+English | [한국어](ko/writing-style.md)
+
 Artifacty uses an ASD-STE100-inspired style for English documentation. Korean documentation follows the same clarity principles with natural Korean phrasing. This is an editorial guide, not a claim of compliance with ASD-STE100.
 
 Apply the sentence and procedure rules consistently. Use technical vocabulary where it makes the meaning more precise. Keep introductions natural. The project's “75%” target describes this balance; it is not a compliance score.

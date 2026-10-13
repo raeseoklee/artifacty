@@ -1,5 +1,7 @@
 # Release Checklist
 
+English | [한국어](ko/release-checklist.md)
+
 Use this checklist before publishing or distributing Artifacty.
 
 ## Required Verification

@@ -1,5 +1,7 @@
 # Upgrade Snapshots and Recovery
 
+English | [한국어](ko/upgrade-backups.md)
+
 Artifacty creates a local snapshot before it migrates an existing store to a newer schema. This snapshot is mandatory. If snapshot creation or verification fails, Artifacty stops before migration.
 
 Use upgrade snapshots to recover the original store state. Use `artifacty backup` and `artifacty export` for portable JSON backups and store transfers. These are separate backup systems. `artifacty restore <id>` restores an archived artifact; it does not restore a store snapshot.

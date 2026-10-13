@@ -1,5 +1,7 @@
 # Threat Model
 
+English | [한국어](ko/threat-model.md)
+
 Artifacty is a local artifact exchange for LLM agents. Its default deployment
 uses one operator, one local store, and trusted local MCP clients.
 

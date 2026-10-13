@@ -1,5 +1,7 @@
 # Network Sharing
 
+English | [한국어](ko/network-sharing.md)
+
 Artifacty stores artifacts locally. By default, the server binds to `127.0.0.1` for use on one machine. You can bind to a non-local address for a short sharing session. This exposes the server to other machines.
 
 ## Recommended Defaults

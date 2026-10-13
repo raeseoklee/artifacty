@@ -1,5 +1,7 @@
 # Security Policy
 
+English | [한국어](SECURITY.ko.md)
+
 ## Supported Versions
 
 Artifacty is pre-1.0. The project provides security fixes for the latest

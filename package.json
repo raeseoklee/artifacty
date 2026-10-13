@@ -53,7 +53,12 @@
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
     "AGENTS.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "README.ko.md",
+    "SECURITY.ko.md",
+    "docs/README.md",
+    "docs/ko",
+    "docs/claude-artifact-formats.md"
   ],
   "engines": {
     "node": ">=22.12"

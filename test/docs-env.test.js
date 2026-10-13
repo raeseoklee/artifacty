@@ -10,7 +10,7 @@ const srcDir = path.join(repoRoot, "src");
 
 // Any `ARTIFACTY_*` identifier read from process.env (directly, or via a
 // config object that defaults to process.env, as embeddings.js does) is an
-// operator-facing environment variable and must be documented in README.md
+// operator-facing environment variable and must be documented in both README languages
 // and in `node src/cli.js help`'s Environment section. Object keys that
 // happen to start with ARTIFACTY_ but are not environment variables (e.g.
 // the ARTIFACTY_EVENT_* keys passed as subprocess env for `artifacty watch
@@ -52,13 +52,15 @@ async function envVarsReadInSrc() {
   return found;
 }
 
-test("every ARTIFACTY_* environment variable read in src/ is documented in README.md", async () => {
-  const envVars = await envVarsReadInSrc();
-  const readme = await readFile(path.join(repoRoot, "README.md"), "utf8");
+for (const filename of ["README.md", "README.ko.md"]) {
+  test(`every ARTIFACTY_* environment variable read in src/ is documented in ${filename}`, async () => {
+    const envVars = await envVarsReadInSrc();
+    const readme = await readFile(path.join(repoRoot, filename), "utf8");
 
-  const missing = [...envVars].filter((name) => !readme.includes(name)).sort();
-  assert.deepEqual(missing, [], `README.md is missing documentation for: ${missing.join(", ")}`);
-});
+    const missing = [...envVars].filter((name) => !readme.includes(name)).sort();
+    assert.deepEqual(missing, [], `${filename} is missing documentation for: ${missing.join(", ")}`);
+  });
+}
 
 test("every ARTIFACTY_* environment variable read in src/ is documented in the CLI help env section", async () => {
   const envVars = await envVarsReadInSrc();
