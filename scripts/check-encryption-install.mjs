@@ -11,16 +11,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 assert.ok(process.env.npm_execpath, "Run npm run verify:encryption-install");
 const root = fileURLToPath(new URL("..", import.meta.url));
 const stage = mkdtempSync(path.join(tmpdir(), "artifacty-install-check-"));
-const npm = (...args) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], {
-  cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 300_000
+const npm = (cwd, ...args) => execFileSync(process.execPath, [process.env.npm_execpath, ...args], {
+  cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 300_000
 });
 
 try {
-  const [packed] = JSON.parse(npm("pack", "--ignore-scripts", "--json", "--pack-destination", stage));
+  const [packed] = JSON.parse(npm(root, "pack", "--ignore-scripts", "--json", "--pack-destination", stage));
   const tarball = path.join(stage, packed.filename);
   for (const ignoreScripts of [false, true]) {
     const prefix = path.join(stage, ignoreScripts ? "updater" : "normal");
-    npm("install", "--prefix", prefix, "--omit=dev", "--no-audit", "--no-fund",
+    // An empty working directory prevents accidental access to repository-local
+    // dependencies from making a broken published package appear to work.
+    npm(stage, "install", "--prefix", prefix, "--omit=dev", "--no-audit", "--no-fund",
       "--package-lock=false", ...(ignoreScripts ? ["--ignore-scripts"] : []), tarball);
     const library = path.join(prefix, "node_modules", "artifacty", "src", "lib");
     const installedRequire = createRequire(path.join(library, "encrypted-database.js"));
