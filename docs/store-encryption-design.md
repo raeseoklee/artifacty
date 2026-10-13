@@ -157,6 +157,18 @@ codec pass 12 tests with the native driver loaded. The full local suite passes
 CI matrix must load the native driver explicitly so a missing optional package
 cannot produce a misleading pass through skipped tests.
 
+Cross-platform checkpoint (commit `acacaff`): Linux and macOS with Node 22/24,
+and Windows with Node 24 pass all foundation tests. Windows with Node 22 fails
+installation: npm 10.9.9 runs an implicit `node-gyp rebuild` for the optional
+driver, despite its published `gypfile: false`, then removes the failed package.
+This remains a release blocker, not a skipped compatibility test. The behavior
+matches [npm CLI issue 9837](https://github.com/npm/cli/issues/9837). Do not hide
+the failure by upgrading only the CI installer. A durable package-level fix or
+an explicitly supported installation strategy must also work for consumers.
+
+The earlier Windows Node 24 fixture cleanup failure was fixed by closing SQLite
+handles before removing temporary directories; that platform now passes.
+
 The database adapter accepts trusted application SQL only. Integration must
 control ATTACH, cipher pragmas, and snapshot destinations, and enforce private
 file permissions and symlink checks before opening database paths.
