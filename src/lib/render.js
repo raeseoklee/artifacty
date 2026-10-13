@@ -2845,9 +2845,13 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       margin-left: -20px;
     }
     .task-list-item label {
-      display: inline-flex;
-      align-items: baseline;
-      gap: 8px;
+      display: block;
+    }
+    .task-list-item input[type="checkbox"] {
+      width: auto;
+      min-height: 0;
+      padding: 0;
+      margin: 0 8px 0 0;
     }
     .artifact-mermaid-embed {
       margin: 16px 0;
