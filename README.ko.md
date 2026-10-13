@@ -139,6 +139,36 @@ artifacty doctor --skip-mcp
 
 Claude Code, Codex, Gemini CLI, VS Code의 GitHub Copilot, Cursor 설정은 [에이전트 연동 가이드](docs/ko/integrations.md)를 참고하세요.
 
+## Artifacty 업데이트
+
+CLI를 지원하는 플랫폼에서는 설치나 저장소를 변경하지 않고 새 릴리스를 확인할 수 있습니다.
+
+```bash
+artifacty update --check
+```
+
+Linux에서는 업데이트 도구가 새 릴리스를 설치하고 systemd 사용자 서비스 `com.artifacty.server`를 다시 시작할 수 있습니다.
+
+```bash
+artifacty update
+```
+
+`artifacty upgrade`도 같은 명령입니다. 아티팩트 ID 없이 `update`를 실행하면 애플리케이션을 업데이트합니다. 기존 `artifacty update <id>` 명령은 아티팩트 내용을 수정합니다. 특정 릴리스를 선택하려면 `--target-version <version>`을 사용하세요. 저장소를 지정하려면 `--home /path/to/store`를 사용하세요. 자동 업데이트는 root 실행과 버전 다운그레이드를 거부합니다. `latest`가 설치된 서비스보다 이전 버전이면 현재의 더 최신 버전을 유지합니다.
+
+설치된 버전이 0.14.0 이전이라면 다음 명령어로 업데이트 도구를 시작하세요.
+
+```bash
+npx --yes artifacty@latest update && export PATH="$HOME/.local/bin:$PATH"
+```
+
+이 POSIX Linux 셸 명령어는 업데이트가 성공하면 현재 세션에서 사용자 소유 실행 파일을 먼저 찾도록 설정합니다. 이후 세션에서도 사용하려면 셸의 `PATH`에 `~/.local/bin`을 추가하세요.
+
+업데이트 도구는 사용자의 `~/.local/share/artifacty/releases` 디렉터리에 릴리스를 준비합니다. systemd 드롭인 설정으로 서비스 인자와 환경 변수를 유지합니다. 릴리스를 전환하기 전에 저장소 스냅샷을 생성하고 검증합니다. 전환이나 재시작에 실패하면 변경한 코드, 서비스 설정, 저장소의 롤백을 시도합니다. 전환 전에 실패하면 현재 릴리스를 그대로 유지합니다.
+
+실행 중인 서비스를 중지하기 전에 현재 상태를 확인합니다. 바인드 주소나 네트워크 정책 때문에 확인할 수 없으면 서비스를 중지하기 전에 업데이트를 중단합니다. 업데이트 중에는 서비스가 중지됩니다. 먼저 같은 저장소를 사용하는 다른 클라이언트를 중지하세요. 저장소를 롤백하면 스냅샷 이후에 기록한 변경 사항은 사라집니다.
+
+이 자동 업데이트 방식은 Linux의 systemd 사용자 서비스만 지원합니다. macOS, Windows, 포그라운드 서버, 분리된 백그라운드 서버는 자동으로 업데이트하지 않습니다. root 소유의 전역 설치는 그대로 둡니다. 사용자 소유 실행 파일을 사용하려면 필요에 따라 `~/.local/bin`을 `PATH`에 추가하세요. 다른 명령어가 먼저 실행된다면 업데이트 결과의 절대 경로 `nextCommand`를 사용하세요. 셸 설정은 자동으로 변경하지 않습니다. 프로세스나 호스트가 갑자기 종료되면 업데이트 잠금이 남거나 서비스가 중지 상태로 남을 수 있습니다. 다시 시도하기 전에 복구 상태를 확인하세요. 전제 조건과 제한은 [업데이트 운영과 복구](docs/ko/upgrade-backups.md)를 참고하세요.
+
 ## 빠른 시작
 
 브라우저에서 아티팩트를 만드세요.

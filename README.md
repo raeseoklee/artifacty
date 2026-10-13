@@ -132,6 +132,36 @@ Use `artifacty install codex --timeout 30000` or
 
 See [docs/integrations.md](docs/integrations.md) for Claude Code, Codex, Gemini CLI, GitHub Copilot in VS Code, and Cursor setup.
 
+## Update Artifacty
+
+On any supported CLI platform, check for a release without changing the installation or store:
+
+```bash
+artifacty update --check
+```
+
+On Linux, the updater can install a release and restart the systemd user service `com.artifacty.server`:
+
+```bash
+artifacty update
+```
+
+`artifacty upgrade` is an alias. With no artifact ID, `update` updates the application. The existing `artifacty update <id>` command still updates artifact content. Use `--target-version <version>` to select an exact release. Use `--home /path/to/store` to select the store. Automatic updates refuse root execution and downgrades. If `latest` is older than the installed service, the updater keeps the newer installation.
+
+For installed versions before 0.14.0, bootstrap the updater with:
+
+```bash
+npx --yes artifacty@latest update && export PATH="$HOME/.local/bin:$PATH"
+```
+
+This POSIX Linux shell command puts the user-owned launcher first for the current session after a successful update. For future sessions, add `~/.local/bin` to your shell's `PATH`.
+
+The updater stages releases in the user's `~/.local/share/artifacty/releases` directory. It preserves the service's arguments and environment through a systemd drop-in. It creates and verifies a store snapshot before switching releases. If switching or startup fails, it attempts to roll back the changed code, service configuration, and store. Failures before the switch leave the running release in place.
+
+Before stopping an active service, the updater checks its current health. If its bind address or network policy blocks that check, the update stops before downtime. The service stops during the update. Stop other clients that use the same store first. A store rollback discards writes made after the snapshot.
+
+This automatic update path supports the Linux systemd user service only. It does not update macOS, Windows, foreground servers, or detached background servers automatically. A root-owned global installation remains in place. Add `~/.local/bin` to `PATH` if needed to use the user-owned launchers. If another command takes precedence, use the absolute `nextCommand` returned by the updater. It does not change shell configuration. An abrupt process or host shutdown can leave an update lock or a stopped service; inspect recovery before retrying. See [update operations and recovery](docs/upgrade-backups.md) for prerequisites and limits.
+
 ## Quick Start
 
 Create an artifact in the browser:

@@ -6,6 +6,49 @@ Artifacty creates a local snapshot before it migrates an existing store to a new
 
 Use upgrade snapshots to recover the original store state. Use `artifacty backup` and `artifacty export` for portable JSON backups and store transfers. These are separate backup systems. `artifacty restore <id>` restores an archived artifact; it does not restore a store snapshot.
 
+## Application Self-Update
+
+The application updater and schema migration snapshots serve different purposes. `artifacty update` without an artifact ID updates the application. `artifacty upgrade` is an alias. `artifacty update <id>` continues to update an artifact.
+
+### Check and select a release
+
+```bash
+artifacty update --check
+artifacty upgrade --check --target-version <version> --home /path/to/store
+```
+
+`--check` reports the release without changing the installation, service, or store. It works on other CLI platforms too and reports whether automatic installation is supported. It still needs network access to check the release. For the managed service, the updater compares the package version used by that service, not just the invoking CLI version. `--target-version` accepts an exact version. Without that option, the updater selects the latest release. `--home` selects the store to protect. Automatic downgrades are not supported. An explicitly selected older version is rejected; an older `latest` release leaves the newer installation unchanged.
+
+For installed versions before 0.14.0, bootstrap the updater with:
+
+```bash
+npx --yes artifacty@latest update --home /path/to/store && export PATH="$HOME/.local/bin:$PATH"
+```
+
+The command uses POSIX Linux shell syntax. After a successful update, it puts `~/.local/bin` first on `PATH` for the current session. For future sessions, add that directory to your shell's `PATH`.
+
+The `latest` tag must resolve to version 0.14.0 or newer to include the updater.
+
+### Automatic installation limits
+
+Automatic installation and restart support Linux with the systemd user service `com.artifacty.server`. Run the updater as the service's user. The unit must use the simple `ExecStart` form produced by Artifacty's installer and must explicitly pass `--home` for the selected store. Unsupported command expansion or quoting stops the update before service shutdown. Automatic updates reject root execution. Do not run the updater as root to replace a root-owned global package.
+
+The updater stages packages under `~/.local/share/artifacty/releases`. It changes the managed service's executable through a systemd drop-in and preserves its existing arguments and environment. User-owned launchers go under `~/.local/bin`. If that directory is not on `PATH`, add it before using those launchers. Existing unmanaged files in that directory are not overwritten. The existing root-owned global package remains unchanged. If `PATH` selects another command first, the result supplies an absolute `nextCommand`. The updater does not edit shell configuration.
+
+Automatic switching does not support macOS, Windows, foreground servers, detached background servers, or arbitrary service units. Use the manual installation and snapshot procedures for those environments.
+
+### Store protection and rollback
+
+Before updating, stop other HTTP servers and local MCP clients that use the same store. The updater manages the supported systemd service itself. It cannot identify every other process with an open store. The service is unavailable during the update. A store rollback discards writes made after the snapshot; do not keep other writers active during this procedure.
+
+For an active service, the updater checks current health before shutdown. If its bind address or IP policy prevents that check, it refuses the update before downtime. Unsupported service configurations also fail before shutdown.
+
+The updater installs and verifies the exact target package in its staging directory. It then stops the managed service and creates and verifies a snapshot before switching code. If the service was active, it restarts the service and checks its health and PID. An inactive service remains inactive. It preserves the previous code and service configuration for rollback. If switching or startup fails, it attempts to restore the changed code, service configuration, and store, then restart the previous service. If service stop fails, it does not restore a store while the service may still be writing to it. A restored store includes the snapshot's credentials and security state. Review any recovery error before allowing clients to reconnect.
+
+An abrupt process or host termination during the switch can leave `update.lock` or a stopped service. The next update reports the lock instead of retrying blindly. Preserve snapshots, staged releases, and recovery files. Inspect the service and recovery state before a manual retry. Automatic rollback handles caught failures; it does not guarantee recovery from power loss or forced process termination.
+
+Keep the snapshot and the update result until the restarted service works. If automatic rollback cannot finish, the updater reports an explicit error and preserves the `backupId`. Use that snapshot with the recovery procedures below. Do not delete recovery files or force an older build to open an unsupported schema.
+
 ## When Artifacty Creates a Snapshot
 
 - **Schema migration:** Artifacty always snapshots an existing store before migration. This includes a legacy `index.json` store. A new empty store needs no snapshot.
