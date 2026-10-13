@@ -44,6 +44,7 @@
     "docs/roadmap-design.md",
     "docs/sarif-csv-artifact-plan.md",
     "docs/threat-model.md",
+    "docs/writing-style.md",
     "scripts/lint.mjs",
     "scripts/smoke.sh",
     "README.md",

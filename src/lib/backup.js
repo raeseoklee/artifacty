@@ -172,21 +172,21 @@ export async function importStoreBundle(store = createStore(), bundle, { confirm
     // artifact's comments/relations/embeddings (foreign keys, ON DELETE
     // CASCADE) — but an artifacts-scope bundle never carries or restores
     // those tables. Silently wiping a target store's comment/relation
-    // history because someone ran an artifacts-only restore would be a
+    // history or sharing grants because someone ran an artifacts-only restore would be a
     // surprising, unrecoverable data loss, so refuse unless the caller
     // explicitly opts in the same way a full-scope restore does.
     const dependents = countArtifactDependents(store);
-    if (dependents.comments > 0 || dependents.relations > 0) {
+    if (dependents.comments > 0 || dependents.relations > 0 || dependents.shares > 0) {
       if (confirm !== "replace-all") {
         throw Object.assign(
           new Error(
-            'Target store has comments and/or relations that this artifacts-scope restore would delete without restoring equivalents. Pass confirm: "replace-all" to proceed anyway, or use a full-scope backup.'
+            'Target store has comments, relations, and/or sharing grants that this artifacts-scope restore would delete without restoring equivalents. Pass confirm: "replace-all" to proceed anyway, or use a full-scope backup.'
           ),
           { statusCode: 409, code: "dependents_exist" }
         );
       }
       warnings.push(
-        `Target store's ${dependents.comments} comment(s) and ${dependents.relations} relation(s) were deleted by this artifacts-scope restore and are not restored (only a full-scope backup carries them).`
+        `Target store's ${dependents.comments} comment(s) and ${dependents.relations} relation(s), and ${dependents.shares} sharing grant(s) were deleted by this artifacts-scope restore and are not restored (only a full-scope backup carries them).`
       );
     }
   }
@@ -238,7 +238,8 @@ function countArtifactDependents(store) {
   try {
     return {
       comments: db.prepare("SELECT COUNT(*) AS count FROM artifact_comments").get().count,
-      relations: db.prepare("SELECT COUNT(*) AS count FROM artifact_relations").get().count
+      relations: db.prepare("SELECT COUNT(*) AS count FROM artifact_relations").get().count,
+      shares: db.prepare("SELECT COUNT(*) AS count FROM artifact_shares").get().count
     };
   } finally {
     db.close();
@@ -254,7 +255,11 @@ const FULL_BACKUP_TABLE_ARRAY_KEYS = [
   "comments",
   "savedViews",
   "embeddings",
-  "meta"
+  "meta",
+  "teams",
+  "teamMembers",
+  "artifactShares",
+  "notifications"
 ];
 
 // Partial, fail-fast validation of a full-scope backup's `full` object,
@@ -284,6 +289,14 @@ function assertValidFullBackupTables(full) {
   for (const row of full.users || []) {
     if (!row || typeof row !== "object" || !String(row.id || "").trim() || !String(row.email || "").trim()) {
       throw Object.assign(new Error("Invalid Artifacty backup: each `full.users` entry needs an id and email"), {
+        statusCode: 400,
+        code: "INVALID_BACKUP"
+      });
+    }
+  }
+  for (const row of full.artifactShares || []) {
+    if (row?.permission !== undefined && !["read", "comment", "edit"].includes(row.permission)) {
+      throw Object.assign(new Error("Invalid Artifacty backup: sharing permission must be read, comment, or edit"), {
         statusCode: 400,
         code: "INVALID_BACKUP"
       });

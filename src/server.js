@@ -25,6 +25,20 @@ import {
   deleteSavedView,
   deleteWebhook,
   getArtifact,
+  getAccessMode,
+  canReadArtifactEvent,
+  setAccessMode,
+  listTeams,
+  createTeam,
+  setTeamMembers,
+  getArtifactSharing,
+  getArtifactAccessReport,
+  getArtifactPermission,
+  previewAccessMode,
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  setArtifactSharing,
   getSessionUser,
   getWebhook,
   importUsersFromCsv,
@@ -59,12 +73,15 @@ import {
   VersionConflictError,
   verifyUserPassword
 } from "./lib/storage.js";
+import { assertNetworkAccess, getNetworkPolicy, stageNetworkPolicy, getPendingNetworkPolicy, confirmNetworkPolicy, rollbackNetworkPolicy } from "./lib/network-policy.js";
+import { getShareLinkPolicy, setShareLinkPolicy, createShareLink, listShareLinks, revokeShareLink, resolveShareLink } from "./lib/share-links.js";
+import { installSamples, removeSamples } from "./lib/samples.js";
 import { MAX_BACKUP_BYTES, buildStoreBackup, exportStoreToString, importStoreBundle, importStoreFromString } from "./lib/backup.js";
 import { convertAgentArtifact, decodeMediaContent, mediaContentType } from "./lib/converters.js";
 import { createLineDiff, createStructuredDiff, diffFormatFor, resolveDiffView } from "./lib/diff.js";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, viewerClientFilePath } from "./lib/editor-assets.js";
 import { createEmbeddingProvider } from "./lib/embeddings.js";
-import { EVENT_TYPES, eventVisibleTo, publish, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
+import { EVENT_TYPES, publish, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
 import { localeFromBodyOrUrl, localeFromUrl, localizedHref } from "./lib/i18n.js";
 import { paginationJson } from "./lib/listing.js";
 import { buildOpenApiDocument, renderApiDocsHtml } from "./lib/openapi.js";
@@ -92,6 +109,10 @@ import {
   renderArtifactPage,
   renderAccountPage,
   renderAdminBackupPage,
+  renderAdminAccessPage,
+  renderArtifactSharingPage,
+  renderSharedArtifactPage,
+  renderInboxPage,
   renderAdminArtifactVersionsPage,
   renderAdminRetentionPage,
   renderAdminUsersPage,
@@ -283,6 +304,7 @@ function closeServer(server) {
 }
 
 export async function handleRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false }) {
+  await assertNetworkAccess(store, request.socket.remoteAddress);
   const url = new URL(request.url, `http://${request.headers.host || `${host}:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
   const baseUrl = `http://${host}:${port}`;
@@ -291,6 +313,35 @@ export async function handleRequest({ request, response, store, host, port, secu
   const currentPath = `${url.pathname}${url.search}`;
   const headOnly = request.method === "HEAD";
   const method = headOnly ? "GET" : request.method;
+
+  const publicShareMatch = /^\/s\/([^/]+)(\/raw)?$/.exec(pathname);
+  if (publicShareMatch && method === "GET") {
+    const shared = await resolveShareLink(store, publicShareMatch[1]);
+    response.setHeader("referrer-policy", "no-referrer");
+    response.setHeader("cache-control", "no-store");
+    if (publicShareMatch[2]) {
+      const fileName = url.searchParams.get("file");
+      const bundleFile = fileName ? readBundleFile(shared.artifact, shared.content, fileName) : null;
+      if (fileName && !bundleFile) return sendJson(response, { error: "Not found" }, 404, headOnly);
+      const raw = bundleFile || rawArtifactResponse(shared.artifact);
+      response.writeHead(200, {
+        "content-type": raw.contentType,
+        "cache-control": "no-store",
+        "content-security-policy": "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'",
+        "x-content-type-options": "nosniff",
+        ...(bundleFile ? { "content-disposition": buildContentDisposition(bundleFile.contentType === "application/pdf" ? "inline" : "attachment", bundleFile.fileName) } : {})
+      });
+      response.end(headOnly ? undefined : raw.body);
+      return;
+    }
+    // Pass only display fields, never the source id, ownership, metadata, or history.
+    return sendHtml(response, renderSharedArtifactPage({
+      artifact: { title: shared.artifact.title, artifactType: shared.artifact.artifactType },
+      version: { version: shared.version.version, format: shared.version.format, contentType: shared.version.contentType },
+      content: shared.content, baseUrl, locale,
+      sharePath: `/s/${encodeURIComponent(publicShareMatch[1])}`
+    }), 200, headOnly);
+  }
 
   if (method === "GET" && pathname === EDITOR_CLIENT_PATH) {
     return sendJavaScriptFile(response, editorClientFilePath(PACKAGE_ROOT), headOnly, request);
@@ -488,6 +539,119 @@ export async function handleRequest({ request, response, store, host, port, secu
     }
     await revokeApiToken(store, tokenRevokeMatch[1], currentUser.id);
     return sendRedirect(response, "/account");
+  }
+
+  const browserAccess = accessContext(request, currentUser);
+  const browserAudit = { surface: "web", actor: currentUser?.email, userId: currentUser?.id };
+  const adminAccessPage = async (extra = {}) => renderAdminAccessPage({
+    baseUrl, user: currentUser, mode: await getAccessMode(store),
+    teams: await listTeams(store), users: await listUsers(store),
+    networkPolicy: await getNetworkPolicy(store), pendingNetworkPolicy: await getPendingNetworkPolicy(store),
+    shareLinkPolicy: await getShareLinkPolicy(store), currentIp: request.socket.remoteAddress,
+    locale, currentPath, ...extra
+  });
+  const adminAccessPaths = ["/admin/access", "/admin/access/preview", "/admin/access/network", "/admin/access/network/confirm", "/admin/access/network/rollback", "/admin/access/share-links", "/admin/teams", "/admin/samples/install", "/admin/samples/remove"];
+  if (adminAccessPaths.includes(pathname) || /^\/admin\/teams\/[^/]+\/members$/.test(pathname)) {
+    if (!currentUser) return sendRedirect(response, "/login");
+    requireAdmin(currentUser);
+    if (method === "GET" && pathname === "/admin/access") {
+      return sendHtml(response, await adminAccessPage(), 200, headOnly);
+    }
+    if (method === "POST") {
+      assertLocalOrigin(request);
+      request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, config: security, currentUser });
+      await enforceRateLimit({ store, host, request, bucket: "write" });
+      const body = await readFormBody(request);
+      const options = { access: browserAccess, audit: browserAudit, remoteAddress: request.socket.remoteAddress };
+      if (pathname === "/admin/access/preview") {
+        return sendHtml(response, await adminAccessPage({ preview: await previewAccessMode(store, body.mode, options) }), 200, headOnly);
+      } else if (pathname === "/admin/access") {
+        await setAccessMode(store, body.mode, options);
+      } else if (pathname === "/admin/access/network") {
+        await stageNetworkPolicy(store, { allowedCidrs: body.allowedCidrs || "" }, options);
+      } else if (pathname === "/admin/access/network/confirm") {
+        await confirmNetworkPolicy(store, body.id, options);
+      } else if (pathname === "/admin/access/network/rollback") {
+        await rollbackNetworkPolicy(store, body.id, options);
+      } else if (pathname === "/admin/access/share-links") {
+        await setShareLinkPolicy(store, { enabledInPrivate: body.enabledInPrivate === "on" || body.enabledInPrivate === "true" }, options);
+      } else if (pathname === "/admin/samples/install") {
+        await installSamples(store, options);
+      } else if (pathname === "/admin/samples/remove") {
+        await removeSamples(store, options);
+      } else if (pathname === "/admin/teams") {
+        await createTeam(store, { name: body.name }, options);
+      } else {
+        await setTeamMembers(store, pathname.split("/")[3], body.userIds || [], options);
+      }
+      return sendRedirect(response, localizedHref("/admin/access", localeFromBodyOrUrl(body, url)));
+    }
+  }
+
+  const inboxReadMatch = /^\/inbox\/([^/]+)\/read$/.exec(pathname);
+  if (pathname === "/inbox" || pathname === "/inbox/read-all" || inboxReadMatch) {
+    if (!currentUser) return sendRedirect(response, "/login");
+    if (method === "GET" && pathname === "/inbox") {
+      return sendHtml(response, renderInboxPage({
+        baseUrl, user: currentUser, ...await listNotifications(store, { access: browserAccess }), locale, currentPath
+      }), 200, headOnly);
+    }
+    if (method === "POST" && (inboxReadMatch || pathname === "/inbox/read-all")) {
+      assertLocalOrigin(request);
+      request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, config: security, currentUser });
+      await enforceRateLimit({ store, host, request, bucket: "write" });
+      const body = await readFormBody(request);
+      if (inboxReadMatch) await markNotificationRead(store, inboxReadMatch[1], { access: browserAccess });
+      else await markAllNotificationsRead(store, { access: browserAccess });
+      return sendRedirect(response, localizedHref("/inbox", localeFromBodyOrUrl(body, url)));
+    }
+  }
+
+  const sharingMatch = /^\/artifacts\/([^/]+)\/(sharing|share-links)(?:\/([^/]+)\/revoke)?$/.exec(pathname);
+  if (sharingMatch && (method === "GET" || method === "POST")) {
+    if (!currentUser) return sendRedirect(response, "/login");
+    const access = browserAccess;
+    const artifact = await getArtifact(store, sharingMatch[1], { access });
+    if (!artifact) return sendJson(response, { error: "Not found" }, 404, headOnly);
+    if (currentUser.role !== "admin" && artifact.ownerUserId !== currentUser.id) {
+      throw Object.assign(new Error("Only the owner or an administrator can manage sharing"), { statusCode: 403 });
+    }
+    let createdShareLink = null;
+    if (method === "POST") {
+      assertLocalOrigin(request);
+      request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, config: security, currentUser });
+      await enforceRateLimit({ store, host, request, bucket: "write" });
+      const body = await readFormBody(request);
+      const options = { access, audit: browserAudit };
+      if (sharingMatch[2] === "sharing") {
+        const permissions = (prefix) => Object.fromEntries(Object.entries(body).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [key.slice(prefix.length), value]));
+        await setArtifactSharing(store, sharingMatch[1], {
+          userIds: body.userIds || [], teamIds: body.teamIds || [],
+          userPermissions: permissions("userPermission:"), teamPermissions: permissions("teamPermission:")
+        }, options);
+      } else if (sharingMatch[3]) {
+        await revokeShareLink(store, sharingMatch[1], sharingMatch[3], options);
+      } else {
+        const days = body.days === undefined ? 7 : Number(body.days);
+        if (!Number.isInteger(days) || days < 1 || days > 365) {
+          throw Object.assign(new Error("Expiry must be between 1 and 365 days"), { statusCode: 400 });
+        }
+        const version = !body.version || body.version === "latest" ? null : Number(body.version);
+        createdShareLink = await createShareLink(store, sharingMatch[1], {
+          version, expiresAt: body.expiresAt || new Date(Date.now() + days * 86400000).toISOString()
+        }, options);
+      }
+      if (!createdShareLink) return sendRedirect(response, localizedHref(`/artifacts/${encodeURIComponent(sharingMatch[1])}/sharing`, localeFromBodyOrUrl(body, url)));
+    }
+    return sendHtml(response, renderArtifactSharingPage({
+      baseUrl, user: currentUser, artifact,
+      sharing: await getArtifactSharing(store, sharingMatch[1], { access, includePermissions: true }),
+      accessReport: await getArtifactAccessReport(store, sharingMatch[1], { access }),
+      networkPolicy: await getNetworkPolicy(store),
+      shareLinks: await listShareLinks(store, sharingMatch[1], { access }),
+      createdShareLink, shareLinkPolicy: await getShareLinkPolicy(store), mode: await getAccessMode(store),
+      users: await listUsers(store), teams: await listTeams(store), locale, currentPath
+    }), 200, headOnly);
   }
 
   if (method === "GET" && pathname === "/admin/backup") {
@@ -804,6 +968,11 @@ export async function handleRequest({ request, response, store, host, port, secu
     return sendJson(response, { ok: true, name: "artifacty", store: store.home }, 200, headOnly);
   }
 
+  if (!currentUser && await getAccessMode(store) === "private" &&
+      (["/", "/new", "/import"].includes(pathname) || pathname.startsWith("/artifacts/"))) {
+    return sendRedirect(response, localizedHref("/login", locale));
+  }
+
   if (method === "GET" && pathname === "/") {
     const access = accessContext(request, currentUser);
     const resolved = await resolveListFilters(store, url, access);
@@ -885,6 +1054,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
     await enforceRateLimit({ store, host, request, bucket: "write" });
     const artifact = await createArtifact(store, {
+      access: accessContext(request, currentUser),
       title: body.title,
       content: body.content,
       format: body.format,
@@ -921,6 +1091,7 @@ export async function handleRequest({ request, response, store, host, port, secu
       }
     });
     const artifact = await createArtifact(store, {
+      access: accessContext(request, currentUser),
       ...converted,
       visibility: body.visibility || undefined,
       auditAction: "import",
@@ -1135,6 +1306,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     await enforceRateLimit({ store, host, request, bucket: "write" });
     const body = await readJsonBody(request);
     const artifact = await createArtifact(store, {
+      access: accessContext(request, currentUser),
       ...pickCreateArtifactInput(body),
       audit: auditContext(request, "http-api")
     });
@@ -1148,6 +1320,7 @@ export async function handleRequest({ request, response, store, host, port, secu
     const body = await readJsonBody(request);
     const converted = convertAgentArtifact(body);
     const artifact = await createArtifact(store, {
+      access: accessContext(request, currentUser),
       ...pickCreateArtifactInput(converted),
       auditAction: "import",
       audit: auditContext(request, "http-api")
@@ -1622,6 +1795,7 @@ export async function handleRequest({ request, response, store, host, port, secu
       version: artifact.version,
       content: artifact.content,
       comments,
+      permission: await getArtifactPermission(store, artifactMatch[1], { access: accessContext(request, currentUser) }),
       baseUrl,
       authToken,
       locale,
@@ -1717,7 +1891,12 @@ export async function readJsonBody(request, limitBytes = MAX_ARTIFACT_BYTES + 10
 export async function readFormBody(request, limitBytes = MAX_ARTIFACT_BYTES + 1024) {
   const raw = await readBody(request, limitBytes);
   const params = new URLSearchParams(raw);
-  return Object.fromEntries(params.entries());
+  const body = Object.fromEntries(params.entries());
+  // Sharing checkboxes submit repeated keys; scalar form fields keep their existing shape.
+  for (const key of ["userIds", "teamIds"]) {
+    if (params.has(key)) body[key] = params.getAll(key);
+  }
+  return body;
 }
 
 export async function readBody(request, limitBytes) {
@@ -2215,14 +2394,22 @@ async function handleEventStream({ request, response, store, filter, access }) {
   }
 
   unsubscribe = subscribe(filter, (event) => {
-    if (!eventVisibleTo(event, access)) {
-      return;
-    }
-    writeSseEvent(response, event);
+    // Recheck persisted permissions: sharing and membership can change while connected.
+    const readable = canReadArtifactEvent(store, event, access).catch(() => false);
+    readable.then(async (allowed) => {
+      await assertNetworkAccess(store, request.socket.remoteAddress);
+      if (allowed && !closed) writeSseEvent(response, event);
+    }).catch(() => { cleanup(); response.end(); });
   });
 
   heartbeat = setInterval(() => {
-    response.write(": heartbeat\n\n");
+    try {
+      assertNetworkAccess(store, request.socket.remoteAddress);
+      if (!closed) response.write(": heartbeat\n\n");
+    } catch {
+      cleanup();
+      response.end();
+    }
   }, SSE_HEARTBEAT_MS);
   heartbeat.unref?.();
 

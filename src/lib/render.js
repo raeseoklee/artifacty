@@ -37,7 +37,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
           <a href="${view.href("/new")}">${view.text("nav.new")}</a>
           <a href="${view.href("/import")}">${view.text("nav.import")}</a>
           <a href="/api/artifacts">${view.text("nav.api")}</a>
-          ${authNav(user)}
+          ${authNav(user, view)}
           ${languageSwitcher(view)}
         </nav>
       </header>
@@ -379,7 +379,7 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
         <nav>
           <a href="${view.href(artifactPath)}">Artifact</a>
           <a href="${view.href(`${artifactPath}/diff`)}">${view.text("nav.diff")}</a>
-          ${authNav(user)}
+          ${authNav(user, view)}
           ${languageSwitcher(view)}
         </nav>
       </header>
@@ -563,7 +563,7 @@ export function renderAccountPage({ baseUrl, user, tokens = [], createdToken = "
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          ${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a>` : ""}
+          ${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>` : ""}
           <a href="/account/password">Password</a>
           <form class="nav-form" method="post" action="/logout"><button type="submit">Sign out</button></form>
           ${languageSwitcher(view)}
@@ -682,7 +682,7 @@ export function renderAdminBackupPage({ baseUrl, integrity, importResult = null,
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/users">Users</a>
+          <a href="/admin/users">Users</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
           <a href="/admin/retention">${view.text("retention.navLabel")}</a>
           <a href="/account">Account</a>
           ${languageSwitcher(view)}
@@ -735,6 +735,116 @@ export function renderAdminBackupPage({ baseUrl, integrity, importResult = null,
     `,
     locale: view.locale
   });
+}
+
+export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users = [], networkPolicy = { allowedCidrs: [] }, currentIp = "", preview = null, pendingNetworkPolicy = null, shareLinkPolicy = {}, locale = DEFAULT_LOCALE, currentPath = "/admin/access" }) {
+  const view = viewContext(locale, currentPath);
+  return pageShell({
+    title: view.text("access.title"),
+    locale: view.locale,
+    body: `<header class="topbar"><div><h1>${view.text("access.title")}</h1><p>${escapeHtml(baseUrl)}</p></div>
+      <nav><a href="${view.href("/")}">${view.text("nav.index")}</a>${authNav(user, view)}${languageSwitcher(view)}</nav></header>
+      <main class="artifact-view">
+        <section class="meta-card"><h2>${view.text("access.mode")}</h2>
+          <form class="editor-form" method="post" action="/admin/access/preview">${localeInput(view.locale)}
+            <label><input type="radio" name="mode" value="public"${mode === "public" ? " checked" : ""}> ${view.text("access.public")}</label>
+            <p class="muted">${view.text("access.publicHelp")}</p>
+            <label><input type="radio" name="mode" value="private"${mode === "private" ? " checked" : ""}> ${view.text("access.private")}</label>
+            <p class="muted">${view.text("access.privateHelp")}</p>
+            <button type="submit">${view.text("access.preview")}</button>
+          </form>
+        </section>
+        ${preview ? `<section class="meta-card"><h2>${view.text("access.preview")}</h2><p>${view.text("access.previewCount", { count: preview.anonymousArtifactCount, mode: preview.mode })}</p>
+          <form method="post" action="/admin/access">${localeInput(view.locale)}<input type="hidden" name="mode" value="${escapeAttribute(preview.mode)}"><button type="submit">${view.text("access.save")}</button></form></section>` : ""}
+        <section class="meta-card"><h2>${view.text("sharing.links")}</h2><form method="post" action="/admin/access/share-links">${localeInput(view.locale)}
+          <label><input type="checkbox" name="enabledInPrivate" value="true"${shareLinkPolicy.enabledInPrivate ? " checked" : ""}> ${view.text("sharing.enablePrivate")}</label><button type="submit">${view.text("access.save")}</button></form></section>
+        ${pendingNetworkPolicy ? `<section class="meta-card"><h2>${view.text("access.pendingNetwork")}</h2><p>${view.text("access.pendingHelp", { expiresAt: pendingNetworkPolicy.expiresAt })}</p>
+          ${["confirm", "rollback"].map((action) => `<form method="post" action="/admin/access/network/${action}">${localeInput(view.locale)}<input type="hidden" name="id" value="${escapeAttribute(pendingNetworkPolicy.id)}"><button type="submit">${view.text(`access.${action}`)}</button></form>`).join("")}</section>` : ""}
+        <section class="meta-card"><h2>${view.text("access.network")}</h2>
+          <p class="muted">${view.text("access.networkHelp")}</p>
+          <p>${view.text("access.currentIp")}: <code>${escapeHtml(currentIp)}</code></p>
+          <form class="editor-form" method="post" action="/admin/access/network">${localeInput(view.locale)}
+            <label class="field"><span>${view.text("access.allowedCidrs")}</span><textarea name="allowedCidrs" rows="5">${escapeHtml((networkPolicy.allowedCidrs || []).join("\n"))}</textarea></label>
+            <button type="submit">${view.text("access.saveNetwork")}</button>
+          </form>
+        </section>
+        <section class="meta-card"><h2>${view.text("access.samples")}</h2><p>${view.text("access.samplesHelp")}</p>
+          ${["install", "remove"].map((action) => `<form method="post" action="/admin/samples/${action}">${localeInput(view.locale)}<button type="submit">${view.text(`access.samples.${action}`)}</button></form>`).join("")}</section>
+        <section class="meta-card"><h2>${view.text("access.teams")}</h2>
+          <form class="editor-form auth-form" method="post" action="/admin/teams">${localeInput(view.locale)}
+            <label class="field"><span>${view.text("access.teamName")}</span><input name="name" required></label>
+            <button type="submit">${view.text("access.createTeam")}</button>
+          </form>
+          ${teams.length ? teams.map((team) => `<section><h3>${escapeHtml(team.name)}</h3>
+            <form class="editor-form" method="post" action="/admin/teams/${encodeURIComponent(team.id)}/members">${localeInput(view.locale)}
+              <fieldset><legend>${view.text("access.members")}</legend>${accessCheckboxes(users, "userIds", team.memberIds || [], view)}</fieldset>
+              <button type="submit">${view.text("access.saveMembers")}</button>
+            </form></section>`).join("") : `<p class="muted">${view.text("access.noTeams")}</p>`}
+        </section>
+      </main>`
+  });
+}
+
+export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = { userIds: [], teamIds: [] }, users = [], teams = [], accessReport = null, shareLinks = [], createdShareLink = null, networkPolicy = { allowedCidrs: [] }, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+  const view = viewContext(locale, currentPath);
+  return pageShell({
+    title: view.text("sharing.title"),
+    locale: view.locale,
+    body: `<header class="topbar"><div><h1>${view.text("sharing.title")}: ${escapeHtml(artifact.title)}</h1><p>${escapeHtml(baseUrl)}</p></div>
+      <nav><a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}">${view.text("nav.artifact")}</a>${authNav(user, view)}${languageSwitcher(view)}</nav></header>
+      <main class="artifact-view"><section class="meta-card">
+        <p>${view.text("sharing.help")}</p>
+        <form class="editor-form" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/sharing">${localeInput(view.locale)}
+          <fieldset><legend>${view.text("sharing.users")}</legend>${accessCheckboxes(users, "userIds", sharing.userIds || [], view, sharing.userPermissions || {})}</fieldset>
+          <fieldset><legend>${view.text("sharing.teams")}</legend>${accessCheckboxes(teams, "teamIds", sharing.teamIds || [], view, sharing.teamPermissions || {})}</fieldset>
+          <button type="submit">${view.text("sharing.save")}</button>
+        </form>
+      </section>
+      ${accessReport && (user?.role === "admin" || user?.id === artifact.ownerUserId) ? `<section class="meta-card"><h2>${view.text("sharing.effective")}</h2><p>${view.text("sharing.networkCondition")}: ${escapeHtml(networkPolicy.allowedCidrs?.length ? networkPolicy.allowedCidrs.join(", ") : view.text("sharing.unrestricted"))}</p><p>${view.text("sharing.anonymous")}: ${view.text(accessReport.anonymousRead ? "sharing.allowed" : "sharing.denied")}</p>
+        <table><thead><tr><th>${view.text("sharing.users")}</th><th>${view.text("sharing.permission")}</th><th>${view.text("sharing.reason")}</th></tr></thead><tbody>${accessReport.users.map((item) => `<tr><td>${escapeHtml(item.name || item.email || item.id)}</td><td>${view.text(`sharing.permission.${item.permission}`)}</td><td>${escapeHtml(item.reasons.join(", "))}</td></tr>`).join("")}</tbody></table></section>` : ""}
+      <section class="meta-card"><h2>${view.text("sharing.links")}</h2><p>${view.text("sharing.linksHelp")}</p>
+        ${createdShareLink?.token ? `<p>${view.text("sharing.copyNow")}</p><a href="${escapeAttribute(`${baseUrl.replace(/\/$/, "")}/s/${encodeURIComponent(createdShareLink.token)}`)}">${escapeHtml(`${baseUrl.replace(/\/$/, "")}/s/${encodeURIComponent(createdShareLink.token)}`)}</a>` : ""}
+        <form class="editor-form" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/share-links">${localeInput(view.locale)}
+          <label class="field"><span>${view.text("sharing.version")}</span><select name="version"><option value="latest">${view.text("sharing.latest")}</option>${(artifact.versions || []).map((item) => `<option value="${Number(item.version)}">v${Number(item.version)}</option>`).join("")}</select></label>
+          <label class="field"><span>${view.text("sharing.days")}</span><input type="number" name="days" min="1" max="365" value="7" required></label><button type="submit">${view.text("sharing.createLink")}</button></form>
+        ${shareLinks.map((link) => `<section><p>${escapeHtml(link.id)} · ${link.version == null ? view.text("sharing.latest") : `v${Number(link.version)}`} · ${view.text("sharing.expires")}: ${escapeHtml(link.expiresAt)}</p>
+          ${link.revokedAt ? `<p>${view.text("sharing.revoked")}</p>` : `<form method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/share-links/${encodeURIComponent(link.id)}/revoke">${localeInput(view.locale)}<button type="submit">${view.text("sharing.revoke")}</button></form>`}</section>`).join("")}
+      </section></main>`
+  });
+}
+
+function accessCheckboxes(items, name, selectedIds, view, permissions = null) {
+  if (!items.length) return `<p class="muted">${view.text(name === "userIds" ? "access.noUsers" : "access.noTeams")}</p>`;
+  return items.filter((item) => item.active !== false).map((item) => `<label><input type="checkbox" name="${name}" value="${escapeAttribute(item.id)}"${selectedIds.includes(item.id) ? " checked" : ""}> ${escapeHtml(item.name || item.email || item.id)}${item.email && item.name ? ` (${escapeHtml(item.email)})` : ""}</label>${permissions ? `<label>${view.text("sharing.permission")}<select name="${name === "userIds" ? "userPermission" : "teamPermission"}:${escapeAttribute(item.id)}">${["read", "comment", "edit"].map((permission) => `<option value="${permission}"${(permissions[item.id] || "read") === permission ? " selected" : ""}>${view.text(`sharing.permission.${permission}`)}</option>`).join("")}</select></label>` : ""}`).join("");
+}
+
+export function renderInboxPage({ baseUrl, user, notifications = [], unreadCount = 0, locale = DEFAULT_LOCALE, currentPath = "/inbox" }) {
+  const view = viewContext(locale, currentPath);
+  return pageShell({ title: view.text("inbox.title"), locale: view.locale,
+    body: `<header class="topbar"><div><h1>${view.text("inbox.title")}</h1><p>${escapeHtml(baseUrl)}</p></div><nav><a href="${view.href("/")}">${view.text("nav.index")}</a>${authNav(user, view)}${languageSwitcher(view)}</nav></header>
+      <main class="artifact-view"><section class="meta-card"><p>${view.text("inbox.unread", { count: unreadCount })}</p>
+        <form method="post" action="/inbox/read-all">${localeInput(view.locale)}<button type="submit">${view.text("inbox.readAll")}</button></form>
+        ${notifications.length ? notifications.map((item) => `<section><h2><a href="${view.href(`/artifacts/${encodeURIComponent(item.artifactId)}`)}">${escapeHtml(item.title)}</a></h2><p>${escapeHtml(item.type)} · ${escapeHtml(item.createdAt)}</p>
+          ${item.readAt ? `<p>${view.text("inbox.read")}</p>` : `<form method="post" action="/inbox/${encodeURIComponent(item.id)}/read">${localeInput(view.locale)}<button type="submit">${view.text("inbox.markRead")}</button></form>`}</section>`).join("") : `<p>${view.text("inbox.empty")}</p>`}
+      </section></main>` });
+}
+
+export function renderSharedArtifactPage({ artifact, version, content, locale = DEFAULT_LOCALE, sharePath }) {
+  const view = viewContext(locale, sharePath);
+  const rendered = version.format === "html"
+    ? `<p>${view.text("sharing.staticPreview")}</p><iframe class="artifact-frame" sandbox="" referrerpolicy="no-referrer" src="${escapeAttribute(`${sharePath}/raw`)}"></iframe>`
+    : ["react", "notebook", "svg", "mermaid"].includes(version.format)
+    ? `<p>${view.text("sharing.safeSource")}</p><pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>`
+    : renderContent(version.format, content, version.metadata || {}, {
+      view, artifactType: artifact.artifactType,
+      rawUrl: `${sharePath}/raw`,
+      bundleFileUrl: (fileName) => `${sharePath}/raw?file=${encodeURIComponent(fileName)}`
+    });
+  const needsViewer = ["code", "markdown", "notebook", "sarif", "csv"].includes(version.format);
+  return pageShell({ title: artifact.title, locale: view.locale,
+    body: `<header class="topbar"><div><h1>${escapeHtml(artifact.title)}</h1><p>${view.text("sharing.readOnly")} · v${Number(version.version)}</p></div></header><main class="artifact-view">${rendered}</main>`,
+    head: needsViewer ? editorHead() : "",
+    afterBody: `${frameResizeScript()}${needsViewer ? viewerScript() : ""}` });
 }
 
 export function renderAdminUsersPage({ baseUrl, user, users = [], importResult = null, importError = "", locale = DEFAULT_LOCALE, currentPath = "/admin/users" }) {
@@ -796,7 +906,7 @@ export function renderAdminUsersPage({ baseUrl, user, users = [], importResult =
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/backup">Backup</a>
+          <a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
           <a href="/admin/retention">${view.text("retention.navLabel")}</a>
           <a href="/account">Account</a>
           ${languageSwitcher(view)}
@@ -878,7 +988,7 @@ export function renderAdminWebhooksPage({ baseUrl, webhooks = [], createdSecret 
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/backup">Backup</a>
+          <a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
           <a href="/admin/users">Users</a>
           <a href="/admin/retention">${view.text("retention.navLabel")}</a>
           <a href="/account">Account</a>
@@ -967,8 +1077,8 @@ export function renderAdminRetentionPage({ baseUrl, policy, lastSweep = null, re
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="/admin/backup">Backup</a>
-          <a href="/admin/users">Users</a>
+          <a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
+          <a href="/admin/users">Users</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>
           <a href="/account">Account</a>
           ${languageSwitcher(view)}
         </nav>
@@ -1005,8 +1115,11 @@ export function renderAdminRetentionPage({ baseUrl, policy, lastSweep = null, re
   });
 }
 
-export function renderArtifactPage({ artifact, version, content, comments = [], baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", user = null }) {
+export function renderArtifactPage({ artifact, version, content, comments = [], baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", user = null, permission = null }) {
   const view = viewContext(locale, currentPath);
+  const canEdit = permission == null || ["edit", "owner", "admin"].includes(permission);
+  const canComment = canEdit || permission === "comment";
+  const canArchive = permission == null || ["owner", "admin"].includes(permission);
   const versionLinks = artifact.versions
     .map((item) => {
       const active = item.version === version.version ? " active" : "";
@@ -1062,11 +1175,12 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
         </div>
         <nav>
           <a href="${view.href("/")}">${view.text("nav.index")}</a>
-          <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit`)}">${view.text("nav.edit")}</a>
+          ${canEdit ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit`)}">${view.text("nav.edit")}</a>` : ""}
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
           ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">Versions</a>` : ""}
           <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
-          ${authNav(user)}
+          ${user && canManageVisibility ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/sharing`)}">${view.text("sharing.title")}</a>` : ""}
+          ${authNav(user, view)}
           ${languageSwitcher(view)}
         </nav>
       </header>
@@ -1082,16 +1196,16 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
           <span>${escapeHtml(version.createdAt)}</span>
           <span>${escapeHtml(version.sha256.slice(0, 12))}</span>
         </section>
-        <form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${archiveAction}">
+        ${canArchive ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${archiveAction}">
           ${hiddenToken(authToken)}
           ${localeInput(view.locale)}
           <button type="submit">${archiveLabel}</button>
-        </form>
+        </form>` : ""}
         ${visibilityForm}
         <section class="version-strip">${versionLinks}</section>
         ${rendered}
         ${renderRelationsSection(artifact, view)}
-        ${renderCommentsSection(artifact, comments, view, { version: version.version, authToken, canModerate: canManageVisibility })}
+        ${renderCommentsSection(artifact, comments, view, { version: version.version, authToken, canModerate: canManageVisibility, canComment })}
       </main>
     `,
     head: needsViewerScript ? editorHead() : "",
@@ -1102,7 +1216,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
 
 // --- Comments and review status (roadmap section 5) -----------------------
 
-function renderCommentsSection(artifact, comments, view, { version, authToken, canModerate }) {
+function renderCommentsSection(artifact, comments, view, { version, authToken, canModerate, canComment = true }) {
   const grouped = new Map();
   for (const comment of comments) {
     if (!grouped.has(comment.version)) {
@@ -1119,7 +1233,7 @@ function renderCommentsSection(artifact, comments, view, { version, authToken, c
   // with diagrams could still embed N * cap base64 srcdoc payloads.
   const diagramState = createMermaidDiagramState();
   const groups = versions
-    .map((groupVersion) => renderCommentVersionGroup(artifact, grouped.get(groupVersion), groupVersion, view, { activeVersion: version, authToken, canModerate, diagramState }))
+    .map((groupVersion) => renderCommentVersionGroup(artifact, grouped.get(groupVersion), groupVersion, view, { activeVersion: version, authToken, canModerate, canComment, diagramState }))
     .join("");
 
   return `
@@ -1130,12 +1244,12 @@ function renderCommentsSection(artifact, comments, view, { version, authToken, c
         ${canModerate ? renderReviewStatusForm(artifact, view, authToken) : ""}
       </div>
       ${comments.length === 0 ? `<p class="comments-empty">${view.text("comments.empty")}</p>` : groups}
-      ${versions.includes(version) ? "" : renderCommentForm(artifact, view, { version, authToken })}
+      ${!canComment || versions.includes(version) ? "" : renderCommentForm(artifact, view, { version, authToken })}
     </section>
   `;
 }
 
-function renderCommentVersionGroup(artifact, versionComments, groupVersion, view, { activeVersion, authToken, canModerate, diagramState }) {
+function renderCommentVersionGroup(artifact, versionComments, groupVersion, view, { activeVersion, authToken, canModerate, canComment, diagramState }) {
   const roots = versionComments.filter((comment) => !comment.parentId);
   const repliesByParent = new Map();
   for (const comment of versionComments) {
@@ -1148,21 +1262,21 @@ function renderCommentVersionGroup(artifact, versionComments, groupVersion, view
   }
   const isActiveVersion = groupVersion === activeVersion;
   const items = roots
-    .map((root) => renderCommentThread(artifact, root, repliesByParent.get(root.id) || [], view, { authToken, canModerate, allowReply: isActiveVersion, diagramState }))
+    .map((root) => renderCommentThread(artifact, root, repliesByParent.get(root.id) || [], view, { authToken, canModerate, allowReply: isActiveVersion && canComment, canComment, diagramState }))
     .join("");
 
   return `
     <div class="comment-version-group">
       <h3>${view.text("comments.version", { version: groupVersion })}</h3>
       <ul class="comment-list">${items}</ul>
-      ${isActiveVersion ? renderCommentForm(artifact, view, { version: groupVersion, authToken }) : ""}
+      ${isActiveVersion && canComment ? renderCommentForm(artifact, view, { version: groupVersion, authToken }) : ""}
     </div>
   `;
 }
 
-function renderCommentThread(artifact, root, replies, view, { authToken, canModerate, allowReply, diagramState }) {
+function renderCommentThread(artifact, root, replies, view, { authToken, canModerate, allowReply, canComment, diagramState }) {
   const replyItems = replies
-    .map((reply) => renderCommentEntry(artifact, reply, view, { authToken, canModerate, isReply: true, diagramState }))
+    .map((reply) => renderCommentEntry(artifact, reply, view, { authToken, canModerate, canComment, isReply: true, diagramState }))
     .join("");
   const replyForm = allowReply
     ? renderCommentForm(artifact, view, { version: root.version, authToken, parentId: root.id, compact: true })
@@ -1170,17 +1284,17 @@ function renderCommentThread(artifact, root, replies, view, { authToken, canMode
 
   return `
     <li class="comment-thread">
-      ${renderCommentEntry(artifact, root, view, { authToken, canModerate, isReply: false, diagramState })}
+      ${renderCommentEntry(artifact, root, view, { authToken, canModerate, canComment, isReply: false, diagramState })}
       ${replyItems ? `<ul class="comment-replies">${replyItems}</ul>` : ""}
       ${replyForm}
     </li>
   `;
 }
 
-function renderCommentEntry(artifact, comment, view, { authToken, canModerate, isReply, diagramState }) {
+function renderCommentEntry(artifact, comment, view, { authToken, canModerate, canComment, isReply, diagramState }) {
   const anchorLabel = commentAnchorLabel(comment.anchor, view);
   const resolved = comment.status === "resolved";
-  const resolveForm = !resolved
+  const resolveForm = !resolved && canComment
     ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/comments/${encodeURIComponent(comment.id)}/resolve">
         ${hiddenToken(authToken)}
         ${localeInput(view.locale)}
@@ -3300,11 +3414,11 @@ function languageSwitcher(view) {
   return `<span class="language-switcher">${english}${korean}</span>`;
 }
 
-function authNav(user) {
+function authNav(user, view) {
   if (!user) {
     return `<a href="/login">Sign in</a>`;
   }
-  return `${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a>` : ""}<a href="/account">Account</a>`;
+  return `${user.role === "admin" ? `<a href="/admin/users">Users</a><a href="/admin/backup">Backup</a><a href="${view.href("/admin/access")}">${view.text("access.title")}</a>` : ""}<a href="/account">Account</a><a href="${view.href("/inbox")}">${view.text("inbox.title")}</a>`;
 }
 
 export function escapeHtml(value) {
