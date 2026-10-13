@@ -55,7 +55,7 @@
     "CLAUDE.md"
   ],
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.12"
   },
   "license": "MIT",
   "dependencies": {
