@@ -76,7 +76,11 @@ function patch(source) {
   return { archive, tarSha256: digest(tar), files, license: before.find((entry) => entry.name === 'package/LICENSE')?.content };
 }
 
-const localSource = process.argv[2];
+const args = process.argv.slice(2);
+const checkOnly = args[0] === '--check';
+if (checkOnly) args.shift();
+assert.ok(args.length <= 1 && !args.some((arg) => arg.startsWith('-')), 'Usage: node scripts/vendor-encrypted-sqlite.mjs [--check] [original.tgz]');
+const localSource = args[0];
 let source;
 if (localSource) source = await readFile(localSource);
 else {
@@ -97,8 +101,26 @@ const manifest = {
   verification: 'Every unpacked path is unchanged; every non-package.json tar entry and file SHA256 is identical. package.json differs semantically only by scripts.install.',
   files: result.files,
 };
-await mkdir(directory, { recursive: true });
-await writeFile(output, result.archive);
-await writeFile(new URL('provenance.json', directory), `${JSON.stringify(manifest, null, 2)}\n`);
-await writeFile(new URL('LICENSE.upstream', directory), result.license);
-console.log(JSON.stringify({ path: fileURLToPath(output), sizeBytes: manifest.sizeBytes, integrity: manifest.patchedIntegrity, sha256: manifest.patchedSha256, unchangedFiles: result.files.length - 1 }, null, 2));
+if (checkOnly) {
+  const current = await readFile(output);
+  const recorded = JSON.parse(await readFile(new URL('provenance.json', directory), 'utf8'));
+  assert.ok(gunzipSync(current).equals(gunzipSync(result.archive)), 'Vendored tar content differs from expected patch');
+  assert.equal(current.readUInt32LE(4), 0, 'Vendored gzip timestamp must be zero');
+  for (const key of ['package', 'version', 'sourceUrl', 'sourceIntegrity', 'uncompressedTarSha256', 'patch', 'verification', 'files']) {
+    assert.deepEqual(recorded[key], manifest[key], `Provenance mismatch: ${key}`);
+  }
+  assert.equal(recorded.patchedIntegrity, integrity(current), 'Vendored integrity mismatch');
+  assert.equal(recorded.patchedSha256, digest(current), 'Vendored SHA256 mismatch');
+  assert.equal(recorded.sizeBytes, current.length, 'Vendored size mismatch');
+  assert.equal(recorded.generator?.gzipLevel, 9, 'Unexpected recorded gzip level');
+  assert.equal(recorded.generator?.gzipMtime, 0, 'Unexpected recorded gzip timestamp');
+  for (const key of ['node', 'zlib']) assert.ok(typeof recorded.generator?.[key] === 'string' && recorded.generator[key].length > 0, `Missing generator ${key}`);
+  assert.ok((await readFile(new URL('LICENSE.upstream', directory))).equals(result.license), 'Upstream license mismatch');
+  console.log('Verified vendored archive, provenance, all file hashes, and upstream license (no writes).');
+} else {
+  await mkdir(directory, { recursive: true });
+  await writeFile(output, result.archive);
+  await writeFile(new URL('provenance.json', directory), `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFile(new URL('LICENSE.upstream', directory), result.license);
+  console.log(JSON.stringify({ path: fileURLToPath(output), sizeBytes: manifest.sizeBytes, integrity: manifest.patchedIntegrity, sha256: manifest.patchedSha256, unchangedFiles: result.files.length - 1 }, null, 2));
+}

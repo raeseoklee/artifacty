@@ -45,3 +45,17 @@ to disk. No tar executable or additional dependency is required.
 This workaround is temporary. Replace it with a verified upstream packaging fix
 when one exists, retaining the supported Node/npm clean-install matrix. Do not
 modify upstream cryptographic code or binaries as part of this workaround.
+
+## Read-only verification
+
+```sh
+node scripts/vendor-encrypted-sqlite.mjs --check
+node scripts/vendor-encrypted-sqlite.mjs --check /path/to/original-upstream.tgz
+```
+
+Check mode never writes files. It verifies the pinned upstream archive, compares
+checked-in and expected decompressed tar bytes, validates the provenance's source
+and patched hashes, file map and generator metadata, and compares the original
+license verbatim. Compressed bytes may differ across zlib versions; the recorded
+patched integrity is checked against the actual checked-in bytes, not the local
+recompression. Extra arguments and unknown options are rejected.

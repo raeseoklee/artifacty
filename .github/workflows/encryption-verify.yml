@@ -23,6 +23,9 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+      - name: Verify vendored source provenance
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '24.x'
+        run: node scripts/vendor-encrypted-sqlite.mjs --check
       - run: npm ci --loglevel verbose
       - name: Require the native encryption driver
         run: node -e "require('better-sqlite3-multiple-ciphers')"

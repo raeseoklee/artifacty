@@ -151,6 +151,39 @@ Primary sources:
 
 ## Implementation sequence
 
+### Integration boundaries from the storage review
+
+Use a separate data generation for each migration. One active pointer selects
+the database and blob directory together. Keep the logical store home stable;
+do not mutate a shared store object's paths while concurrent requests use it.
+
+Acquire a cross-process access lease for the whole operation, including file
+reads after database queries. The existing upgrade lock is released when
+`openProtectedDatabase()` returns, so it cannot protect an open connection or
+an asynchronous file read from a generation switch. Maintenance admission must
+block new leases and wait for existing leases to close. Nested operations must
+reuse their lease rather than acquire another one after maintenance begins.
+
+Existing binaries do not participate in the new lease protocol. The first
+transition therefore requires all legacy HTTP, CLI, and MCP processes to stop.
+Checking only `server.pid` and `server.json` does not establish that condition.
+Leave a non-sensitive compatibility database at the old fixed database path
+with an unsupported store version, and test actual older binaries against it.
+Removing that path would allow an old binary to create a separate empty store.
+
+Build and verify the new generation before switching the pointer. Record
+`building`, `verified`, `committed`, and `cleanup-pending` durably. A crash before
+the pointer switch keeps the source active; a crash after it requires validating
+the target. The same contract applies when disabling encryption. Retained old
+generations and backups must be reported accurately if they contain plaintext.
+
+Next integration tests must cover a paused asynchronous read, an idle MCP client
+that resumes after migration, live database handles, old binary refusal, and
+termination at every journal boundary. These are required before exposing the
+administrator migration control.
+
+### Verification checkpoints
+
 Foundation checkpoint: the isolated database adapter and authenticated file
 codec pass 12 tests with the native driver loaded. The full local suite passes
 588 tests. These modules are not connected to production storage. The dedicated
