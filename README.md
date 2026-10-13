@@ -17,6 +17,9 @@ Artifacts turn session output into shareable, versioned pages. Artifacty keeps t
 
 Artifacty requires Node.js 22.5 or newer.
 
+The optional React renderer uses Babel 8. Its supported Node.js versions are
+`^22.18.0 || >=24.11.0`. Use a compatible version if you enable that renderer.
+
 Install the CLI globally from npm:
 
 ```bash
