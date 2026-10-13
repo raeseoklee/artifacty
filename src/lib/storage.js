@@ -17,7 +17,7 @@ import {
   vectorToBlob
 } from "./embeddings.js";
 
-export const STORE_VERSION = 8;
+export const STORE_VERSION = 10;
 // Not exported: no caller outside this file reads the constant itself, only
 // the numeric schemaVersion field it seeds on artifacts.
 const ARTIFACT_SCHEMA_VERSION = 1;
@@ -205,25 +205,256 @@ function userCountSync(db) {
 // scope visibility against. Every access check below short-circuits in that
 // case, matching pre-Section-10 behavior.
 function isSingleUserMode(db) {
-  return userCountSync(db) === 0;
+  return userCountSync(db) === 0 && accessModeInDb(db) !== "private";
 }
 
-// Shared SQL visibility predicate, mirroring canReadArtifactMeta: a falsy
-// `access` sees everything (empty clause); otherwise a private row is only
-// visible to its own owner or an admin. `prefix` is a table alias including
-// the trailing dot (e.g. "a."), or "" for an unaliased query. The `? != ''`
-// guard keeps an empty/anonymous access.userId from matching rows whose
-// owner_user_id happens to be stored as an empty string.
+// The mode is read from SQLite for every query so toggles and membership
+// revocations also affect existing sessions and long-running clients.
 export function visibilityClause(prefix, access) {
-  if (!access) {
-    return { sql: "", params: [] };
-  }
+  if (!access) return { sql: "", params: [] };
   const userId = access.userId || "";
   const isAdmin = access.role === "admin" ? 1 : 0;
   return {
-    sql: `(${prefix}visibility != 'private' OR (? != '' AND ${prefix}owner_user_id = ?) OR ? = 1)`,
-    params: [userId, userId, isAdmin]
+    sql: `((COALESCE((SELECT value FROM meta WHERE key = 'access_mode'), 'public') != 'private'
+      AND ${prefix}visibility != 'private')
+      OR (? != '' AND ${prefix}owner_user_id = ?) OR ? = 1
+      OR (COALESCE((SELECT value FROM meta WHERE key = 'access_mode'), 'public') = 'private'
+        AND ? != '' AND EXISTS (SELECT 1 FROM artifact_shares s
+          WHERE s.artifact_id = ${prefix}id AND
+          (s.user_id = ? OR s.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?)))))`,
+    params: [userId, userId, isAdmin, userId, userId, userId]
   };
+}
+
+function accessModeInDb(db) {
+  return db.prepare("SELECT value FROM meta WHERE key = 'access_mode'").get()?.value === "private" ? "private" : "public";
+}
+
+export async function getAccessMode(store = createStore()) {
+  const db = openDatabase(store);
+  try { return accessModeInDb(db); } finally { db.close(); }
+}
+
+function assertAccessAdmin(access) {
+  if (access && access.role !== "admin") throw new ForbiddenError("Administrator access required");
+}
+
+export async function setAccessMode(store = createStore(), mode, { access, audit } = {}) {
+  assertAccessAdmin(access);
+  if (!["public", "private"].includes(mode)) {
+    throw Object.assign(new Error("Access mode must be public or private"), { statusCode: 400 });
+  }
+  const db = openDatabase(store);
+  try {
+    transaction(db, () => {
+      if (mode === "private" && !db.prepare("SELECT id FROM users WHERE active = 1 AND role = 'admin' LIMIT 1").get()) {
+        throw Object.assign(new Error("Create an active administrator before enabling private mode"), { statusCode: 400 });
+      }
+      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('access_mode', ?)").run(mode);
+      insertAuditRecord(db, { action: "access-mode-change", artifactId: "", audit, metadata: { mode } });
+    });
+    return mode;
+  } finally { db.close(); }
+}
+
+function normalizeShareIds(value, label) {
+  if (!Array.isArray(value) || value.some((id) => typeof id !== "string" || !id)) {
+    throw Object.assign(new Error(`${label} must be an array of ids`), { statusCode: 400 });
+  }
+  return [...new Set(value)];
+}
+
+function assertActiveUsers(db, userIds) {
+  for (const id of userIds) {
+    if (!db.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(id)) {
+      throw Object.assign(new Error(`Unknown or inactive user: ${id}`), { statusCode: 400 });
+    }
+  }
+}
+
+function teamsInDb(db) {
+  return db.prepare("SELECT id, name FROM teams ORDER BY name, id").all().map((team) => ({
+    ...team, memberIds: db.prepare("SELECT user_id FROM team_members WHERE team_id = ? ORDER BY user_id").all(team.id).map((row) => row.user_id)
+  }));
+}
+
+export async function listTeams(store = createStore()) {
+  const db = openDatabase(store);
+  try { return teamsInDb(db); } finally { db.close(); }
+}
+
+export async function createTeam(store = createStore(), { name } = {}, { access, audit } = {}) {
+  assertAccessAdmin(access);
+  name = typeof name === "string" ? name.trim() : "";
+  if (!name || name.length > 200) throw Object.assign(new Error("Team name must contain 1 to 200 characters"), { statusCode: 400 });
+  const db = openDatabase(store);
+  try {
+    const id = randomUUID();
+    transaction(db, () => {
+      if (db.prepare("SELECT id FROM teams WHERE name = ? COLLATE NOCASE").get(name)) {
+        throw Object.assign(new Error("Team name already exists"), { statusCode: 409 });
+      }
+      db.prepare("INSERT INTO teams (id, name) VALUES (?, ?)").run(id, name);
+      insertAuditRecord(db, { action: "team-create", artifactId: "", audit, metadata: { teamId: id, name } });
+    });
+    return { id, name, memberIds: [] };
+  } finally { db.close(); }
+}
+
+export async function setTeamMembers(store = createStore(), teamId, userIds, { access, audit } = {}) {
+  assertAccessAdmin(access);
+  audit = { ...audit, userId: access?.userId || audit?.userId };
+  userIds = normalizeShareIds(userIds, "userIds");
+  const db = openDatabase(store);
+  try {
+    transaction(db, () => {
+      if (!db.prepare("SELECT id FROM teams WHERE id = ?").get(teamId)) throw Object.assign(new Error("Team not found"), { statusCode: 404 });
+      assertActiveUsers(db, userIds);
+      const previousMembers = new Set(db.prepare("SELECT user_id FROM team_members WHERE team_id = ?").all(teamId).map((row) => row.user_id));
+      db.prepare("DELETE FROM team_members WHERE team_id = ?").run(teamId);
+      const insert = db.prepare("INSERT INTO team_members (team_id, user_id) VALUES (?, ?)");
+      for (const userId of userIds) insert.run(teamId, userId);
+      insertAuditRecord(db, { action: "team-members-change", artifactId: "", audit, metadata: { teamId, userIds, addedUserIds: userIds.filter((id) => !previousMembers.has(id)) } });
+    });
+    return teamsInDb(db).find((team) => team.id === teamId);
+  } finally { db.close(); }
+}
+
+function sharingInDb(db, id, includePermissions = false) {
+  const rows = db.prepare("SELECT user_id, team_id, permission FROM artifact_shares WHERE artifact_id = ? ORDER BY user_id, team_id").all(id);
+  const sharing = { userIds: rows.filter((row) => row.user_id).map((row) => row.user_id), teamIds: rows.filter((row) => row.team_id).map((row) => row.team_id) };
+  if (includePermissions) {
+    sharing.userPermissions = Object.fromEntries(rows.filter((row) => row.user_id).map((row) => [row.user_id, row.permission]));
+    sharing.teamPermissions = Object.fromEntries(rows.filter((row) => row.team_id).map((row) => [row.team_id, row.permission]));
+  }
+  return sharing;
+}
+
+export async function getArtifactSharing(store = createStore(), id, { access, includePermissions = false } = {}) {
+  const db = openDatabase(store);
+  try {
+    const artifact = findArtifactById(db, id);
+    assertArtifactReadable(db, artifact, access);
+    assertArtifactManageable(db, artifact, access);
+    return sharingInDb(db, id, includePermissions);
+  } finally { db.close(); }
+}
+
+export async function setArtifactSharing(store = createStore(), id, { userIds = [], teamIds = [], userPermissions = {}, teamPermissions = {} } = {}, { access, audit } = {}) {
+  userIds = normalizeShareIds(userIds, "userIds");
+  teamIds = normalizeShareIds(teamIds, "teamIds");
+  validatePermissionMap(userPermissions, userIds);
+  validatePermissionMap(teamPermissions, teamIds);
+  audit = { ...audit, userId: access?.userId || audit?.userId };
+  const db = openDatabase(store);
+  try {
+    transaction(db, () => {
+      const artifact = findArtifactById(db, id);
+      assertArtifactReadable(db, artifact, access);
+      assertArtifactManageable(db, artifact, access);
+      assertActiveUsers(db, userIds);
+      for (const teamId of teamIds) {
+        if (!db.prepare("SELECT id FROM teams WHERE id = ?").get(teamId)) throw Object.assign(new Error(`Unknown team: ${teamId}`), { statusCode: 400 });
+      }
+      const previousRecipients = new Set(sharedRecipientIds(db, id));
+      db.prepare("DELETE FROM artifact_shares WHERE artifact_id = ?").run(id);
+      const insert = db.prepare("INSERT INTO artifact_shares (artifact_id, user_id, team_id, permission) VALUES (?, ?, ?, ?)");
+      for (const userId of userIds) insert.run(id, userId, null, userPermissions[userId] || "read");
+      for (const teamId of teamIds) insert.run(id, null, teamId, teamPermissions[teamId] || "read");
+      const addedUserIds = sharedRecipientIds(db, id).filter((userId) => !previousRecipients.has(userId));
+      insertAuditRecord(db, { action: "artifact-sharing-change", artifactId: id, audit, metadata: { userIds, teamIds, userPermissions, teamPermissions, addedUserIds } });
+    });
+    return sharingInDb(db, id);
+  } finally { db.close(); }
+}
+
+const SHARE_PERMISSIONS = ["read", "comment", "edit"];
+
+function validatePermissionMap(permissions, selectedIds) {
+  if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)
+    || Object.entries(permissions).some(([id, level]) => !selectedIds.includes(id) || !SHARE_PERMISSIONS.includes(level))) {
+    throw Object.assign(new Error("Permissions must map selected user or team ids to read, comment, or edit"), { statusCode: 400 });
+  }
+}
+
+function sharedRecipientIds(db, artifactId) {
+  return db.prepare(`SELECT user_id FROM artifact_shares WHERE artifact_id = ? AND user_id IS NOT NULL
+    UNION SELECT m.user_id FROM team_members m JOIN artifact_shares s ON s.team_id = m.team_id WHERE s.artifact_id = ?`)
+    .all(artifactId, artifactId).map((row) => row.user_id);
+}
+
+function artifactPermissionInDb(db, artifact, access) {
+  if (!access) return "admin";
+  if (isSingleUserMode(db)) return "owner";
+  if (access.userId && !db.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(access.userId)) return "none";
+  if (access.role === "admin") return "admin";
+  if (access.userId && access.userId === artifact.ownerUserId) return "owner";
+  if (accessModeInDb(db) === "private") {
+    if (!access.userId) return "none";
+    const rows = db.prepare(`SELECT permission FROM artifact_shares WHERE artifact_id = ?
+      AND (user_id = ? OR team_id IN (SELECT team_id FROM team_members WHERE user_id = ?))`)
+      .all(artifact.id, access.userId, access.userId);
+    return rows.reduce((level, row) => SHARE_PERMISSIONS.indexOf(row.permission) > SHARE_PERMISSIONS.indexOf(level) ? row.permission : level, "none");
+  }
+  if (!canReadArtifactMeta(db, artifact, access)) return "none";
+  return canWriteArtifactMeta(db, artifact, access) ? "edit" : "read";
+}
+
+export async function getArtifactPermission(store = createStore(), id, { access } = {}) {
+  const db = openDatabase(store);
+  try { return artifactPermissionInDb(db, findArtifactById(db, id), access); }
+  finally { db.close(); }
+}
+
+function assertArtifactEditable(db, artifact, access) {
+  if (!["edit", "owner", "admin"].includes(artifactPermissionInDb(db, artifact, access))) {
+    throw new ForbiddenError(`Not permitted to modify artifact: ${artifact.id}`);
+  }
+}
+
+function assertArtifactCommentable(db, artifact, access) {
+  if (!["comment", "edit", "owner", "admin"].includes(artifactPermissionInDb(db, artifact, access))) {
+    throw new ForbiddenError(`Not permitted to comment on artifact: ${artifact.id}`);
+  }
+}
+
+export async function getArtifactAccessReport(store = createStore(), id, { access } = {}) {
+  const db = openDatabase(store);
+  try {
+    const artifact = findArtifactById(db, id);
+    assertArtifactReadable(db, artifact, access);
+    assertArtifactManageable(db, artifact, access);
+    const mode = accessModeInDb(db);
+    const users = db.prepare("SELECT id, name, email, active, role FROM users ORDER BY name, email").all().map((user) => {
+      const context = { userId: user.id, role: user.role };
+      const permission = artifactPermissionInDb(db, artifact, context);
+      const reasons = [];
+      if (!user.active) reasons.push("inactive");
+      else if (user.role === "admin") reasons.push("admin");
+      else if (user.id === artifact.ownerUserId) reasons.push("owner");
+      else if (mode === "public") reasons.push(permission === "none" ? "private-artifact" : "public-default");
+      else {
+        for (const row of db.prepare(`SELECT s.user_id, s.permission, t.name FROM artifact_shares s
+          LEFT JOIN teams t ON t.id = s.team_id WHERE s.artifact_id = ? AND
+          (s.user_id = ? OR s.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?))`).all(id, user.id, user.id)) {
+          reasons.push(row.user_id ? `direct:${row.permission}` : `team:${row.name}:${row.permission}`);
+        }
+      }
+      return { id: user.id, name: user.name, email: user.email, active: Boolean(user.active), permission, reasons };
+    });
+    return { mode, anonymousRead: canReadArtifactMeta(db, artifact, { anonymous: true }), users };
+  } finally { db.close(); }
+}
+
+export async function previewAccessMode(store = createStore(), mode, { access } = {}) {
+  assertAccessAdmin(access);
+  if (!["public", "private"].includes(mode)) throw Object.assign(new Error("Access mode must be public or private"), { statusCode: 400 });
+  const db = openDatabase(store);
+  try {
+    const count = mode === "private" ? 0 : db.prepare(`SELECT COUNT(*) AS count FROM artifacts
+      WHERE visibility != 'private' OR (SELECT COUNT(*) FROM users) = 0`).get().count;
+    return { mode, anonymousArtifactCount: count };
+  } finally { db.close(); }
 }
 
 function isOwnerOrAdmin(access, ownerUserId) {
@@ -244,6 +475,13 @@ function canReadArtifactMeta(db, artifact, access) {
   if (!access || isSingleUserMode(db)) {
     return true;
   }
+  if (accessModeInDb(db) === "private") {
+    if (isOwnerOrAdmin(access, artifact.ownerUserId)) return true;
+    if (!access.userId) return false;
+    return Boolean(db.prepare(`SELECT 1 FROM artifact_shares WHERE artifact_id = ?
+      AND (user_id = ? OR team_id IN (SELECT team_id FROM team_members WHERE user_id = ?)) LIMIT 1`)
+      .get(artifact.id, access.userId, access.userId));
+  }
   if (artifactVisibilityOf(artifact) !== "private") {
     return true;
   }
@@ -254,7 +492,7 @@ function canWriteArtifactMeta(db, artifact, access) {
   if (!access || isSingleUserMode(db)) {
     return true;
   }
-  if (artifactVisibilityOf(artifact) === "private") {
+  if (accessModeInDb(db) === "private" || artifactVisibilityOf(artifact) === "private") {
     return isOwnerOrAdmin(access, artifact.ownerUserId);
   }
   if (access.anonymous) {
@@ -366,6 +604,14 @@ export async function createArtifact(store = createStore(), input = {}) {
 
   let writtenVersionPath;
   try {
+    if (input.access && accessModeInDb(db) === "private") {
+      if (!input.access.userId || !db.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(input.access.userId)) {
+        throw new ForbiddenError("Private mode requires an active personal account");
+      }
+      if (input.ownerUserId && input.ownerUserId !== input.access.userId && input.access.role !== "admin") {
+        throw new ForbiddenError("Only administrators may create artifacts for another owner");
+      }
+    }
     let artifact;
     try {
       transaction(db, () => {
@@ -375,7 +621,7 @@ export async function createArtifact(store = createStore(), input = {}) {
       writtenVersionPath = version.path;
       const publisher = publisherFromAudit(input.audit);
       const visibility = normalizeVisibility(input.visibility);
-      const ownerUserId = normalizeOptionalString(input.ownerUserId) || publisher.publisherUserId || null;
+      const ownerUserId = normalizeOptionalString(input.ownerUserId) || input.access?.userId || publisher.publisherUserId || null;
 
       artifact = {
         id,
@@ -431,6 +677,7 @@ export async function createArtifact(store = createStore(), input = {}) {
 }
 
 export async function updateArtifact(store = createStore(), id, input = {}) {
+  input = { ...input, audit: { ...input.audit, userId: input.access?.userId || input.audit?.userId } };
   const secretScan = assertNoSecrets(input, securityConfig());
   input = withSecretScan(input, secretScan);
   const normalized = normalizeArtifactInput(input, {
@@ -450,7 +697,8 @@ export async function updateArtifact(store = createStore(), id, input = {}) {
       transaction(db, () => {
       artifact = findArtifactById(db, id);
       assertArtifactReadable(db, artifact, input.access);
-      assertArtifactWritable(db, artifact, input.access);
+      assertArtifactEditable(db, artifact, input.access);
+      if (input.relations?.length) assertArtifactWritable(db, artifact, input.access);
       if (expectedVersion !== null && artifact.latestVersion !== expectedVersion) {
         throw new VersionConflictError(artifact.id, artifact.latestVersion);
       }
@@ -881,6 +1129,9 @@ export async function setArtifactOwner(store = createStore(), id, ownerUserId, o
       const now = new Date().toISOString();
       const previousOwnerUserId = artifact.ownerUserId;
       db.prepare("UPDATE artifacts SET owner_user_id = ?, updated_at = ? WHERE id = ?").run(nextOwnerUserId, now, id);
+      if (previousOwnerUserId !== nextOwnerUserId && tableExistsInDb(db, "artifact_share_links")) {
+        db.prepare("UPDATE artifact_share_links SET revoked_at = ? WHERE artifact_id = ? AND revoked_at IS NULL").run(now, id);
+      }
       artifact.ownerUserId = nextOwnerUserId;
       artifact.updatedAt = now;
       insertAuditRecord(db, {
@@ -1878,6 +2129,7 @@ function maxSavedViewsPerUser() {
 }
 
 export async function addComment(store = createStore(), id, input = {}) {
+  input = { ...input, audit: { ...input.audit, userId: input.access?.userId || input.audit?.userId } };
   const body = normalizeCommentBody(input.body);
   const anchor = normalizeCommentAnchor(input.anchor);
   const db = openDatabase(store);
@@ -1886,7 +2138,7 @@ export async function addComment(store = createStore(), id, input = {}) {
     transaction(db, () => {
       const artifact = findArtifactById(db, id);
       assertArtifactReadable(db, artifact, input.access);
-      assertArtifactWritable(db, artifact, input.access);
+      assertArtifactCommentable(db, artifact, input.access);
 
       const commentCap = maxCommentsPerArtifact();
       const { count: existingComments } = db
@@ -1941,7 +2193,7 @@ export async function addComment(store = createStore(), id, input = {}) {
         artifactId: id,
         version: versionNumber,
         parentId,
-        authorUserId: publisher.publisherUserId || null,
+        authorUserId: input.access?.userId || publisher.publisherUserId || null,
         authorLabel,
         sourceAgent,
         body,
@@ -2019,7 +2271,7 @@ export async function resolveComment(store = createStore(), id, commentId, optio
     transaction(db, () => {
       const artifact = findArtifactById(db, id);
       assertArtifactReadable(db, artifact, options.access);
-      assertArtifactWritable(db, artifact, options.access);
+      assertArtifactCommentable(db, artifact, options.access);
 
       const row = db.prepare(`SELECT * FROM artifact_comments WHERE id = ? AND artifact_id = ?`).get(commentId, id);
       if (!row || row.deleted_at) {
@@ -2029,6 +2281,9 @@ export async function resolveComment(store = createStore(), id, commentId, optio
         });
       }
 
+      if (artifactPermissionInDb(db, artifact, options.access) === "comment" && row.author_user_id !== options.access?.userId) {
+        throw new ForbiddenError("Comment permission may resolve only your own comments");
+      }
       const now = new Date().toISOString();
       const publisher = publisherFromAudit(options.audit);
       const resolvedBy = publisher.publisherName || publisher.publisherId || null;
@@ -2089,6 +2344,7 @@ export async function deleteComment(store = createStore(), id, commentId, option
 }
 
 export async function setReviewStatus(store = createStore(), id, status, options = {}) {
+  options = { ...options, audit: { ...options.audit, userId: options.access?.userId || options.audit?.userId } };
   if (!REVIEW_STATUSES.includes(status)) {
     throw Object.assign(new Error(`Unsupported review status: ${status}`), {
       code: "INVALID_REVIEW_STATUS",
@@ -2203,9 +2459,26 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
   const db = openDatabase(store);
   try {
     const limit = clampInteger(filters.limit, 1, 500, 100);
+    const visibleAudit = (row) => {
+      const event = auditFromRow(row);
+      if (!filters.access || filters.access.role === "admin") return event;
+      if ((event.action === "relation-add" || event.action === "relation-remove") && event.metadata.toId) {
+        const target = db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(event.metadata.toId);
+        if (!target || !canReadArtifactMeta(db, { id: target.id, visibility: target.visibility, ownerUserId: target.owner_user_id }, filters.access)) {
+          event.metadata = { relation: event.metadata.relation, restricted: true };
+        }
+      }
+      if (event.action === "artifact-sharing-change") {
+        const artifact = db.prepare("SELECT owner_user_id FROM artifacts WHERE id = ?").get(event.artifactId);
+        if (!isOwnerOrAdmin(filters.access, artifact?.owner_user_id)) event.metadata = { restricted: true };
+      }
+      return event;
+    };
     const bypassVisibility = !filters.access || isSingleUserMode(db);
     const baseVisibility = bypassVisibility ? { sql: "", params: [] } : visibilityClause("a.", filters.access);
-    const visibilityClauseSql = bypassVisibility ? "" : `AND (a.id IS NULL OR ${baseVisibility.sql})`;
+    const allowMissing = accessModeInDb(db) !== "private" || filters.access?.role === "admin";
+    const auditVisibility = allowMissing ? `(a.id IS NULL OR ${baseVisibility.sql})` : baseVisibility.sql;
+    const visibilityClauseSql = bypassVisibility ? "" : `AND ${auditVisibility}`;
     const visibilityParams = bypassVisibility ? [] : baseVisibility.params;
 
     const actionClauses = [];
@@ -2227,12 +2500,12 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
         ${visibilityClauseSql}
         ORDER BY audit_log.created_at DESC
         LIMIT ?
-      `).all(filters.artifactId, ...actionParams, ...visibilityParams, limit).map(auditFromRow);
+      `).all(filters.artifactId, ...actionParams, ...visibilityParams, limit).map(visibleAudit);
     }
 
     const whereParts = [...actionClauses];
     if (!bypassVisibility) {
-      whereParts.push(baseVisibility.sql.startsWith("(") ? `(a.id IS NULL OR ${baseVisibility.sql})` : baseVisibility.sql);
+      whereParts.push(auditVisibility);
     }
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
     return db.prepare(`
@@ -2243,10 +2516,21 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
       ${whereSql}
       ORDER BY audit_log.created_at DESC
       LIMIT ?
-    `).all(...actionParams, ...visibilityParams, limit).map(auditFromRow);
+    `).all(...actionParams, ...visibilityParams, limit).map(visibleAudit);
   } finally {
     db.close();
   }
+}
+
+export async function canReadArtifactEvent(store = createStore(), event, access = null) {
+  if (!access) return true;
+  const db = openDatabase(store);
+  try {
+    if (access.userId && !db.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(access.userId)) return false;
+    const row = event.artifactId ? db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(event.artifactId) : null;
+    if (row) return canReadArtifactMeta(db, { id: row.id, visibility: row.visibility, ownerUserId: row.owner_user_id }, access);
+    return accessModeInDb(db) !== "private" && eventVisibleTo(event, access);
+  } finally { db.close(); }
 }
 
 /**
@@ -2294,7 +2578,12 @@ export async function listEventsSince(store = createStore(), sinceSeq = 0, filte
         event.visibility = row.live_visibility;
         event.ownerUserId = row.live_owner_user_id || null;
       }
-      if (matchesFilter(event, filter) && eventVisibleTo(event, access)) {
+      const visible = access && accessModeInDb(db) === "private"
+        ? (row.live_visibility != null
+          ? canReadArtifactMeta(db, { id: row.artifact_id, visibility: row.live_visibility, ownerUserId: row.live_owner_user_id }, access)
+          : access.role === "admin")
+        : eventVisibleTo(event, access);
+      if (matchesFilter(event, filter) && visible) {
         matched.push(event);
         if (matched.length >= limit) {
           break;
@@ -2988,7 +3277,11 @@ const FULL_BACKUP_CORE_TABLES = {
   auditLog: "audit_log",
   relations: "artifact_relations",
   webhooks: "webhooks",
-  comments: "artifact_comments"
+  comments: "artifact_comments",
+  teams: "teams",
+  teamMembers: "team_members",
+  artifactShares: "artifact_shares",
+  notifications: "notifications"
 };
 
 export async function exportFullStoreTables(store = createStore()) {
@@ -3021,7 +3314,7 @@ export async function exportFullStoreTables(store = createStore()) {
         createdAt: row.created_at
       }));
     }
-    tables.meta = db.prepare(`SELECT * FROM meta WHERE key != 'store_version'`).all().map(rowToCamelCase);
+    tables.meta = db.prepare(`SELECT * FROM meta WHERE key NOT IN ('store_version', 'network_policy_pending')`).all().map(rowToCamelCase);
     return tables;
   } finally {
     db.close();
@@ -3076,6 +3369,9 @@ export async function importFullStoreTables(store = createStore(), tables = {}, 
   try {
     let counts;
     transaction(db, () => {
+      const previousAccessMode = accessModeInDb(db);
+      const previousNetworkPolicy = db.prepare("SELECT value FROM meta WHERE key = 'network_policy'").get();
+      const previousShareLinkPolicy = db.prepare("SELECT value FROM meta WHERE key = 'share_link_policy'").get();
       const existingUsers = db.prepare("SELECT COUNT(*) AS count FROM users").get().count;
       if (existingUsers > 0 && !forceUsers) {
         throw Object.assign(new Error("Target store already has users; pass forceUsers to overwrite them"), {
@@ -3103,7 +3399,13 @@ export async function importFullStoreTables(store = createStore(), tables = {}, 
       if (Array.isArray(tables.embeddings)) {
         counts.embeddings = replaceEmbeddingRows(db, tables.embeddings);
       }
+      for (const [key, table] of [["teams", "teams"], ["teamMembers", "team_members"], ["artifactShares", "artifact_shares"], ["notifications", "notifications"]]) {
+        if (Array.isArray(tables[key])) counts[key] = replaceTableRows(db, table, tables[key]);
+      }
       counts.meta = replaceMetaRows(db, tables.meta);
+      if (previousAccessMode === "private") db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('access_mode', 'private')").run();
+      if (previousNetworkPolicy) db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('network_policy', ?)").run(previousNetworkPolicy.value);
+      if (previousShareLinkPolicy) db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('share_link_policy', ?)").run(previousShareLinkPolicy.value);
 
       insertAuditRecord(db, {
         action: "backup-import",
@@ -3162,6 +3464,7 @@ function insertRowsIntoTable(db, table, rows) {
     const values = columns.map((column) => {
       const camelKey = snakeToCamel(column);
       const value = row[camelKey] !== undefined ? row[camelKey] : row[column];
+      if (table === "artifact_shares" && column === "permission" && value == null) return "read";
       if (typeof value === "boolean") {
         return value ? 1 : 0;
       }
@@ -3209,7 +3512,7 @@ function replaceMetaRows(db, rows) {
   const upsert = db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)");
   let count = 0;
   for (const row of rows) {
-    if (!row || !row.key || row.key === "store_version") {
+    if (!row || !row.key || ["store_version", "network_policy_pending"].includes(row.key)) {
       continue;
     }
     upsert.run(row.key, row.value);
@@ -3232,11 +3535,10 @@ async function readArtifactVersion(store, artifact, versionNumber, options = {})
   // Defense in depth only: callers are expected to have already resolved the
   // artifact through getArtifact()/access-checked helpers, which know
   // whether the store is running in single-user mode.
-  if (options.access && (artifact.visibility || "team") === "private" && !isOwnerOrAdmin(options.access, artifact.ownerUserId)) {
-    throw Object.assign(new Error(`Artifact not found: ${artifact.id}`), {
-      code: "ARTIFACT_NOT_FOUND",
-      statusCode: 404
-    });
+  if (options.access) {
+    const db = openDatabase(store);
+    try { assertArtifactReadable(db, findArtifactById(db, artifact.id), options.access); }
+    finally { db.close(); }
   }
 
   return {
@@ -3412,6 +3714,38 @@ function initializeSchema(db) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE COLLATE NOCASE
+    );
+
+    CREATE TABLE IF NOT EXISTS team_members (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (team_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
+
+    CREATE TABLE IF NOT EXISTS artifact_shares (
+      artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      team_id TEXT REFERENCES teams(id) ON DELETE CASCADE,
+      permission TEXT NOT NULL DEFAULT 'read',
+      CHECK ((user_id IS NOT NULL AND team_id IS NULL) OR (user_id IS NULL AND team_id IS NOT NULL)),
+      UNIQUE (artifact_id, user_id),
+      UNIQUE (artifact_id, team_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      read_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -3534,6 +3868,7 @@ function initializeSchema(db) {
       );
     }
   }
+  ensureColumn(db, "artifact_shares", "permission", "TEXT NOT NULL DEFAULT 'read'");
   ensureColumn(db, "artifacts", "artifact_type", "TEXT NOT NULL DEFAULT 'document'");
   ensureColumn(db, "artifacts", "schema_version", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "artifacts", "archived_at", "TEXT");
@@ -4287,6 +4622,92 @@ export function insertAuditRow(db, params) {
   insertAuditRecord(db, params);
 }
 
+function requireInboxUser(db, access) {
+  if (!access?.userId || !db.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(access.userId)) {
+    throw new ForbiddenError("A personal account is required for notifications");
+  }
+  return access.userId;
+}
+
+export async function listNotifications(store = createStore(), { access, unreadOnly = false, limit = 50 } = {}) {
+  const db = openDatabase(store);
+  try {
+    const userId = requireInboxUser(db, access);
+    const visibility = visibilityClause("a.", access);
+    const where = `n.user_id = ? AND ${visibility.sql}`;
+    const params = [userId, ...visibility.params];
+    const unreadCount = db.prepare(`SELECT COUNT(*) AS count FROM notifications n JOIN artifacts a ON a.id = n.artifact_id
+      WHERE ${where} AND n.read_at IS NULL`).get(...params).count;
+    const notifications = db.prepare(`SELECT n.id, n.type, n.artifact_id, a.title, n.created_at, n.read_at
+      FROM notifications n JOIN artifacts a ON a.id = n.artifact_id WHERE ${where}
+      ${unreadOnly ? "AND n.read_at IS NULL" : ""} ORDER BY n.created_at DESC, n.rowid DESC LIMIT ?`)
+      .all(...params, clampInteger(limit, 1, 200, 50)).map((row) => ({
+        id: row.id, type: row.type, artifactId: row.artifact_id, title: row.title, createdAt: row.created_at, readAt: row.read_at
+      }));
+    return { notifications, unreadCount };
+  } finally { db.close(); }
+}
+
+export async function markNotificationRead(store = createStore(), id, { access } = {}) {
+  const db = openDatabase(store);
+  try {
+    const userId = requireInboxUser(db, access);
+    const row = db.prepare("SELECT artifact_id FROM notifications WHERE id = ? AND user_id = ?").get(id, userId);
+    if (!row) throw Object.assign(new Error("Notification not found"), { statusCode: 404 });
+    assertArtifactReadable(db, findArtifactById(db, row.artifact_id), access);
+    db.prepare("UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE id = ? AND user_id = ?").run(new Date().toISOString(), id, userId);
+    return { id, readAt: db.prepare("SELECT read_at FROM notifications WHERE id = ?").get(id).read_at };
+  } finally { db.close(); }
+}
+
+export async function markAllNotificationsRead(store = createStore(), { access } = {}) {
+  const db = openDatabase(store);
+  try {
+    const userId = requireInboxUser(db, access);
+    const visibility = visibilityClause("a.", access);
+    const result = db.prepare(`UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL
+      AND artifact_id IN (SELECT a.id FROM artifacts a WHERE ${visibility.sql})`)
+      .run(new Date().toISOString(), userId, ...visibility.params);
+    return { updated: result.changes };
+  } finally { db.close(); }
+}
+
+function insertNotificationsForAudit(db, { action, artifactId, audit, metadata, createdAt }) {
+  const actorId = audit.userId || audit.publisherUserId || null;
+  const notify = (id, type, recipients) => {
+    const row = db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(id);
+    if (!row) return;
+    const artifact = { id: row.id, visibility: row.visibility, ownerUserId: row.owner_user_id };
+    const insert = db.prepare("INSERT INTO notifications (id, user_id, artifact_id, type, created_at) VALUES (?, ?, ?, ?, ?)");
+    for (const userId of new Set(recipients)) {
+      if (!userId || userId === actorId) continue;
+      const user = db.prepare("SELECT role, email FROM users WHERE id = ? AND active = 1").get(userId);
+      if (!user || user.email === audit.actor || userId === audit.actor || !canReadArtifactMeta(db, artifact, { userId, role: user.role })) continue;
+      insert.run(randomUUID(), userId, id, type, createdAt);
+    }
+  };
+  if (action === "team-members-change") {
+    for (const row of db.prepare("SELECT artifact_id FROM artifact_shares WHERE team_id = ?").all(metadata.teamId)) {
+      notify(row.artifact_id, "shared-with-me", metadata.addedUserIds || []);
+    }
+    return;
+  }
+  if (!artifactId) return;
+  if (action === "artifact-sharing-change") {
+    notify(artifactId, "shared-with-me", metadata.addedUserIds || []);
+    return;
+  }
+  const type = action === "comment-add" ? "comment"
+    : action === "review-status-change" && metadata.to === "pending" && metadata.from !== "pending" ? "review-requested"
+      : action === "update" ? "new-version" : null;
+  if (!type) return;
+  const owner = db.prepare("SELECT owner_user_id FROM artifacts WHERE id = ?").get(artifactId)?.owner_user_id;
+  const commenters = db.prepare("SELECT DISTINCT author_user_id FROM artifact_comments WHERE artifact_id = ? AND deleted_at IS NULL").all(artifactId).map((row) => row.author_user_id);
+  const recipients = [owner, ...sharedRecipientIds(db, artifactId), ...commenters];
+  notify(artifactId, type, recipients);
+  if (action === "update" && metadata.reviewStatusReset) notify(artifactId, "review-requested", recipients);
+}
+
 function insertAuditRecord(db, { action, artifactId, version, sourceAgent, audit = {}, metadata = {}, tags, artifactType }) {
   const createdAt = new Date().toISOString();
   db.prepare(`
@@ -4305,6 +4726,8 @@ function insertAuditRecord(db, { action, artifactId, version, sourceAgent, audit
     audit.surface || null,
     JSON.stringify(metadata || {})
   );
+
+  insertNotificationsForAudit(db, { action, artifactId, audit, metadata, createdAt });
 
   let eventVisibility = null;
   let eventOwnerUserId = null;

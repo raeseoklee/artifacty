@@ -71,6 +71,16 @@ async function main() {
   const { startServer } = await import("./server.js");
   const store = createStore({ home: options.home });
 
+  if (command === "samples") {
+    const { installSamples, removeSamples } = await import("./lib/samples.js");
+    const action = options._[0];
+    if (action !== "install" && action !== "remove") {
+      throw new Error("Usage: artifacty samples install|remove");
+    }
+    printJson(await (action === "install" ? installSamples : removeSamples)(store, { audit: cliAuditContext() }));
+    return;
+  }
+
   if (command === "serve") {
     if (options.detach && options.foreground) {
       throw new Error("Use either --foreground or --detach, not both");
@@ -960,6 +970,7 @@ Usage:
   artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--mcp-url http://127.0.0.1:8787/mcp] [--api-token token] [--transport local|bridge] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
   artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react|notebook] [--expected-version N] [--visibility private|team]
+  artifacty samples install|remove
   artifacty archive <id>
   artifacty restore <id>
   artifacty visibility <id> private|team
