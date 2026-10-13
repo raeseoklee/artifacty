@@ -194,12 +194,12 @@ Cross-platform checkpoint (commit `acacaff`): Linux and macOS with Node 22/24,
 and Windows with Node 24 pass all foundation tests. Windows with Node 22 fails
 installation: npm 10.9.9 runs an implicit `node-gyp rebuild` for the optional
 driver, despite its published `gypfile: false`, then removes the failed package.
-This remains a release blocker, not a skipped compatibility test. The behavior
+This was a release blocker, not a skipped compatibility test. The behavior
 matches [npm CLI issue 9837](https://github.com/npm/cli/issues/9837). Do not hide
 the failure by upgrading only the CI installer. A durable package-level fix or
 an explicitly supported installation strategy must also work for consumers.
 
-Packaging fix under verification: vendor the exact 13.0.3 tarball with only an
+Verified packaging fix: vendor the exact 13.0.3 tarball with only an
 explicit no-op install script added. This prevents implicit rebuild inference
 without downgrading SQLite or changing cryptographic code. Original integrity,
 per-file comparisons, and reproduction instructions are retained in
@@ -207,6 +207,19 @@ per-file comparisons, and reproduction instructions are retained in
 consumer installs cannot reliably resolve a nested local tarball dependency.
 Verify both normal installation and the updater's `--ignore-scripts` path from
 an actual packed Artifacty archive, with the platform's default npm version.
+
+Final compatibility result: commit `32e7670` passes all six Linux/macOS/Windows
+and Node 22/24 combinations in
+[CI run 38481606510](https://github.com/raeseoklee/artifacty/actions/runs/38481606510).
+Each job requires the native driver, runs all 12 foundation tests, and installs
+an actual packed Artifacty archive twice from an empty working directory: once
+with normal scripts and once with the updater's `--ignore-scripts` setting.
+Both installed copies verify encrypted SQLite/FTS, wrong-key rejection, and
+binary content round trips. The native probe runs in a child process so Windows
+can unload the DLL before temporary package cleanup. Ubuntu Node 24 also checks
+the vendored tar against the pinned upstream source, file hashes, and license.
+The Windows installation blocker is resolved. Production integration, key
+recovery, migration, and administrator controls remain unimplemented.
 
 The earlier Windows Node 24 fixture cleanup failure was fixed by closing SQLite
 handles before removing temporary directories; that platform now passes.

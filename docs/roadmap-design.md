@@ -995,16 +995,19 @@ If the artifact envelope changes, use a `v2` schema document. Increase
 
 ## 22. Optional Artifact Encryption at Rest — Planned
 
-**Status (2026-10-14): deferred to the next version. Design and implementation
-are pending.** This is a substantial storage change, not a current feature.
+**Status (2026-10-14): next-version work in progress. Isolated encryption
+primitives and cross-platform installation are verified; storage migration and
+administrator controls are not implemented.** See the
+[store encryption design](store-encryption-design.md) for evidence and remaining
+release gates. This is a substantial storage change, not a current feature.
 Existing SMTP configuration encryption does not encrypt artifact data.
 
 An administrator should be able to opt in or turn encryption off. Each change
 must migrate the existing store between encrypted and plaintext states; a
 setting that affects only future writes is insufficient. The design must cover
 artifact/version blobs and bundle assets, metadata, and search indexes, including
-any retained plaintext copies or derived data. Cipher and storage choices remain
-open until the full design is reviewed.
+any retained plaintext copies or derived data. Whole-store protection is the
+confirmed scope; the full storage integration still requires review.
 
 Before migration, create and verify a recovery backup and check available disk
 space. Hold an exclusive write lock across HTTP, CLI, MCP, and background writers.
