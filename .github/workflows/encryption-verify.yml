@@ -1,0 +1,29 @@
+name: Encryption foundation verification
+
+on:
+  push:
+    branches:
+      - feat/store-encryption
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node-version: [22.x, 24.x]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - name: Require the native encryption driver
+        run: node -e "require('better-sqlite3-multiple-ciphers')"
+      - run: node --test test/encrypted-database.test.js test/encrypted-content.test.js
