@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -216,6 +217,32 @@ test("serve starts a background server by default and returns generated auth", a
     await execFileAsync(process.execPath, ["src/cli.js", "stop", "--home", home, "--force"]).catch(() => {});
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
+});
+
+test("background status allows a busy healthy server and rejects unreachable servers", async (t) => {
+  const { backgroundStatus } = await import("../src/lib/background.js");
+  const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-delayed-health-"));
+  const server = createServer((_request, response) => {
+    setTimeout(() => response.end('{"ok":true}'), 650);
+  });
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    await rm(home, { recursive: true, force: true });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await writeFile(path.join(home, "server.json"), JSON.stringify({ pid: process.pid, url: `http://127.0.0.1:${server.address().port}` }));
+  await writeFile(path.join(home, "server.pid"), String(process.pid));
+  const healthy = await backgroundStatus({ home });
+  assert.equal(healthy.processRunning, true);
+  assert.equal(healthy.managed, true);
+  assert.equal(healthy.running, true);
+  server.closeAllConnections();
+  await new Promise((resolve) => server.close(resolve));
+  const unreachable = await backgroundStatus({ home });
+  assert.equal(unreachable.processRunning, true);
+  assert.equal(unreachable.healthy, false);
+  assert.equal(unreachable.running, false);
 });
 
 test("starts, reports, and stops a background server", async () => {

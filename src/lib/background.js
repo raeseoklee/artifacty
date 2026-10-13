@@ -352,7 +352,9 @@ function isPidRunning(pid) {
 async function fetchHealth(url) {
   try {
     const response = await fetch(`${url}/health`, {
-      signal: AbortSignal.timeout(500)
+      // Match the updater health deadline so brief CPU or I/O contention
+      // does not report a live background server as stopped.
+      signal: AbortSignal.timeout(2000)
     });
     return { ok: response.ok, status: response.status };
   } catch {
