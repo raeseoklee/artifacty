@@ -64,9 +64,15 @@ async function fixture(t, configuration = {}) {
   return { root, userHome, home, packageRoot, dropin, args, calls, phases, injected, options: { home, packageRoot, onProgress: (phase) => phases.push(phase) }, isActive: () => active };
 }
 
+// These fixtures model Linux units and /proc with POSIX paths and symlinks.
+// Windows still runs the cross-platform read-only and unsupported-platform checks.
+const systemdTest = (name, body) => test(name, {
+  skip: process.platform === "win32" ? "Linux systemd fixtures require POSIX paths and symlinks" : false
+}, body);
+
 const stopped = (calls) => calls.some((call) => call.startsWith("systemctl:") && call.includes(" stop "));
 
-test("stages exact npm release before downtime, preserves service arguments, and verifies health", async (t) => {
+systemdTest("stages exact npm release before downtime, preserves service arguments, and verifies health", async (t) => {
   const f = await fixture(t);
   const result = await updateApplication(f.options, f.injected);
   assert.equal(result.currentVersion, "0.13.1");
@@ -88,6 +94,7 @@ test("stages exact npm release before downtime, preserves service arguments, and
 test("check is read-only and compares stable, prerelease, and older versions", async (t) => {
   for (const [current, target, available] of [["0.14.0", "0.13.1", false], ["0.14.0-rc.2", "0.14.0-rc.10", true], ["0.14.0-rc.10", "0.14.0", true], ["0.14.0+build", "0.14.0", false]]) {
     const f = await fixture(t, { current, target });
+    if (process.platform === "win32") f.injected.platform = "win32";
     const result = await updateApplication({ ...f.options, check: true }, f.injected);
     assert.equal(result.updateAvailable, available);
     assert.equal(stopped(f.calls), false);
@@ -96,14 +103,14 @@ test("check is read-only and compares stable, prerelease, and older versions", a
   }
 });
 
-test("latest older than running service is a no-op, explicit downgrade is refused", async (t) => {
+systemdTest("latest older than running service is a no-op, explicit downgrade is refused", async (t) => {
   const f = await fixture(t, { current: "0.14.0", target: "0.13.1" });
   assert.equal((await updateApplication(f.options, f.injected)).reason, "already-newer");
   await assert.rejects(updateApplication({ ...f.options, targetVersion: "0.13.1" }, f.injected), { code: "UPDATE_DOWNGRADE_REFUSED" });
   assert.equal(stopped(f.calls), false);
 });
 
-test("root, unsupported platforms, unhealthy service, and unmanaged writers fail before mutation", async (t) => {
+systemdTest("root, unsupported platforms, unhealthy service, and unmanaged writers fail before mutation", async (t) => {
   for (const scenario of ["root", "platform", "health", "writer"]) {
     const f = await fixture(t, { preflightHealthFailure: scenario === "health" });
     if (scenario === "root") f.injected.uid = 0;
@@ -115,14 +122,14 @@ test("root, unsupported platforms, unhealthy service, and unmanaged writers fail
   }
 });
 
-test("staging failure does not stop server or expose npm stderr secrets", async (t) => {
+systemdTest("staging failure does not stop server or expose npm stderr secrets", async (t) => {
   const f = await fixture(t, { stageFailure: true });
   await assert.rejects(updateApplication(f.options, f.injected), (error) => error.code === "SELF_UPDATE_FAILED" && !error.message.includes("private-token"));
   assert.equal(stopped(f.calls), false);
   assert.equal(f.calls.includes("backup"), false);
 });
 
-test("backup failure restarts original service without switching packages", async (t) => {
+systemdTest("backup failure restarts original service without switching packages", async (t) => {
   const f = await fixture(t, { backupFailure: true });
   await assert.rejects(updateApplication(f.options, f.injected), { code: "SELF_UPDATE_FAILED" });
   assert.equal(f.isActive(), true);
@@ -130,7 +137,7 @@ test("backup failure restarts original service without switching packages", asyn
   await assert.rejects(access(f.dropin));
 });
 
-test("failed target health restores old code, store, and service", async (t) => {
+systemdTest("failed target health restores old code, store, and service", async (t) => {
   const f = await fixture(t, { healthFailure: true });
   await assert.rejects(updateApplication(f.options, f.injected), (error) => error.code === "SELF_UPDATE_FAILED" && error.backupId === "snapshot-1");
   assert.equal(f.isActive(), true);
@@ -139,7 +146,7 @@ test("failed target health restores old code, store, and service", async (t) => 
   await assert.rejects(access(path.join(f.userHome, ".local", "bin", "artifacty")));
 });
 
-test("failed store recovery leaves service stopped and reports retained backup", async (t) => {
+systemdTest("failed store recovery leaves service stopped and reports retained backup", async (t) => {
   const f = await fixture(t, { healthFailure: true, restoreFailure: true });
   await assert.rejects(updateApplication(f.options, f.injected), (error) => {
     assert.equal(error.code, "UPDATE_RECOVERY_INCOMPLETE");
@@ -151,7 +158,7 @@ test("failed store recovery leaves service stopped and reports retained backup",
   assert.equal(f.isActive(), false);
 });
 
-test("unmanaged launchers and concurrent update lock are never overwritten", async (t) => {
+systemdTest("unmanaged launchers and concurrent update lock are never overwritten", async (t) => {
   const f = await fixture(t);
   const bin = path.join(f.userHome, ".local", "bin");
   await mkdir(bin, { recursive: true });
@@ -166,7 +173,7 @@ test("unmanaged launchers and concurrent update lock are never overwritten", asy
   assert.equal(stopped(f.calls), false);
 });
 
-test("writer scan resolves relative homes in each MCP or foreground CLI process cwd", async (t) => {
+systemdTest("writer scan resolves relative homes in each MCP or foreground CLI process cwd", async (t) => {
   for (const entry of ["mcp-server.js", "cli.js"]) {
     const f = await fixture(t);
     const proc = path.join(f.root, "proc");
@@ -182,7 +189,7 @@ test("writer scan resolves relative homes in each MCP or foreground CLI process 
 });
 
 
-test("stop failure before snapshot does not switch code or restore a live store", async (t) => {
+systemdTest("stop failure before snapshot does not switch code or restore a live store", async (t) => {
   const f = await fixture(t, { stopFailure: true });
   await assert.rejects(updateApplication(f.options, f.injected), { code: "SELF_UPDATE_FAILED" });
   assert.equal(f.calls.includes("backup"), false);
@@ -191,10 +198,24 @@ test("stop failure before snapshot does not switch code or restore a live store"
   assert.equal(f.isActive(), true);
 });
 
-test("failed rollback stop never restores store while the updated server is live", async (t) => {
+systemdTest("failed rollback stop never restores store while the updated server is live", async (t) => {
   const f = await fixture(t, { healthFailure: true, recoveryStopFailure: true });
   await assert.rejects(updateApplication(f.options, f.injected), (error) => error.code === "UPDATE_RECOVERY_INCOMPLETE" && error.backupId === "snapshot-1");
   assert.equal(f.calls.includes("restore"), false);
   assert.equal(f.isActive(), true);
   assert.match(await readFile(f.dropin, "utf8"), /0\.14\.0/);
+});
+
+
+test("Windows application updates reject mutation while read-only checks remain available", async (t) => {
+  const f = await fixture(t);
+  f.injected.platform = "win32";
+  const result = await updateApplication({ ...f.options, check: true }, f.injected);
+  assert.equal(result.supported, false);
+  assert.equal(result.updateAvailable, true);
+  assert.match(result.reason, /Linux systemd user service/);
+  await assert.rejects(updateApplication(f.options, f.injected), { code: "UNSUPPORTED_SERVICE" });
+  assert.equal(stopped(f.calls), false);
+  assert.equal(f.calls.some((call) => call.startsWith("npm:install")), false);
+  await assert.rejects(access(path.join(f.userHome, ".local")));
 });
