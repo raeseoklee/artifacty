@@ -24,6 +24,7 @@ import {
   deleteComment,
   deleteSavedView,
   deleteWebhook,
+  ensureStore,
   getArtifact,
   getAccessMode,
   canReadArtifactEvent,
@@ -191,6 +192,9 @@ export async function startServer(options = {}) {
   const security = securityConfig(options);
   const mcpHttp = Boolean(options.mcpHttp || process.env.ARTIFACTY_MCP_HTTP === "true");
   validateServerExposure({ host, config: security });
+
+  // Finish protected store upgrades before accepting requests or recording a live server.
+  await ensureStore(store);
 
   const { server, actualPort } = await listenWithFallback({
     host,

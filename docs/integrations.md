@@ -2,6 +2,8 @@
 
 Artifacty exposes one shared MCP stdio server and one local browser server.
 
+Use Node.js 22.12.0 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`. Mermaid 12.1.0 requires an ES2024-capable browser, such as Safari 17.4 or newer.
+
 ## Start the Browser Server
 
 ```bash
@@ -418,3 +420,5 @@ in one JSON bundle. It excludes users, sessions, API token records, and audit
 logs. A store import replaces the target artifact records and removes
 unreferenced version files. Before importing, select a new or intended
 `ARTIFACTY_HOME`.
+
+Upgrade snapshots protect schema migrations and optionally application updates. They preserve raw database security state and differ from JSON export backups. Stop all server and MCP processes before recovery. See [upgrade snapshots and recovery](upgrade-backups.md).

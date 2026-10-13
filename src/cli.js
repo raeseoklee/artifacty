@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { generateToken } from "./lib/token.js";
 import { parseSseFrames } from "./lib/sse.js";
@@ -29,6 +30,27 @@ async function main() {
       return;
     }
     printJson(token);
+    return;
+  }
+
+  // Recovery must work before loading storage or triggering a schema migration.
+  if (command === "backups") {
+    const { listUpgradeBackups, verifyUpgradeBackup, restoreUpgradeBackup } = await import("./lib/upgrade-backup.js");
+    const store = { home: path.resolve(options.home || process.env.ARTIFACTY_HOME || path.join(homedir(), ".artifacty")) };
+    const [action, id, ...extra] = options._;
+    if (extra.length || !["list", "verify", "restore"].includes(action) || (action === "list" ? Boolean(id) : !id)) {
+      throw new Error("Usage: artifacty backups list | verify <id> | restore <id> --confirm restore-store");
+    }
+    if (action === "list") {
+      printJson({ backups: listUpgradeBackups(store) });
+    } else if (action === "verify") {
+      printJson(verifyUpgradeBackup(store, id));
+    } else {
+      if (options.confirm !== "restore-store") {
+        throw new Error("Store recovery requires --confirm restore-store. Stop all server and MCP processes before restoring.");
+      }
+      printJson(restoreUpgradeBackup(store, id, { confirm: options.confirm }));
+    }
     return;
   }
 
@@ -982,6 +1004,9 @@ Usage:
   artifacty retention run [--dry-run] [--allow-purge]
   artifacty export --file <path> [--full]
   artifacty backup [--file <path>] [--full]
+  artifacty backups list [--home <path>]
+  artifacty backups verify <id> [--home <path>]
+  artifacty backups restore <id> --confirm restore-store [--home <path>]
   artifacty import-store --file <path> [--confirm replace-all] [--force-users]
   artifacty users import --file <path.csv> [--no-password-reset]
   artifacty service plist|unit|task|install|uninstall [--platform macos|linux|windows] [--dry-run] [--path <path>] [--mcp-http]
@@ -1000,8 +1025,17 @@ Usage:
   artifacty diff <id> [--from N] [--to M] [--structured] [--json]
   artifacty watch [--tag tag] [--artifact <id>] [--type artifact.updated] [--json] [--once] [--exec "<cmd>"]
 
+Upgrade recovery:
+  Existing stores receive a mandatory snapshot before a schema migration.
+  Set ARTIFACTY_BACKUP_ON_UPDATE=true to also snapshot before app-version changes.
+  backups list and verify do not migrate the store.
+  Stop all server and MCP processes before backups restore. Restore preserves a recovery snapshot.
+  artifacty restore <id> restores an archived artifact, not a store backup.
+
 Environment:
   ARTIFACTY_HOME           Storage directory. Defaults to ~/.artifacty
+  ARTIFACTY_BACKUP_ON_UPDATE  Set true for optional app-version snapshots; schema backups are mandatory
+  ARTIFACTY_UPGRADE_BACKUP_KEEP  Automatic snapshots to retain after a successful upgrade (default: 3)
   ARTIFACTY_URL            Public URL override. Otherwise CLI/MCP read the last running server URL
   ARTIFACTY_HOST           Bind host for the HTTP server. Defaults to 127.0.0.1
   ARTIFACTY_PORT           Bind port for the HTTP server. Defaults to 8787

@@ -18,7 +18,7 @@ For English and Korean documentation, follow the [writing style guide](docs/writ
 - `node src/mcp-server.js` or `npm run mcp` — run the MCP stdio server.
 - `node src/cli.js help` — inspect CLI usage.
 
-Run `npm run release:check` before claiming a release-ready change. There is no build step; this is plain ESM run directly by Node `>=22.5`.
+Run `npm run release:check` before claiming a release-ready change. There is no build step; this is plain ESM run directly by Node `>=22.12.0`.
 
 ## Architecture
 
@@ -43,6 +43,8 @@ The store lives at `ARTIFACTY_HOME` or `~/.artifacty` by default.
 
 Versions are append-only. To correct a historical version, use the admin repair (`replaceArtifactVersion`) or delete (`deleteArtifactVersion`) path. These paths record every change in the audit log. Do not modify prior content files through other paths.
 
+Before changing upgrade behavior, read [upgrade snapshots and recovery](docs/upgrade-backups.md). `src/lib/upgrade-backup.js` protects schema migrations with a mandatory verified snapshot. Optional application-update snapshots use `ARTIFACTY_BACKUP_ON_UPDATE=true`. Keep recovery commands independent of normal storage initialization so they cannot trigger migration. Stop every server and MCP process before restoring a store. Test recovery only with temporary stores.
+
 ### Security Model
 
 - The HTTP server binds to `127.0.0.1` by default.
@@ -54,6 +56,8 @@ Versions are append-only. To correct a historical version, use the admin repair 
 ### Browser Editor
 
 The create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, and text editing. CodeMirror assets are served locally through allowlisted `/vendor/npm/*` routes, not from a CDN. UI text defaults to English and supports Korean with `?lang=ko`. Keep each document in its existing language unless a translation is requested.
+
+Mermaid uses version 12.1.0 with the existing `classic` look, `dagre` layout, and `default` theme. Its browser code requires ES2024 support, such as Safari 17.4 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`.
 
 ### MCP Server
 

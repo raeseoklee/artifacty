@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, s
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { openProtectedDatabase } from "./upgrade-backup.js";
 import { isUnknownSourceAgent, normalizeSourceAgent } from "./agents.js";
 import { assertNoSecrets, normalizeTokenScopes, securityConfig } from "./security.js";
 import { EVENT_TYPES, eventFromAudit, eventHistoryLimit, eventVisibleTo, matchesFilter, publish as publishEvent } from "./events.js";
@@ -3630,11 +3630,7 @@ export function normalizeArtifactType(value = "document") {
 // same connection setup (PRAGMAs, schema init/migration) instead of opening
 // a second, differently-configured DatabaseSync against the same file.
 export function openDatabase(store) {
-  mkdirSync(store.home, { recursive: true });
-  mkdirSync(store.artifactsDir, { recursive: true });
-
-  const db = new DatabaseSync(store.dbPath);
-  try {
+  return openProtectedDatabase(store, STORE_VERSION, (db) => {
     db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA foreign_keys = ON;
@@ -3644,13 +3640,7 @@ export function openDatabase(store) {
     migrateJsonIndex(db, store);
     normalizeStoredSourceAgents(db, store);
     syncSearchIndexIfEmpty(db, store);
-  } catch (error) {
-    // Never leak an open handle when initialization fails (for example the
-    // store_version guard); on Windows an open handle blocks file removal.
-    db.close();
-    throw error;
-  }
-  return db;
+  });
 }
 
 function initializeSchema(db) {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -740,7 +741,7 @@ test("migrates legacy JSON index into SQLite store", async () => {
               contentType: "text/markdown; charset=utf-8",
               path: path.join("artifacts", "legacy-note", "v1.md"),
               sizeBytes: 8,
-              sha256: "legacy-sha",
+              sha256: createHash("sha256").update("# Legacy").digest("hex"),
               metadata: { migrated: true }
             }
           ]
@@ -792,7 +793,7 @@ test("normalizes stored source agent aliases and infers unknown from metadata", 
               contentType: "text/html; charset=utf-8",
               path: path.join("artifacts", "alias-note", "v1.html"),
               sizeBytes: 18,
-              sha256: "legacy-sha",
+              sha256: createHash("sha256").update("<main>Alias</main>").digest("hex"),
               metadata: {}
             }
           ]
@@ -815,7 +816,7 @@ test("normalizes stored source agent aliases and infers unknown from metadata", 
               contentType: "text/html; charset=utf-8",
               path: path.join("artifacts", "unknown-note", "v1.html"),
               sizeBytes: 20,
-              sha256: "legacy-sha",
+              sha256: createHash("sha256").update("<main>Unknown</main>").digest("hex"),
               metadata: {
                 artifactyImport: {
                   sourceAgent: "Claude Code"

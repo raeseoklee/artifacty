@@ -3,7 +3,7 @@
 [![Publish](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml/badge.svg)](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml)
 [![npm version](https://img.shields.io/npm/v/artifacty.svg)](https://www.npmjs.com/package/artifacty)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js >=22.5](https://img.shields.io/badge/node-%3E%3D22.5-339933.svg)](package.json)
+[![Node.js >=22.12.0](https://img.shields.io/badge/node-%3E%3D22.12.0-339933.svg)](package.json)
 
 Artifacty gives AI-generated artifacts a local home that agents can share. Claude, Codex, Gemini, GitHub Copilot, Cursor, and other MCP tools can publish artifacts to the same store. Other agents can find, read, and update them without copying content through chat.
 
@@ -15,10 +15,12 @@ Artifacts turn session output into shareable, versioned pages. Artifacty keeps t
 
 ## Installation
 
-Artifacty requires Node.js 22.5 or newer.
+Artifacty requires Node.js 22.12.0 or newer.
 
 The optional React renderer uses Babel 8. Its supported Node.js versions are
 `^22.18.0 || >=24.11.0`. Use a compatible version if you enable that renderer.
+
+The browser renderer uses Mermaid 12.1.0. Use a current browser with ES2024 support, such as Safari 17.4 or newer. Mermaid keeps the `classic` look, `dagre` layout, and `default` theme.
 
 Install the CLI globally from npm:
 
@@ -297,6 +299,16 @@ If the local Node SQLite build supports FTS5, search uses a SQLite FTS5 index. I
 artifacty index rebuild
 artifacty integrity
 ```
+
+### Upgrade Snapshots
+
+Before an existing store needs a schema migration, Artifacty creates and verifies a mandatory local snapshot. The snapshot includes the raw SQLite database, referenced version files, and legacy index. If snapshot verification fails, migration stops.
+
+Set `ARTIFACTY_BACKUP_ON_UPDATE=true` to also snapshot application-version changes. If an existing store has no recorded application version, its first open with this setting creates a baseline snapshot. `ARTIFACTY_UPGRADE_BACKUP_KEEP` retains the latest three automatic snapshots by default (valid range: 1–1000).
+
+Use `artifacty backups list`, `artifacty backups verify <id>`, and `artifacty backups restore <id> --confirm restore-store`. Stop every server and MCP process before an upgrade or restore. Restore creates a recovery snapshot before replacing the store. It also restores credentials and security state; previously revoked sessions, tokens, and links can become valid again.
+
+These local snapshots are separate from portable `artifacty backup`/`export` JSON bundles. See [upgrade snapshots and recovery](docs/upgrade-backups.md) for verification, corrupt-store recovery, and interrupted-restore procedures.
 
 ### Semantic Search
 
@@ -705,6 +717,8 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | Storage directory | `~/.artifacty` |
+| `ARTIFACTY_BACKUP_ON_UPDATE` | Snapshot existing stores before application-version changes; schema-migration snapshots are always required | `false` |
+| `ARTIFACTY_UPGRADE_BACKUP_KEEP` | Automatic upgrade snapshots to retain; integer from 1 to 1000 | `3` |
 | `ARTIFACTY_URL` | Public URL override; otherwise CLI/MCP read the last running server URL | — |
 | `ARTIFACTY_HOST` | Bind host for the HTTP server | `127.0.0.1` |
 | `ARTIFACTY_PORT` | Bind port for the HTTP server | `8787` |
