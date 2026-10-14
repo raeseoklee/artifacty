@@ -31,6 +31,7 @@
 
 - [중앙 팀 서버 배포 설계 — 영문](../central-team-deployment-design.md)
 - [로드맵과 설계 — 영문](../roadmap-design.md)
+- [전체 저장소 암호화 설계 — 영문](../store-encryption-design.md): 외부 키 복구와 오프라인 복사 변환을 검증 중입니다. 운영 저장소 전환과 관리자 설정은 아직 지원하지 않습니다.
 - [Claude 아티팩트 형식 — 영문](../claude-artifact-formats.md)
 - [SARIF·CSV 아티팩트 지원 — 영문](../sarif-csv-artifact-plan.md)
 

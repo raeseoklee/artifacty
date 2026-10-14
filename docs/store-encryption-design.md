@@ -218,8 +218,40 @@ Both installed copies verify encrypted SQLite/FTS, wrong-key rejection, and
 binary content round trips. The native probe runs in a child process so Windows
 can unload the DLL before temporary package cleanup. Ubuntu Node 24 also checks
 the vendored tar against the pinned upstream source, file hashes, and license.
-The Windows installation blocker is resolved. Production integration, key
-recovery, migration, and administrator controls remain unimplemented.
+The Windows installation blocker is resolved. Production integration and
+administrator controls remain unimplemented. The following checkpoint adds
+isolated key recovery and offline copy conversion.
+
+### External keys and offline copies
+
+`store-keys.js` creates a random 32-byte key outside the store. It rejects
+overwrites, missing or malformed keys, unsafe links, and permissive POSIX
+permissions. Recovery export and import preserve the store and key identifiers.
+Recovery files contain the key and need the same protection as the original.
+POSIX writes sync both file data and directory entries before returning success.
+Windows operators must enforce private ACLs; Node mode bits do not enforce them.
+JavaScript strings cannot be reliably erased from memory.
+
+`convertDatabaseCopy` snapshots a read-only source, changes the copy's key, and
+reopens it for an integrity check. `store-generation.js` uses that copy to
+preserve metadata, comments, and FTS, then converts every referenced version
+file to an opaque physical path. It verifies logical hashes, sizes, database
+integrity, foreign keys, and latest-version references before publishing the
+destination directory. The source is retained. Recovery tests delete the
+original key directory, import the recovery file into a fresh directory, and
+use the recovered key to verify and decrypt the generation.
+
+These are offline building blocks, not an administrator encryption feature.
+The caller must stop every writer, including unregistered CLI and MCP processes.
+Managed-server PID checks alone do not provide a process barrier. Paths must be
+canonical and free of symlink components. The modules are not a security boundary
+against another process running as the same OS user.
+
+Plaintext-to-encrypted conversion temporarily creates a plaintext SQLite copy
+inside private staging before rekeying it. A forced termination can leave that
+staging directory behind. Durable migration journals, crash recovery, admission
+leases, old-client refusal, active-generation switching, and backup integration
+are still required. Existing plaintext sources and backups are not erased.
 
 The earlier Windows Node 24 fixture cleanup failure was fixed by closing SQLite
 handles before removing temporary directories; that platform now passes.

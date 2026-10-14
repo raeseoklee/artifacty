@@ -996,8 +996,9 @@ If the artifact envelope changes, use a `v2` schema document. Increase
 ## 22. Optional Artifact Encryption at Rest — Planned
 
 **Status (2026-10-14): next-version work in progress. Isolated encryption
-primitives and cross-platform installation are verified; storage migration and
-administrator controls are not implemented.** See the
+primitives and cross-platform installation are verified. External key recovery
+and verified offline copy conversion are implemented in isolated modules;
+active-store migration and administrator controls are not implemented.** See the
 [store encryption design](store-encryption-design.md) for evidence and remaining
 release gates. This is a substantial storage change, not a current feature.
 Existing SMTP configuration encryption does not encrypt artifact data.

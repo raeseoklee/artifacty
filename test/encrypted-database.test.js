@@ -1,19 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, statSync, linkSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { DatabaseSync } from "node:sqlite";
-import { openEncryptedDatabase } from "../src/lib/encrypted-database.js";
+import { openEncryptedDatabase, convertDatabaseCopy } from "../src/lib/encrypted-database.js";
 
 const require = createRequire(import.meta.url);
 let driverAvailable = true;
 try { require.resolve("better-sqlite3-multiple-ciphers"); } catch { driverAvailable = false; }
 const encryptedTest = (name, callback) => test(name, { skip: !driverAvailable && "Optional encrypted SQLite driver is not installed" }, callback);
 function fixture(t) {
-  const directory = mkdtempSync(path.join(tmpdir(), "artifacty-encrypted-db-"));
+  const directory = realpathSync(mkdtempSync(path.join(tmpdir(), "artifacty-encrypted-db-")));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return { directory, file: path.join(directory, "store.sqlite"), key: randomBytes(32) };
 }
@@ -135,4 +135,81 @@ encryptedTest("statement failures omit SQL and bound secrets", (t) => {
       return true;
     });
   } finally { db.close(); }
+});
+
+
+encryptedTest("database copies encrypt, rotate and decrypt schema, comments and FTS without changing sources", (t) => {
+  const { file, key, directory } = fixture(t);
+  const plain = new DatabaseSync(file);
+  try {
+    plain.exec("CREATE TABLE comments(body TEXT); INSERT INTO comments VALUES ('copy_canary_987'); CREATE VIRTUAL TABLE search USING fts5(body); INSERT INTO search VALUES ('copy_canary_987')");
+  } finally { plain.close(); }
+  const original = readFileSync(file);
+  const encrypted = path.join(directory, "encrypted.sqlite");
+  convertDatabaseCopy(file, encrypted, { targetKey: key });
+  assert.deepEqual(readFileSync(file), original);
+  assert.equal(readFileSync(encrypted).includes(Buffer.from("copy_canary_987")), false);
+  if (process.platform !== "win32") assert.equal(statSync(encrypted).mode & 0o777, 0o600);
+  const encryptedBytes = readFileSync(encrypted);
+  const rotated = path.join(directory, "rotated.sqlite");
+  const nextKey = randomBytes(32);
+  convertDatabaseCopy(encrypted, rotated, { sourceKey: key, targetKey: nextKey });
+  assert.deepEqual(readFileSync(encrypted), encryptedBytes);
+  assert.throws(() => openEncryptedDatabase(rotated, { key, readOnly: true }));
+  const reader = openEncryptedDatabase(rotated, { key: nextKey, readOnly: true });
+  try { assert.equal(reader.prepare("SELECT body FROM search WHERE search MATCH ?").get("copy_canary_987").body, "copy_canary_987"); }
+  finally { reader.close(); }
+  const restored = path.join(directory, "restored.sqlite");
+  convertDatabaseCopy(rotated, restored, { sourceKey: nextKey });
+  const result = new DatabaseSync(restored, { readOnly: true });
+  try {
+    assert.equal(result.prepare("SELECT body FROM comments").get().body, "copy_canary_987");
+    assert.equal(result.prepare("SELECT body FROM search WHERE search MATCH ?").get("copy_canary_987").body, "copy_canary_987");
+  } finally { result.close(); }
+});
+
+encryptedTest("database copies refuse wrong keys, corruption, existing targets and path aliases", (t) => {
+  const { file, key, directory } = fixture(t);
+  const db = openEncryptedDatabase(file, { key });
+  try { db.exec("CREATE TABLE data(value TEXT)"); } finally { db.close(); }
+  const before = readFileSync(file);
+  const destination = path.join(directory, "target.sqlite");
+  assert.throws(() => convertDatabaseCopy(file, destination, { sourceKey: randomBytes(32) }), { code: "DATABASE_COPY_FAILED" });
+  assert.equal(existsSync(destination), false);
+  assert.throws(() => convertDatabaseCopy(file, file, { sourceKey: key }), { code: "DATABASE_COPY_FAILED" });
+  writeFileSync(destination, "keep this target");
+  assert.throws(() => convertDatabaseCopy(file, destination, { sourceKey: key }), { code: "DATABASE_COPY_FAILED" });
+  assert.equal(readFileSync(destination, "utf8"), "keep this target");
+  const alias = path.join(directory, "hardlink.sqlite");
+  linkSync(file, alias);
+  assert.throws(() => convertDatabaseCopy(file, alias, { sourceKey: key }), { code: "DATABASE_COPY_FAILED" });
+  if (process.platform !== "win32") {
+    const symlink = path.join(directory, "symlink.sqlite");
+    symlinkSync(file, symlink);
+    assert.throws(() => convertDatabaseCopy(symlink, path.join(directory, "unused.sqlite"), { sourceKey: key }), { code: "DATABASE_COPY_FAILED" });
+  }
+  assert.deepEqual(readFileSync(file), before);
+  const corrupt = path.join(directory, "corrupt.sqlite");
+  writeFileSync(corrupt, "not a database");
+  assert.throws(() => convertDatabaseCopy(corrupt, path.join(directory, "bad-copy.sqlite")), { code: "DATABASE_COPY_FAILED" });
+  assert.equal(existsSync(path.join(directory, "bad-copy.sqlite")), false);
+});
+
+encryptedTest("failed target rekey removes only the newly created copy", (t) => {
+  const { file, key, directory } = fixture(t);
+  const plain = new DatabaseSync(file);
+  try { plain.exec("CREATE TABLE data(value TEXT); INSERT INTO data VALUES ('retained')"); }
+  finally { plain.close(); }
+  const before = readFileSync(file);
+  const destination = path.join(directory, "failed.sqlite");
+  const Database = require("better-sqlite3-multiple-ciphers");
+  t.mock.method(Database.prototype, "rekey", () => { throw new Error("secret internal detail"); });
+  assert.throws(() => convertDatabaseCopy(file, destination, { targetKey: key }), (cause) => {
+    assert.equal(cause.code, "DATABASE_COPY_FAILED");
+    assert.equal(cause.cause, undefined);
+    assert.ok(!cause.message.includes("secret"));
+    return true;
+  });
+  for (const suffix of ["", "-wal", "-shm", "-journal"]) assert.equal(existsSync(destination + suffix), false);
+  assert.deepEqual(readFileSync(file), before);
 });
