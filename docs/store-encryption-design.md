@@ -253,6 +253,13 @@ staging directory behind. Durable migration journals, crash recovery, admission
 leases, old-client refusal, active-generation switching, and backup integration
 are still required. Existing plaintext sources and backups are not erased.
 
+Checkpoint `01ad9ad`: lint and all 604 local tests pass, including 28 focused
+encryption tests. An independent security review confirmed the directory-sync
+fix and found no remaining blocker within this offline scope. All six OS/Node
+combinations pass [CI run 38489495802](https://github.com/raeseoklee/artifacty/actions/runs/38489495802),
+including the new key and generation tests and both packed installation paths.
+Windows skips the two POSIX-specific permission and directory-sync tests.
+
 The earlier Windows Node 24 fixture cleanup failure was fixed by closing SQLite
 handles before removing temporary directories; that platform now passes.
 
