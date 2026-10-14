@@ -87,10 +87,10 @@ export function isAddressAllowed(address, allowedCidrs = []) {
 
 function readPolicy(db) {
   const row = db.prepare("SELECT value FROM meta WHERE key = 'network_policy'").get();
-  if (!row) return { allowedCidrs: [] };
+  if (!row) return { allowedCidrs: [], allowSharedLinks: false };
   const policy = JSON.parse(row.value);
   if (!policy || !Object.hasOwn(policy, "allowedCidrs")) throw policyError("Stored network policy is invalid.");
-  return { allowedCidrs: normalizeAllowedNetworks(policy.allowedCidrs) };
+  return validatePolicy(policy);
 }
 
 function readPending(db) {
@@ -99,7 +99,7 @@ function readPending(db) {
 }
 
 function publicPending(pending) {
-  return pending ? { id: pending.id, expiresAt: pending.expiresAt, allowedCidrs: pending.allowedCidrs } : null;
+  return pending ? { id: pending.id, expiresAt: pending.expiresAt, allowedCidrs: pending.allowedCidrs, allowSharedLinks: pending.allowSharedLinks === true } : null;
 }
 
 function writePolicy(db, policy, action, audit, metadata = {}) {
@@ -124,7 +124,8 @@ function requireAdmin(db, access) {
 
 function validatePolicy(policy, remoteAddress) {
   if (!policy || !Object.hasOwn(policy, "allowedCidrs")) throw policyError("Allowed networks are required.");
-  const normalized = { allowedCidrs: normalizeAllowedNetworks(policy.allowedCidrs) };
+  if (policy.allowSharedLinks !== undefined && typeof policy.allowSharedLinks !== "boolean") throw policyError("Shared-link access must be a boolean.");
+  const normalized = { allowedCidrs: normalizeAllowedNetworks(policy.allowedCidrs), allowSharedLinks: policy.allowSharedLinks === true };
   if (remoteAddress !== undefined && !isAddressAllowed(remoteAddress, normalized.allowedCidrs)) {
     throw policyError("Allowed networks must include your current IP address.", "NETWORK_POLICY_LOCKOUT");
   }
@@ -189,7 +190,7 @@ export function stageNetworkPolicy(store = createStore(), policy = {}, { access,
       const normalized = validatePolicy(policy, remoteAddress);
       const pending = {
         id: randomUUID(), expiresAt: new Date(Date.now() + timeoutMs).toISOString(),
-        allowedCidrs: normalized.allowedCidrs, previousPolicy: readPolicy(db)
+        allowedCidrs: normalized.allowedCidrs, allowSharedLinks: normalized.allowSharedLinks, previousPolicy: readPolicy(db)
       };
       db.prepare("INSERT INTO meta (key, value) VALUES ('network_policy_pending', ?)").run(JSON.stringify(pending));
       writePolicy(db, normalized, "network-policy-stage", { ...audit, actor: audit.actor || access.userId }, { pendingId: pending.id, expiresAt: pending.expiresAt });
@@ -211,7 +212,7 @@ function finishPending(store, id, { access, audit = {}, remoteAddress } = {}, co
       if (confirm && (!parseAddress(remoteAddress) || !isAddressAllowed(remoteAddress, pending.allowedCidrs))) {
         throw policyError("Confirmation requires access from an allowed IP address.", "IP_NOT_ALLOWED", 403);
       }
-      const policy = confirm ? { allowedCidrs: pending.allowedCidrs } : pending.previousPolicy;
+      const policy = validatePolicy(confirm ? { allowedCidrs: pending.allowedCidrs, allowSharedLinks: pending.allowSharedLinks } : pending.previousPolicy);
       writePolicy(db, policy, confirm ? "network-policy-confirm" : "network-policy-rollback", { ...audit, actor: audit.actor || access.userId }, { pendingId: pending.id });
       db.prepare("DELETE FROM meta WHERE key = 'network_policy_pending'").run();
       return policy;

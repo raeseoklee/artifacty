@@ -325,14 +325,22 @@ function isBrowserPath(pathname) {
 
 export async function handleRequest(args) {
   const { request, store } = args;
-  await assertNetworkAccess(store, request.socket.remoteAddress);
+  let networkSharedArtifact;
+  try { assertNetworkAccess(store, request.socket.remoteAddress); }
+  catch (cause) {
+    const match = /^\/s\/([A-Za-z0-9_-]{43})(?:\/raw)?$/.exec(new URL(request.url, "http://artifacty.local").pathname);
+    if (cause.code !== "IP_NOT_ALLOWED" || !["GET", "HEAD"].includes(request.method) || !match || !getNetworkPolicy(store).allowSharedLinks) throw cause;
+    // Authenticate the capability before admitting an otherwise blocked peer.
+    networkSharedArtifact = await resolveShareLink(store, match[1]);
+  }
+  args = { ...args, networkSharedArtifact };
   const pathname = decodeURIComponent(new URL(request.url, "http://artifacty.local").pathname);
   if (!isBrowserPath(pathname)) return handleScopedRequest(args);
   const settings = await getLanguageSettings(store);
   return runWithLanguageSettings(settings, () => handleScopedRequest(args));
 }
 
-async function handleScopedRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater, smtpSender = sendSmtpMail }) {
+async function handleScopedRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater, smtpSender = sendSmtpMail, networkSharedArtifact }) {
   const url = new URL(request.url, `http://${request.headers.host || `${host}:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
   const baseUrl = `http://${host}:${port}`;
@@ -381,7 +389,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
 
   const publicShareMatch = /^\/s\/([^/]+)(\/raw)?$/.exec(pathname);
   if (publicShareMatch && method === "GET") {
-    const shared = await resolveShareLink(store, publicShareMatch[1]);
+    const shared = networkSharedArtifact || await resolveShareLink(store, publicShareMatch[1]);
     response.setHeader("referrer-policy", "no-referrer");
     response.setHeader("cache-control", "no-store");
     if (publicShareMatch[2]) {
@@ -729,7 +737,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       } else if (pathname === "/admin/access") {
         await setAccessMode(store, body.mode, options);
       } else if (pathname === "/admin/access/network") {
-        await stageNetworkPolicy(store, { allowedCidrs: body.allowedCidrs || "" }, options);
+        await stageNetworkPolicy(store, { allowedCidrs: body.allowedCidrs || "", allowSharedLinks: body.allowSharedLinks === "true" || body.allowSharedLinks === "on" }, options);
       } else if (pathname === "/admin/access/network/confirm") {
         await confirmNetworkPolicy(store, body.id, options);
       } else if (pathname === "/admin/access/network/rollback") {

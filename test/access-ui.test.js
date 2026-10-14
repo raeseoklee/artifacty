@@ -21,6 +21,11 @@ test("admin access forms expose modes, membership and escaped values", () => {
   assert.match(html, /name="allowedCidrs"/);
   assert.match(html, /127\.0\.0\.1\/32\n::1\/128/);
   assert.match(html, /direct connection IP/);
+  assert.match(html, /name="allowSharedLinks" value="true" class=/);
+  assert.match(html, /The dashboard and APIs stay restricted/);
+  const enabled = renderAdminAccessPage({ baseUrl: "http://localhost", user, mode: "private", networkPolicy: { allowedCidrs: [], allowSharedLinks: true }, locale: "ko" });
+  assert.match(enabled, /name="allowSharedLinks" value="true" checked/);
+  assert.match(enabled, /허용 IP 대역 밖에서도 공유 링크 열람 허용/);
 });
 
 test("sharing grant levels are explained, selected and localized", () => {

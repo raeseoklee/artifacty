@@ -361,6 +361,8 @@ export const TRANSLATIONS = {
     "access.networkHelp": "Applies in both modes. Enter one IPv4 or IPv6 address or CIDR per line. Leave blank to allow all addresses. Uses the direct connection IP, not forwarded headers. The list must include your current address.",
     "access.currentIp": "Your connection IP",
     "access.allowedCidrs": "Allowed addresses and CIDRs",
+    "access.allowSharedLinks": "Allow shared links outside these IP ranges",
+    "access.sharedNetworkHelp": "Off by default. A valid shared link grants read-only access to that artifact. The dashboard and APIs stay restricted. Link expiry, revocation, and private-mode sharing rules still apply.",
     "access.saveNetwork": "Save network access",
 
     "access.title": "Access",
@@ -914,6 +916,8 @@ export const TRANSLATIONS = {
     "access.networkHelp": "두 모드 모두에 적용됩니다. IPv4 또는 IPv6 주소나 CIDR을 한 줄에 하나씩 입력하세요. 비워두면 모든 주소를 허용합니다. 전달 헤더 대신 직접 연결된 IP를 사용합니다. 현재 접속 주소를 반드시 포함해야 합니다.",
     "access.currentIp": "현재 접속 IP",
     "access.allowedCidrs": "허용할 주소 및 CIDR",
+    "access.allowSharedLinks": "허용 IP 대역 밖에서도 공유 링크 열람 허용",
+    "access.sharedNetworkHelp": "기본값은 꺼짐입니다. 유효한 공유 링크로 해당 아티팩트만 읽을 수 있습니다. 대시보드와 API는 계속 차단하며, 링크 만료·취소와 비공개 모드의 공유 제한은 그대로 적용합니다.",
     "access.saveNetwork": "네트워크 접근 저장",
 
     "access.title": "접근 관리",

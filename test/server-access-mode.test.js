@@ -59,10 +59,11 @@ test("network policy administration validates ranges and gates every route using
   try {
     const admin = await createUser(app.store, { email: "admin@example.com", name: "Admin", role: "admin", password: "password-123" });
     const session = await createSession(app.store, admin.id);
-    const post = (allowedCidrs) => fetch(`${app.url}/admin/access/network`, { method: "POST", redirect: "manual", headers: { cookie: `artifacty_session=${session.token}`, origin: app.url, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ allowedCidrs }) });
+    const post = (allowedCidrs, allowSharedLinks) => fetch(`${app.url}/admin/access/network`, { method: "POST", redirect: "manual", headers: { cookie: `artifacty_session=${session.token}`, origin: app.url, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ allowedCidrs, ...(allowSharedLinks ? { allowSharedLinks: "true" } : {}) }) });
     assert.equal((await post("invalid/999")).status, 400);
     assert.equal((await post("192.0.2.0/24")).status, 400);
-    assert.equal((await post("127.0.0.0/8")).status, 303);
+    assert.equal((await post("127.0.0.0/8", true)).status, 303);
+    assert.equal(getPendingNetworkPolicy(app.store).allowSharedLinks, true);
     assert.equal((await fetch(`${app.url}/health`, { headers: { "x-forwarded-for": "192.0.2.5" } })).status, 200);
     confirmNetworkPolicy(app.store, getPendingNetworkPolicy(app.store).id, { access: { userId: admin.id, role: "admin" }, remoteAddress: "127.0.0.1" });
     setNetworkPolicy(app.store, { allowedCidrs: ["192.0.2.0/24"] }, { access: { userId: admin.id, role: "admin" } });

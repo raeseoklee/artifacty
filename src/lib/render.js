@@ -900,6 +900,8 @@ export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users =
           <p>${view.text("access.currentIp")}: <code>${escapeHtml(currentIp)}</code></p>
           <form class="editor-form" method="post" action="/admin/access/network">${localeInput(view.locale)}
             <label class="field"><span>${view.text("access.allowedCidrs")}</span><textarea name="allowedCidrs" rows="5" class="form-control">${escapeHtml((networkPolicy.allowedCidrs || []).join("\n"))}</textarea></label>
+            <label><input type="checkbox" name="allowSharedLinks" value="true"${networkPolicy.allowSharedLinks ? " checked" : ""} class="form-check-input" aria-describedby="shared-network-help"> ${view.text("access.allowSharedLinks")}</label>
+            <p id="shared-network-help" class="muted">${view.text("access.sharedNetworkHelp")}</p>
             <button type="submit" class="btn btn-primary">${view.text("access.saveNetwork")}</button>
           </form>
         </section>

@@ -44,6 +44,24 @@ Artifacty does not terminate TLS. Do not expose it directly on the public intern
 
 If Artifacty binds outside loopback, startup output warns that other machines can reach the server. The warning also states that Artifacty does not provide TLS. Background `serve` returns the warning in JSON. Foreground `serve` and `src/server.js` also write it to stderr.
 
+## IP ranges and shared links
+
+In **Administration → Access → Network access**, enter one allowed IP address
+or CIDR per line. Commas also work. An empty list allows all addresses. Include
+your current connection IP, save, then confirm within 120 seconds. Otherwise,
+the previous policy is restored on the next access after the deadline.
+
+**Allow shared links outside these IP ranges** is off by default. Enable it to
+let people outside the allowed ranges read an artifact through its valid shared
+link. Only the shared page and its raw content are exempt. The dashboard,
+search, API, MCP, and ordinary artifact URLs remain restricted. Expired or
+revoked links do not grant access. Private mode still requires the separate
+setting that permits shared links in private mode. Saving this option uses the
+same confirmation and rollback process as the IP ranges.
+
+Rules use the direct socket peer, not forwarded IP headers. With a reverse
+proxy, that peer is the proxy; enforce client IP ranges at the proxy when needed.
+
 ## Browser Write Behavior
 
 Remote browsers can read pages allowed by the current access mode and artifact permissions. To submit a browser form, the request origin must match the Artifacty host. For example, `Origin: http://10.0.0.50:8787` matches `Host: 10.0.0.50:8787`. Routes that change data reject cross-origin browser requests to reduce CSRF risk. For scripts and agents, use API or MCP writes with an explicit token header.

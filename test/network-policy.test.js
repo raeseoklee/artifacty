@@ -38,7 +38,7 @@ test("persists policy, requires active admin, audits updates and prevents caller
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-network-"));
   try {
     const store = createStore({ home });
-    assert.deepEqual(getNetworkPolicy(store), { allowedCidrs: [] });
+    assert.deepEqual(getNetworkPolicy(store), { allowedCidrs: [], allowSharedLinks: false });
     assert.doesNotThrow(() => assertNetworkAccess(store, "192.0.2.1"));
     const admin = await createUser(store, { email: "admin@example.test", password: "long-password-123", role: "admin" });
     const user = await createUser(store, { email: "user@example.test", password: "long-password-123" });
@@ -46,6 +46,11 @@ test("persists policy, requires active admin, audits updates and prevents caller
     for (const denied of [undefined, { role: "admin" }, { userId: "missing", role: "admin" }, { userId: user.id, role: "admin" }, { userId: admin.id, role: "user" }]) {
       assert.throws(() => setNetworkPolicy(store, { allowedCidrs: [] }, { access: denied }), { statusCode: 403 });
     }
+    assert.throws(() => setNetworkPolicy(store, { allowedCidrs: [], allowSharedLinks: "true" }, { access }), { statusCode: 400 });
+    const legacyDb = openDatabase(store);
+    try { legacyDb.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('network_policy', ?)").run(JSON.stringify({ allowedCidrs: [] })); }
+    finally { legacyDb.close(); }
+    assert.equal(getNetworkPolicy(store).allowSharedLinks, false);
     const policy = setNetworkPolicy(store, { allowedCidrs: "192.0.2.14/24" }, { access, remoteAddress: "::ffff:192.0.2.3", audit: { actor: admin.id, surface: "http" } });
     assert.deepEqual(getNetworkPolicy(createStore({ home })), policy);
     assert.throws(() => assertNetworkAccess(store, "127.0.0.1"), { statusCode: 403, code: "IP_NOT_ALLOWED" });
@@ -55,7 +60,7 @@ test("persists policy, requires active admin, audits updates and prevents caller
     assert.deepEqual(getNetworkPolicy(store), policy);
     const events = await listAuditEvents(store);
     assert.equal(events.filter((event) => event.action === "network-policy-update").length, 1);
-    assert.deepEqual(setNetworkPolicy(store, { allowedCidrs: [] }, { access, remoteAddress: "192.0.2.3" }), { allowedCidrs: [] });
+    assert.deepEqual(setNetworkPolicy(store, { allowedCidrs: [] }, { access, remoteAddress: "192.0.2.3" }), { allowedCidrs: [], allowSharedLinks: false });
     const db = openDatabase(store);
     db.prepare("UPDATE users SET active = 0 WHERE id = ?").run(admin.id);
     db.close();
@@ -71,8 +76,8 @@ test("staged changes require confirmation and recover durably after their deadli
     const admin = await createUser(store, { email: "admin@example.test", password: "long-password-123", role: "admin" });
     const access = { userId: admin.id, role: "admin" };
     const options = { access, remoteAddress: "192.0.2.1" };
-    const initial = { allowedCidrs: ["192.0.2.0/24", "198.51.100.0/24"] };
-    const proposed = { allowedCidrs: ["192.0.2.0/24"] };
+    const initial = { allowedCidrs: ["192.0.2.0/24", "198.51.100.0/24"], allowSharedLinks: false };
+    const proposed = { allowedCidrs: ["192.0.2.0/24"], allowSharedLinks: true };
     setNetworkPolicy(store, initial, options);
     assert.throws(() => stageNetworkPolicy(store, proposed), { statusCode: 403 });
     assert.throws(() => stageNetworkPolicy(store, proposed, { access }), { statusCode: 400 });
