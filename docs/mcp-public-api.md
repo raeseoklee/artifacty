@@ -20,7 +20,7 @@ MCP protocol `2025-06-18`.
 
 Administrators can select a site-wide `public` or `private` access mode
 at `/admin/access`. Public mode preserves the visibility rules below. Private
-mode requires a personal identity: artifact reads are limited to the owner,
+mode requires a personal identity regardless of artifact visibility: artifact reads are limited to the owner,
 administrators, and explicitly shared users or team members; shared recipients
 have read, comment, or edit grants. Artifacty applies the strongest permission
 from the user's direct and team grants.
@@ -38,8 +38,11 @@ headers; local stdio has no HTTP source address.
 In public mode, artifact `visibility` and `ownerUserId` control access after the
 server has a user account. A personal API token identifies the user. The shared
 `ARTIFACTY_API_TOKEN` has no personal identity. Artifacty treats it as an
-anonymous team principal: it can read and write `team` artifacts, but cannot
-read `private` artifacts.
+anonymous caller: it can read `public` artifacts, but cannot write them or
+read `team` or `private` artifacts. Authenticated users can read and write
+`team` artifacts unless `ARTIFACTY_TEAM_WRITE=owner` restricts writes to the
+owner or an administrator. Only the owner or an administrator can write
+`public` artifacts or access `private` artifacts through normal artifact routes.
 
 Local stdio uses a personal identity only when `ARTIFACTY_API_TOKEN` resolves to
 a personal token in the local store. Otherwise, it is anonymous after the store
@@ -57,14 +60,14 @@ for the full rule table.
 
 Stable tool names:
 
-- `artifacty_create`: create a native Artifacty artifact. Accepts an optional `relations` array (`[{ toId, relation }]`) to link the new artifact to others in the same call, and an optional `visibility` (`"private"` or `"team"`; defaults to `"team"`).
+- `artifacty_create`: create a native Artifacty artifact. Accepts an optional `relations` array (`[{ toId, relation }]`) to link the new artifact to others in the same call, and an optional `visibility` (`"private"`, `"team"`, or `"public"`; defaults to `"team"`).
 - `artifacty_publish`: backwards-compatible alias for `artifacty_create`.
 - `artifacty_import`: convert external Claude, Codex, Gemini, Copilot, Cursor, Artifacty, or generic payloads.
-- `artifacty_list`: list artifacts with `query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `mode`, `includeArchived`, `view`, `limit`, and `offset`. `relatedTo` restricts results to artifacts related (in either direction) to the given artifact ID; `relation` further restricts to that relation name. `publisher` matches `publisherId`, `publisherUserId`, or `ownerUserId`. `createdAfter`/`createdBefore` take an ISO date or date-time and return an `isError: true` result with `structuredContent.code === "invalid_filter"` if unparseable. `view` names a saved view (by id or name, see docs/roadmap-design.md section 8) whose filters are expanded first; any other argument passed alongside `view` overrides that one filter. `mode` is `"keyword"`, `"semantic"`, or `"hybrid"` (see docs/roadmap-design.md section 6): `hybrid` is the default once an embedding provider is configured (`ARTIFACTY_EMBEDDINGS_URL` or `ARTIFACTY_EMBEDDINGS_COMMAND`) and `query` is set; without a provider, `semantic`/`hybrid` silently fall back to `keyword` and the response's `search.fallback` is `true`. Responses carry `search.mode` and, for `semantic`/`hybrid` results, a per-artifact `searchScore`.
-- `artifacty_get`: read one artifact by `id` and optional `version`. The response includes `relations: { outgoing, incoming }`, where each entry carries the related artifact's summary (or `missing: true` if the target no longer exists). Pass `includeComments: true` to also return `comments`, the requested version's open (unresolved, non-deleted) comments; omitted by default.
-- `artifacty_update`: append an immutable version. Accepts an optional `expectedVersion` (the `latestVersion` returned by `artifacty_get`); if the artifact has since moved to a different `latestVersion`, the call returns an `isError: true` tool result with `structuredContent.code === "version_conflict"` and `structuredContent.latestVersion` instead of creating a version that would silently discard a concurrent change. Agents should pass back `latestVersion` from their last `artifacty_get` as `expectedVersion` when updating. Also accepts an optional `relations` array like `artifacty_create`.
+- `artifacty_list`: list artifacts with `query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `mode`, `includeArchived`, `view`, `limit`, and `offset`. `relatedTo` restricts results to artifacts related (in either direction) to the given artifact ID; `relation` further restricts to that relation name. `publisher` matches `publisherId`, `publisherUserId`, or `ownerUserId`. `createdAfter`/`createdBefore` take an ISO date or date-time and return an `isError: true` result with `structuredContent.code === "invalid_filter"` if either value cannot be parsed. `view` names a saved view (by id or name, see docs/roadmap-design.md section 8) whose filters are applied first. Any other argument passed alongside `view` overrides the corresponding filter. `mode` is `"keyword"`, `"semantic"`, or `"hybrid"` (see docs/roadmap-design.md section 6): `hybrid` is the default once an embedding provider is configured (`ARTIFACTY_EMBEDDINGS_URL` or `ARTIFACTY_EMBEDDINGS_COMMAND`) and `query` is set; without a provider, `semantic`/`hybrid` silently fall back to `keyword` and the response's `search.fallback` is `true`. Responses include `search.mode` and, for `semantic`/`hybrid` results, a per-artifact `searchScore`.
+- `artifacty_get`: read one artifact by `id` and optional `version`. The response includes `relations: { outgoing, incoming }`, where each entry contains the related artifact's summary (or `missing: true` if the target no longer exists). Pass `includeComments: true` to also return `comments`, the requested version's open (unresolved, non-deleted) comments; omitted by default.
+- `artifacty_update`: append an immutable version. Accepts an optional `expectedVersion` (the `latestVersion` returned by `artifacty_get`); if `latestVersion` has changed since that read, the call returns an `isError: true` tool result with `structuredContent.code === "version_conflict"` and `structuredContent.latestVersion` without creating a version. This prevents a concurrent change from being silently discarded. Agents should pass `latestVersion` from their last `artifacty_get` as `expectedVersion` when updating. Also accepts an optional `relations` array like `artifacty_create`.
 - `artifacty_archive` / `artifacty_restore`: toggle archive state. Requires the artifact's owner or an admin once any user account exists.
-- `artifacty_set_visibility`: change `id`'s `visibility` to `"private"` or `"team"`. Requires the artifact's owner or an admin once any user account exists.
+- `artifacty_set_visibility`: change `id`'s `visibility` to `"private"`, `"team"`, or `"public"`. Requires the artifact's owner or an admin once any user account exists.
 - `artifacty_link`: create a typed, directional relation from one artifact (`id`) to another (`toId`) with a `relation` name: `derived-from`, `supersedes`, `reviews`, `references`, or `part-of`.
 - `artifacty_unlink`: remove a previously created relation given the same `id`, `toId`, and `relation`.
 - `artifacty_comment`: add a comment or a reply to an artifact (`id`), given `body` (Markdown, up to 16 KB), and optional `version` (defaults to the latest), `anchor` (a format-specific rendering hint, e.g. `{ line: 42 }`, not validated against content), and `parentId` (reply to a root comment; threads are one level deep, so the target must not itself be a reply).
@@ -73,7 +76,7 @@ Stable tool names:
 - `artifacty_diff`: diff two versions of an artifact given `id` and optional `from`/`to` (defaults: `to` = latest version, `from` = `to - 1`) and `view` (`structured` or `lines`; defaults to `structured` for JSON-like formats — `json`, `sarif`, `csv`, `notebook`, `bundle` — and `lines` otherwise). Returns a compact unified-diff text in `content[].text` and the structured diff (JSON path entries, CSV row/cell entries, line entries with word-level highlight ranges, or bundle per-file entries) in `structuredContent`, capped at `ARTIFACTY_MAX_DIFF_ENTRIES` (default 5000) with `structuredContent.structuredDiff.truncated` set when the cap is hit.
 - `artifacty_audit`: list audit events.
 - `artifacty_info`: return store, browser URL, transport, and protocol information, plus `embeddings: { provider, model } | null` reporting whether a semantic-search embedding provider is configured.
-- `artifacty_wait`: `{ artifactId?, tag?, type?, timeoutMs }` blocks up to `timeoutMs` (default 30000, max 120000) for the first change event matching the filter, and returns it as `structuredContent.event`, or `{ timedOut: true }` if none arrived in time. Works over any transport, including the stateless HTTP transport where `resources/subscribe` cannot push notifications (see Resources below) — it is a long-poll primitive for clients that cannot receive pushed notifications.
+- `artifacty_wait`: `{ artifactId?, tag?, type?, timeoutMs }` blocks up to `timeoutMs` (default 30000, max 120000) for the first change event matching the filter, and returns it as `structuredContent.event`, or `{ timedOut: true }` if none arrived in time. It works over any transport, including stateless HTTP, where `resources/subscribe` cannot push notifications (see Resources below). Clients that cannot receive pushed notifications can use this long-poll operation.
 
 Tool schemas use Artifacty schema v1 formats and artifact types. During 0.x releases, maintainers may add optional
 properties. They should not rename existing properties without a documented
@@ -135,8 +138,7 @@ Each prompt returns one user message. The message instructs an agent to create
 or update an artifact with searchable `artifactType`, `sourceAgent`, and tags.
 Prompts accept optional context arguments such as `artifactId`, `goal`, `scope`,
 `target`, or `version`. `artifacty_handoff` and `artifacty_review` additionally
-instruct the agent to pass `relations` on the create/update call so the graph
-stays populated automatically: `artifacty_handoff` recommends
+instruct the agent to pass `relations` on the create/update call so Artifacty automatically adds the graph relations: `artifacty_handoff` recommends
 `relations: [{ toId: <source artifact ID>, relation: "derived-from" }]`, and
 `artifacty_review` recommends `relations: [{ toId: <reviewed artifact ID>, relation: "reviews" }]`.
 For a short review with a few findings, `artifacty_review` recommends
@@ -171,7 +173,7 @@ keeps the document's route table in sync with `src/server.js`'s dispatch.
 
 | Client-requested `protocolVersion` | Server behavior |
 | --- | --- |
-| `2025-06-18` | Echoed back; this is the only protocol version the implementation has been verified against the public MCP specification. |
+| `2025-06-18` | Echoed back; this is the only protocol version verified against the public MCP specification. |
 | Any other value (older or a newer version this server hasn't been verified against) | Server falls back to `2025-06-18` in its `initialize` response rather than rejecting the connection, so unfamiliar clients still get a usable session. |
 
 `tools/list` reports an `outputSchema` for every tool that returns

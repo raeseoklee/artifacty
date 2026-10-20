@@ -9,13 +9,13 @@ English | [한국어](README.ko.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js >=22.12.0](https://img.shields.io/badge/node-%3E%3D22.12.0-339933.svg)](package.json)
 
-Artifacty gives AI-generated artifacts a local home that agents can share. Claude, Codex, Gemini, GitHub Copilot, Cursor, and other MCP tools can publish artifacts to the same store. Other agents can find, read, and update them without copying content through chat.
+Artifacty stores AI-generated artifacts locally so agents can share them. Claude, Codex, Gemini, GitHub Copilot, Cursor, and other MCP tools can publish artifacts to the same store. Other agents can find, read, and update them without copying content through chat.
 
 ![Artifacty overview showing multiple AI agents sharing artifacts through a local exchange](docs/assets/artifacty.png)
 
 ## Why MCP
 
-Artifacts turn session output into shareable, versioned pages. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
+Artifacts make session output available as pages that you can share and version. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
 
 ## Installation
 
@@ -45,7 +45,7 @@ Start the local dashboard in the background:
 artifacty serve
 ```
 
-Open the `url` in the JSON response. Artifacty prefers `http://127.0.0.1:8787`. If that port is busy and you did not configure a port, Artifacty uses the next available local port. It records the actual URL for CLI and MCP responses.
+Open the `url` in the JSON response. By default, Artifacty tries `http://127.0.0.1:8787`. If that port is busy and you did not configure a port, Artifacty uses the next available local port. It records the actual URL for CLI and MCP responses.
 
 Manage the background server:
 
@@ -57,14 +57,14 @@ artifacty stop
 `artifacty start` and `artifacty serve --detach` use the same lifecycle path as `artifacty serve`. Artifacty writes logs under `~/.artifacty/logs/`.
 These commands use Node's detached process support on macOS, Linux, and Windows. `artifacty stop` uses process-group signals on macOS and Linux. On Windows, it uses `taskkill`. If Windows requires forceful termination, it retries with `/F`.
 
-For foreground debugging, keep the process attached:
+To debug with the server attached to your terminal, run:
 
 ```bash
 artifacty serve --foreground
 npm start
 ```
 
-Generate an API token at startup when you want to protect HTTP API and browser write routes:
+To protect HTTP API and browser write routes, generate an API token at startup:
 
 ```bash
 artifacty serve --generate-token
@@ -140,7 +140,7 @@ On any supported CLI platform, check for a release without changing the installa
 artifacty update --check
 ```
 
-Administrators can also open **Administration → Server update** (`/admin/update`). Select **Check for updates** to check the latest release. If this server supports browser updates, confirm the displayed version and select **Back up and update**. The server briefly stops; keep the page open to reconnect and read the result. Opening the page does not check npm or start an update.
+Administrators can also open **Administration → Server update** (`/admin/update`). Select **Check for updates** to check the latest release. If this server supports browser updates, confirm the displayed version and select **Back up and update**. The server briefly stops during the update. Keep the page open to reconnect and read the result. Opening the page does not check npm or start an update.
 
 On Linux, the updater can install a release and restart the systemd user service `com.artifacty.server`:
 
@@ -290,11 +290,11 @@ artifacty service unit --dry-run
 artifacty service task --dry-run
 ```
 
-When working from a source checkout without global installation, replace `artifacty` with `node src/cli.js` and `artifacty-mcp` with `node src/mcp-server.js`.
+If you run from a source checkout without a global installation, replace `artifacty` with `node src/cli.js` and `artifacty-mcp` with `node src/mcp-server.js`.
 
 ## Storage
 
-By default Artifacty stores files under `~/.artifacty`.
+By default, Artifacty stores files under `~/.artifacty`.
 
 ```bash
 ARTIFACTY_HOME=/path/to/shared/store artifacty serve
@@ -304,7 +304,7 @@ Artifacty stores metadata in `artifacty.sqlite`. Normal create and update operat
 
 Artifacty writes the current browser server URL to `server.json`. MCP tools use this URL to return correct links when the server selects another port. On first access, Artifacty automatically migrates existing `index.json` stores.
 
-Every artifact row carries a `visibility` (`private`/`team`/`public`, default `team`) and an `ownerUserId`, backfilled from the artifact's `publisherUserId` on migration. See the Security Model section below for the access rules these enforce.
+Every artifact row has a `visibility` (`private`/`team`/`public`, default `team`) and an `ownerUserId`. During migration, Artifacty fills the owner field from the artifact's `publisherUserId`. See the Security Model section below for the access rules these enforce.
 
 Administrators can download and restore backups from `/admin/backup`. The
 default `artifacts` scope contains artifact metadata and version contents,
@@ -317,8 +317,7 @@ A `full`-scope backup (`artifacty backup --full`, `?scope=full` on the
 download, or the scope selector on `/admin/backup`) additionally includes
 users (with password hashes), API tokens (hashed, never the raw token),
 audit log entries, artifact relations, and webhooks. Webhook secrets are
-never exported — restored webhooks come back disabled and must have their
-secret re-issued. Sessions are never exported. Restoring a `full` bundle
+never exported. Restored webhooks are disabled and need a new secret. Sessions are never exported. Restoring a `full` bundle
 requires explicit confirmation (`confirm: "replace-all"` over the API,
 `--confirm replace-all` on the CLI, or the confirm checkbox in the browser)
 and refuses to run when the target store already has users unless
@@ -338,23 +337,23 @@ artifacty integrity
 
 ### Upgrade Snapshots
 
-Before an existing store needs a schema migration, Artifacty creates and verifies a mandatory local snapshot. The snapshot includes the raw SQLite database, referenced version files, and legacy index. If snapshot verification fails, migration stops.
+Before migrating an existing store to a new schema, Artifacty creates and verifies a mandatory local snapshot. The snapshot includes the raw SQLite database, referenced version files, and legacy index. If snapshot verification fails, migration stops.
 
 Set `ARTIFACTY_BACKUP_ON_UPDATE=true` to also snapshot application-version changes. If an existing store has no recorded application version, its first open with this setting creates a baseline snapshot. `ARTIFACTY_UPGRADE_BACKUP_KEEP` retains the latest three automatic snapshots by default (valid range: 1–1000).
 
-Use `artifacty backups list`, `artifacty backups verify <id>`, and `artifacty backups restore <id> --confirm restore-store`. Stop every server and MCP process before an upgrade or restore. Restore creates a recovery snapshot before replacing the store. It also restores credentials and security state; previously revoked sessions, tokens, and links can become valid again.
+Use `artifacty backups list`, `artifacty backups verify <id>`, and `artifacty backups restore <id> --confirm restore-store`. Stop every server and MCP process before an upgrade or restore. Restore creates a recovery snapshot before replacing the store. It also restores credentials and security state. As a result, previously revoked sessions, tokens, and links can become valid again.
 
 These local snapshots are separate from portable `artifacty backup`/`export` JSON bundles. See [upgrade snapshots and recovery](docs/upgrade-backups.md) for verification, corrupt-store recovery, and interrupted-restore procedures.
 
 ### Semantic Search
 
-`?mode=keyword|semantic|hybrid` on `GET /api/artifacts`, the dashboard, `artifacty list --mode`, and the MCP `artifacty_list` tool add optional natural-language search on top of FTS5, without any bundled model or mandatory dependency:
+`?mode=keyword|semantic|hybrid` on `GET /api/artifacts`, the dashboard, `artifacty list --mode`, and the MCP `artifacty_list` tool add optional natural-language search on top of FTS5, without a bundled model or a required dependency:
 
 - `keyword` is the existing FTS5/metadata path.
 - `semantic` embeds the query and ranks artifacts by cosine similarity over stored vectors.
 - `hybrid` (the default once a provider is configured and `q`/`query` is set) merges keyword and semantic rankings with reciprocal rank fusion.
 
-Without an embedding provider configured, `semantic`/`hybrid` requests fall back to `keyword` and the response's `search.fallback` is `true`. Configure one provider through the environment:
+If no embedding provider is configured, `semantic`/`hybrid` requests fall back to `keyword` and the response's `search.fallback` is `true`. Configure one provider through the environment:
 
 ```bash
 # openai-compatible: POSTs { model, input } to <url>/embeddings
@@ -380,8 +379,8 @@ Use typed, directional relations to connect a handoff, its review, and follow-up
 - Relation names are a closed set for v1: `derived-from`, `supersedes`, `reviews`, `references`, `part-of`.
 - Every relation has a computed inverse (`derived-from` ↔ `derives`, `supersedes` ↔ `superseded-by`, `reviews` ↔ `reviewed-by`, `references` ↔ `referenced-by`, `part-of` ↔ `contains`) shown automatically on the other side.
 - `POST`/`GET`/`DELETE /api/artifacts/:id/relations` manage links over HTTP; `GET /api/artifacts` accepts `relatedTo` and `relation` filters.
-- `artifacty_create` and `artifacty_update` accept a `relations` array so an agent can link an artifact the moment it is published; `artifacty_get` responses include `relations: { outgoing, incoming }`.
-- A relation whose target was deleted is reported with `missing: true` instead of being silently dropped.
+- `artifacty_create` and `artifacty_update` accept a `relations` array so an agent can link an artifact when publishing it. `artifacty_get` responses include `relations: { outgoing, incoming }`.
+- A relation whose target was deleted is reported with `missing: true` instead of being omitted.
 
 ```bash
 artifacty link <from-id> derived-from <to-id>
@@ -392,7 +391,7 @@ artifacty unlink <from-id> derived-from <to-id>
 
 ### Automatic application of preferences
 
-Language and page-size selections apply immediately. Advanced dashboard filters apply when a selection changes or an edited field loses focus. Search text still uses Enter or Search. Changes to permissions, server settings, and artifact content retain explicit save actions. If JavaScript is unavailable, the Apply buttons remain available.
+Language and page-size selections apply immediately. Advanced dashboard filters apply when a selection changes or an edited field loses focus. To run a text search, press Enter or select Search. Changes to permissions, server settings, and artifact content still require an explicit save. If JavaScript is unavailable, the Apply buttons remain available.
 
 ### Comments and review status
 
@@ -409,7 +408,6 @@ When user accounts exist, only the artifact owner or an administrator can change
 
 Appending a version after approval resets the status to `pending` for another review. The retention policy's **automatic archiving** excludes `approved` artifacts. Approval does not prevent manual deletion or all retention operations.
 
-
 Add feedback to a specific version without publishing a new version or a separate review artifact:
 
 - Comments use the same sanitized Markdown renderer as artifact content. Each comment has a 16 KB limit. The optional `anchor` field provides a display hint: `{ line: 42 }` for text, `{ path: "$.runs[0].results[3]" }` for JSON/SARIF, or `{ row: 7 }` for CSV. Artifacty does not validate the hint against the content.
@@ -417,7 +415,7 @@ Add feedback to a specific version without publishing a new version or a separat
 - Deleting a comment is a soft delete: it disappears from `artifacty comments`/`GET .../comments` but its audit-log entry is kept. Pass `--include-deleted`/`includeDeleted=true` to see it anyway.
 - Each artifact has a `reviewStatus`: `none`, `pending`, `changes-requested`, or `approved`. Set the status explicitly. If you append a version to an approved artifact, Artifacty resets the status to `pending`. The update's audit metadata records this change.
 - `GET`/`POST /api/artifacts/:id/comments`, `POST /api/artifacts/:id/comments/:commentId/resolve`, `DELETE /api/artifacts/:id/comments/:commentId`, and `POST /api/artifacts/:id/review-status` manage comments and review status over HTTP.
-- `artifacty_comment`, `artifacty_resolve_comment`, and `artifacty_set_review_status` are the MCP equivalents; `artifacty_get` accepts `includeComments: true` to return the requested version's open comments alongside the artifact.
+- `artifacty_comment`, `artifacty_resolve_comment`, and `artifacty_set_review_status` provide the same operations through MCP. `artifacty_get` accepts `includeComments: true` to return the requested version's open comments alongside the artifact.
 - The browser artifact page shows a comments panel grouped by version, with a reply form, a resolve button, and (for the artifact's owner or an admin) a review-status selector. Line-anchored comments are shown as plain text (e.g. "line 42") rather than a CodeMirror gutter marker.
 
 ```bash
@@ -431,7 +429,7 @@ artifacty review-status release-handoff-abc12345 approved
 
 `artifacty diff <id> [--from N] [--to M] [--structured] [--json]` compares two artifact versions. By default, `--to` selects the latest version and `--from` selects `--to - 1`.
 
-JSON, SARIF, CSV, notebook, and bundle artifacts use a structured diff by default. The output contains JSON paths, CSV rows and cells, or bundle files. Other formats use a line diff. To request a structured diff for any format, use `--structured`; text lines include word highlights. To print machine-readable output instead of unified text, use `--json`.
+JSON, SARIF, CSV, notebook, and bundle artifacts use a structured diff by default. The output contains JSON paths, CSV rows and cells, or bundle files. Other formats use a line diff. To request a structured diff for any format, use `--structured`. Text lines include word highlights. To print machine-readable output instead of unified text, use `--json`.
 
 ```bash
 artifacty diff release-handoff-abc12345
@@ -443,7 +441,7 @@ artifacty diff release-handoff-abc12345 --from 1 --to 3 --json
 By default, Artifacty does not limit retained artifacts, audit rows, or events. Administrators can set a retention policy at `/admin/retention` or with `artifacty retention set`. Artifacty stores the policy in the `meta` table:
 
 - `archiveAfterDays` (a default plus optional per-artifact-type overrides) auto-archives artifacts that have not been updated within the window, unless the artifact carries a tag in `keepTags` or has `reviewStatus: "approved"`.
-- `purgeArchivedAfterDays` hard-deletes artifacts that have been archived longer than the window, including their version files, dependent rows that cascade via foreign keys (comments, relations, embeddings), and their `events`/search-index rows. Audit log rows for the artifact are deliberately kept (see `auditRetentionDays` below) as the historical record that the purge happened, even though the artifact itself is gone. This is the only retention action that deletes data outright, so it is refused unless the operator has set `ARTIFACTY_RETENTION_ALLOW_PURGE=true` in the server environment; `--allow-purge` (or the `allowPurge` request field) only opts a single run in and never sets that environment variable itself. Always dry-run first (`artifacty retention run --dry-run`, or the report on `/admin/retention`) to review what would be purged.
+- `purgeArchivedAfterDays` hard-deletes artifacts that have been archived longer than the window, including their version files, dependent rows that cascade via foreign keys (comments, relations, embeddings), and their `events`/search-index rows. Audit log rows for the artifact are deliberately kept (see `auditRetentionDays` below) as the historical record that the purge happened, even though the artifact itself is gone. This is the only retention action that permanently deletes artifact content. It is refused unless the operator has set `ARTIFACTY_RETENTION_ALLOW_PURGE=true` in the server environment; `--allow-purge` (or the `allowPurge` request field) only opts a single run in and never sets that environment variable itself. Always dry-run first (`artifacty retention run --dry-run`, or the report on `/admin/retention`) to review what would be purged.
 - `auditRetentionDays` prunes old audit log rows, except `version-repair`, `version-delete`, `retention-purge`, `retention-policy-update`, and `owner-change`, which are kept indefinitely.
 - `eventRetentionRows` caps how many rows the `events` change-notification table keeps.
 
@@ -462,7 +460,7 @@ The retention screen groups artifact archive/purge settings, history limits, and
 
 ### Dashboard Filters and Saved Views
 
-`listArtifactsPage` (and every surface built on it — the `/` dashboard, `GET /api/artifacts`, `artifacty list`, and `artifacty_list`) accepts these filters in addition to `q`/`tag`/`sourceAgent`/`relatedTo`/`relation`/`includeArchived`:
+`listArtifactsPage` and its callers (the `/` dashboard, `GET /api/artifacts`, `artifacty list`, and `artifacty_list`) accept these filters in addition to `q`/`tag`/`sourceAgent`/`relatedTo`/`relation`/`includeArchived`:
 
 - `artifactType` — exact match against the artifact's type.
 - `publisher` — matches `publisherId`, `publisherUserId`, or `ownerUserId`.
@@ -471,11 +469,11 @@ The retention screen groups artifact archive/purge settings, history limits, and
 
 A frequently used filter combination can be saved as a **view**:
 
-- `POST /api/views` with `{ name, filters, shared }` creates one; `GET /api/views` lists views visible to the caller; `DELETE /api/views/:id` removes one. `filters` is validated against an allowlist (`query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `includeArchived`, `mode`) and rejects any other key with `code: "invalid_filter"`.
+- `POST /api/views` with `{ name, filters, shared }` creates a view. `GET /api/views` lists views visible to the caller. `DELETE /api/views/:id` removes a view. `filters` is validated against an allowlist (`query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `includeArchived`, `mode`) and rejects any other key with `code: "invalid_filter"`.
 - In single-user mode (no user accounts) views are global. In team mode a view belongs to its creator and is visible only to them unless `shared: true`, in which case every user sees it.
 - `?view=<name-or-id>` on `/` or `GET /api/artifacts` expands the saved filters first; any other query parameter passed alongside `view` overrides that one filter. `artifacty_list` and `artifacty list --view <name-or-id>` work the same way.
 - In the main dashboard, open **Saved views** to find the view list, delete buttons, and "Save current filters" form. **Advanced filters** and **Saved views** start collapsed. Search stays visible. Collapsing these sections preserves the selected filters. `artifacty views`, `artifacty views save <name> [--shared] [filters...]`, and `artifacty views delete <id>` manage them from the CLI.
-- `groupBy=artifactType|sourceAgent|day` (dashboard query param, `--group-by` on the CLI) renders the already-fetched page grouped under section headers. It is purely presentational and does not change which artifacts are fetched or their sort order.
+- `groupBy=artifactType|sourceAgent|day` (dashboard query param, `--group-by` on the CLI) renders the already-fetched page grouped under section headers. This changes only the presentation. It does not change which artifacts are fetched or their sort order.
 
 ```bash
 artifacty list --type handoff --review-status pending --created-after 2025-01-01
@@ -586,7 +584,7 @@ curl -s "http://127.0.0.1:8787/api/artifacts?q=handoff&limit=20&offset=0" \
 
 ### Optimistic Concurrency
 
-Every artifact response carries `latestVersion` and an `etag` (`"<id>:<latestVersion>"`). When two agents read the same version and both try to save a new one, the second write can silently discard the first agent's work. To avoid that, pass back the version you read as `expectedVersion` in the update body, or send it as an `If-Match` header (a weak `W/"..."` prefix is accepted):
+Every artifact response carries `latestVersion` and an `etag` (`"<id>:<latestVersion>"`). When two agents read the same version and both try to save a new one, the second write can replace the latest content without incorporating the first agent's changes. To avoid that, pass back the version you read as `expectedVersion` in the update body, or send it as an `If-Match` header (a weak `W/"..."` prefix is accepted):
 
 ```bash
 curl -s http://127.0.0.1:8787/api/artifacts/<id> \
@@ -604,7 +602,7 @@ If the artifact's `latestVersion` no longer matches, the update is rejected with
 
 `GET /api/artifacts/:id` sets an `ETag` header. If the request's `If-None-Match` matches the current version, the server returns `304 Not Modified`. The optional `expectedVersion` field preserves compatibility with clients that omit it.
 
-The browser editor sends a hidden `expectedVersion` field. If another agent updated the artifact first, the editor shows a conflict banner with a link to the diff view.
+The browser editor includes a hidden `expectedVersion` field. If another agent updated the artifact first, the editor shows a conflict banner with a link to the diff view.
 
 ## User administration and email
 
@@ -644,7 +642,7 @@ Schema and storage:
 - See [docs/mcp-public-api.md](docs/mcp-public-api.md) for MCP tools, resources, prompts, and compatibility notes.
 - See [docs/central-team-deployment-design.md](docs/central-team-deployment-design.md) for central team deployment.
 - See [docs/sarif-csv-artifact-plan.md](docs/sarif-csv-artifact-plan.md) for the SARIF/CSV output artifact roadmap.
-- See [docs/roadmap-design.md](docs/roadmap-design.md) for the design of planned features such as relations, change notifications, optimistic concurrency, comments, semantic search, visibility, token scopes, and retention.
+- See [docs/roadmap-design.md](docs/roadmap-design.md) for the original designs of relations, change notifications, optimistic concurrency, comments, semantic search, visibility, token scopes, and retention. The document distinguishes implemented features from later proposals.
 
 ## Public and Private Access Modes
 
@@ -653,15 +651,15 @@ upgraded store rather than ignoring its access policy.
 
 Administrators can open **Administration → Access** (`/admin/access`) to change the
 server's access mode without restarting it. Existing installations default to
-**public** mode. Explicitly public artifacts permit anonymous read-only access; team artifacts require authentication;
-artifacts marked private remain restricted to their owner and administrators.
+**public** mode. Explicitly public artifacts permit anonymous read-only access. Team artifacts require authentication.
+Artifacts marked private remain restricted to their owner and administrators.
 API authentication and write protection still apply in public mode.
 
 In **private** mode, browser visitors must sign in. An artifact is readable only
 by its owner, an administrator, or users explicitly granted access, directly or
 through a team. The existing `team` visibility value does not grant all users
 access in this mode. Sharing grants support **read**, **comment**, and **edit**.
-Commenters can add feedback and resolve their own comments; editors can also
+Commenters can add feedback and resolve their own comments. Editors can also
 append versions. The strongest direct or team grant applies. Ownership, sharing,
 archiving, and review-status control remain with owners and administrators.
 Administrators can access existing unowned artifacts. They can assign ownership
@@ -677,7 +675,7 @@ To grant artifact access:
 4. Select their permission levels.
 5. Save the sharing settings.
 
- The **Effective access** report shows each
+The **Effective access** report shows each
 user's actual permission and why it applies, anonymous access, and the global IP
 condition. Removing a grant or team membership takes effect on subsequent reads,
 search results, and change notifications. Personal API tokens carry the same
@@ -690,8 +688,8 @@ The same admin page accepts an optional IP/CIDR allowlist, one address or networ
 per line (for example `192.168.10.0/24` or `2001:db8:1234::/48`). If the list is empty,
 all source addresses are allowed. If the list has entries, it restricts **all HTTP routes**
 in both modes. This includes login, raw downloads, API routes, and HTTP MCP.
-IP permission does not replace user or artifact permissions. Saving a list that
-excludes the administrator's current connection address is rejected. Browser
+An allowed IP address does not replace user or artifact permissions. Artifacty rejects a list that
+excludes the administrator's current connection address. Browser
 changes are provisional for **120 seconds**: confirm that access still works to
 keep the change, or roll it back. Unconfirmed changes revert before the next
 policy check after the deadline, even across server restarts. A second change is
@@ -724,7 +722,7 @@ Owners and administrators can create a read-only link from an artifact's
 2. Set an expiration (seven days by default).
 3. Copy the URL when it is first shown.
 
-Only a hash is stored, so the complete URL is not shown again. Links can be
+Artifacty stores only a hash, so it cannot show the complete URL again. Links can be
 revoked individually and are permanently revoked on ownership transfer.
 Archived artifacts and deleted versions cannot be read through their links.
 
@@ -754,7 +752,7 @@ artifacty samples remove
 
 Installation is idempotent within the installing account (or local CLI scope).
 Reinstalling restores archived samples without overwriting edits. Removal
-archives managed samples and preserves their versions; it does not delete other
+archives managed samples and preserves their versions. It does not delete other
 artifacts with similar names or tags. In private mode, share the installed
 manuals with the intended users or teams from each artifact's Sharing page.
 
@@ -768,10 +766,10 @@ manuals with the intended users or teams from each artifact's Sharing page.
   If a scope check fails, the server returns `403` with `code: "scope_denied"`. It also writes a rate-limited `token-scope-denied` audit row. For MCP tokens without `write`, `tools/list` omits tools that change data. Calls to those tools return `structuredContent.code: "scope_denied"`.
 - Once any user account exists, artifacts use `visibility` (`public`, `team`, or `private`, default `team`) and `ownerUserId`. In public server mode, `public` allows anonymous read-only access; `team` requires authentication; `private` permits only the owner or administrator. Writes and owner-management operations remain permission-checked. In private mode, explicit sharing controls access. Restricted reads return 404 to avoid disclosing existence. The no-account single-user mode remains a separate local behavior. Change visibility or ownership through `POST /api/artifacts/:id/visibility`, `POST /api/artifacts/:id/owner`, `artifacty visibility <id> private|team|public`, or `artifacty_set_visibility`.
 - HTTP and MCP-over-HTTP requests are rate limited per `(token or user or remote address, bucket)` in fixed one-minute windows: `write` (mutating routes, default 120/min, `ARTIFACTY_RATE_WRITE_PER_MIN`), `auth` (`/login`, default 10/min per address, `ARTIFACTY_RATE_AUTH_PER_MIN`), and `search` (`GET /api/artifacts?q=`, default 300/min, `ARTIFACTY_RATE_SEARCH_PER_MIN`). Rate limiting is disabled on a loopback bind unless `ARTIFACTY_RATE_LIMIT=always`, and always disabled with `ARTIFACTY_RATE_LIMIT=off`. Exceeding a limit returns `429` with a `Retry-After` header, `code: "rate_limited"`, and a rate-limited `rate-limited` audit row.
-- Binding outside localhost requires both `ARTIFACTY_SHARE_MODE=lan` or `team` and `ARTIFACTY_API_TOKEN`.
+- To bind outside localhost, set `ARTIFACTY_SHARE_MODE=lan` or `team` and also set `ARTIFACTY_API_TOKEN`.
 - Non-local sharing is intended for trusted LAN or VPN sessions. Prefer a specific interface IP over `0.0.0.0`, keep React rendering disabled, and see [docs/network-sharing.md](docs/network-sharing.md).
 - Non-local binding prints a startup warning because Artifacty does not terminate TLS.
-- Artifact content is scanned for common API keys and private keys before storage. Use `--allow-secrets` or `ARTIFACTY_ALLOW_SECRETS=true` only for intentional exceptions.
+- Before storing artifact content, Artifacty scans it for common API keys and private keys. Use `--allow-secrets` or `ARTIFACTY_ALLOW_SECRETS=true` only for intentional exceptions.
 - Creates, updates, reads, imports, archives, restores, no-op browser edits, and admin version repair/delete actions write audit events to SQLite. Legacy artifacts without a stored publisher are best-effort backfilled from their first `create` or `import` audit actor.
 - CodeMirror editor/viewer and renderer assets are served from local npm dependencies through a package allowlist, not from a public CDN. JavaScript asset routes answer `Origin: null` requests with `Access-Control-Allow-Origin: null` so sandboxed renderer iframes can import local ESM without `allow-same-origin`.
 - Mutating HTTP routes reject non-local browser origins.
@@ -780,12 +778,12 @@ manuals with the intended users or teams from each artifact's Sharing page.
 - Mermaid artifacts render with the vendored local Mermaid package in a sandboxed iframe without `allow-same-origin`.
 - React artifacts are source-only by default. Set `ARTIFACTY_ENABLE_REACT_RENDERER=true` to execute them in a sandboxed frame with a frame-scoped CSP that permits JSX transformation.
 - SARIF artifacts render a bounded findings summary and keep the full formatted JSON behind a raw-source details panel. The viewer adds client-side level filter chips (error/warning/note), a rule id text filter, and sort-by-level/rule/location over the rendered set, all as progressive enhancement (the server output is already correct without JS).
-- CSV artifacts render as an escaped, bounded table; `/raw` preserves the original text. The viewer adds client-side numeric-aware column sort (click a header) and a per-column contains filter, with a visible row count.
+- CSV artifacts render as an escaped table with size limits. `/raw` preserves the original text. The viewer adds client-side numeric-aware column sort (click a header) and a per-column contains filter, with a visible row count.
 - `GET /artifacts/:id/export?format=csv&sort=<col>&dir=asc|desc&filter=<col>:<text>[,...]` and `GET /artifacts/:id/export?format=sarif&level=error,warning&rule=<text>` re-parse the stored original (never `/raw` itself), apply the filter/sort, and stream a fresh file with `Content-Disposition: attachment`, capped at the max artifact byte size. Invalid parameters return 400 with `code: "invalid_export"`.
 - Image and video artifacts store base64 media inline, render safe previews, and decode bytes through `/raw`.
 - Markdown artifacts render fenced code blocks with CodeMirror read-only syntax highlighting client-side (the server output stays plain escaped HTML, so no-JS contexts still work), render ```mermaid``` fences through the same sandboxed Mermaid iframe as whole-document Mermaid artifacts (one lazily created iframe per diagram, capped by `ARTIFACTY_MAX_INLINE_DIAGRAMS`, default 20; extra diagrams stay as escaped code), render task lists as disabled checkboxes, and wrap tables in a horizontally scrolling container. Inline HTML in Markdown is always escaped.
-- Notebook (`.ipynb`) artifacts store the original notebook JSON unchanged; the viewer renders cells in order (Markdown cells through the same embedded Markdown pipeline, code cells as highlighted escaped source with their execution count), with outputs limited to `text/plain`, `text/markdown`, `image/png`, `image/jpeg`, `image/svg+xml` (scriptless sandboxed iframe), and `text/html` (sandboxed iframe); other output MIME types show a placeholder, outputs over 2 MB are replaced with a truncated notice, and rendering is bounded to the first 500 cells.
-- Artifact content should still be treated as untrusted; use the raw view when handing content back to an agent.
+- Notebook (`.ipynb`) artifacts store the original notebook JSON unchanged. The viewer renders cells in order (Markdown cells through the same embedded Markdown pipeline, code cells as highlighted escaped source with their execution count), with outputs limited to `text/plain`, `text/markdown`, `image/png`, `image/jpeg`, `image/svg+xml` (scriptless sandboxed iframe), and `text/html` (sandboxed iframe); other output MIME types show a placeholder. Outputs over 2 MB are replaced with a truncation notice. Rendering is limited to the first 500 cells.
+- Treat artifact content as untrusted. Use the raw view when handing content back to an agent.
 - npm releases are published with GitHub Actions OIDC Trusted Publishing after lint, test, and smoke checks pass.
 
 See [SECURITY.md](SECURITY.md), [docs/threat-model.md](docs/threat-model.md), and [docs/release-checklist.md](docs/release-checklist.md) before publishing or running a shared instance.

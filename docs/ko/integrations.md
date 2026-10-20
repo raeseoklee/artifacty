@@ -1,6 +1,7 @@
 [English](../integrations.md) | 한국어
 
 <!-- 번역 기준: 9e73a9f -->
+<!-- 문장·의미 대조: 2026-10-20, 영문 동시 개정본 기준 -->
 
 # 에이전트 연동
 
@@ -24,7 +25,7 @@ node src/cli.js serve --foreground --host 0.0.0.0 --share-mode lan --generate-to
 npm start -- --generate-token
 ```
 
-포그라운드 실행은 생성된 토큰과 바로 열 수 있는 생성·가져오기 URL을 출력합니다. 백그라운드 실행은 같은 값을 JSON으로 반환합니다.
+서버를 포그라운드에서 실행하면 생성된 토큰과 아티팩트 생성·가져오기 화면의 URL을 출력합니다. 이 URL은 브라우저에서 바로 열 수 있습니다. 백그라운드에서 실행하면 같은 값을 JSON으로 반환합니다.
 
 로컬 서버를 백그라운드에서 실행하려면 다음 관리 명령을 사용하세요.
 
@@ -52,13 +53,13 @@ node src/cli.js doctor --skip-mcp
 
 `doctor`는 Node 버전 지원 여부, 로컬 네트워크 노출 설정, 저장소 무결성, 관리 대상 서버 상태, 서비스 정의 생성, MCP 탐색을 확인합니다. 서버가 중지되어 있으면 실패가 아닌 경고로 보고합니다.
 
-로그인이나 시스템 시작 후에도 서버를 계속 실행하려면 운영체제의 서비스 관리자를 사용하세요. Artifacty의 `service` 명령은 macOS LaunchAgent, Linux systemd 사용자 유닛, Windows 작업 스케줄러 정의를 생성할 수 있습니다.
+로그인하거나 시스템을 시작할 때 서버를 자동으로 실행하려면 운영체제의 서비스 관리자를 사용하세요. Artifacty의 `service` 명령은 macOS LaunchAgent, Linux systemd 사용자 유닛, Windows 작업 스케줄러 정의를 생성할 수 있습니다.
 
 브라우저의 `http://127.0.0.1:8787/new`에서 아티팩트를 직접 생성할 수 있습니다.
 
 LAN이나 VPN으로 공유할 때도 다른 컴퓨터의 접근이 꼭 필요한 경우가 아니면 기본 로컬 바인딩을 유지하세요. `--host 0.0.0.0`을 사용하기 전에 [네트워크 공유](network-sharing.md)를 확인하세요.
 
-브라우저의 생성·가져오기·편집 화면은 CodeMirror 6를 사용합니다. Markdown, HTML, JSON, 소스 코드 형태의 텍스트, SVG, Mermaid, React, SARIF, CSV, 이미지, 동영상 아티팩트를 지원합니다. Artifacty는 로컬 npm 의존성에서 편집기와 렌더러 자산을 제공합니다. 이를 위해 `/assets/*.js`와 허용 목록에 있는 `/vendor/npm/*` 모듈 경로를 사용합니다. 샌드박스 iframe의 `Origin: null` 요청에는 `Access-Control-Allow-Origin: null`을 반환합니다. 이 방식으로 불투명 출처의 iframe이 `allow-same-origin` 없이 로컬 ESM을 가져올 수 있습니다.
+브라우저의 생성·가져오기·편집 화면은 CodeMirror 6를 사용합니다. Markdown, HTML, JSON, 소스 코드 형태의 텍스트, SVG, Mermaid, React, SARIF, CSV, 이미지, 동영상 아티팩트를 지원합니다. Artifacty는 로컬 npm 의존성에서 편집기와 렌더러 자산을 제공합니다. 이를 위해 `/assets/*.js`와 허용 목록에 있는 `/vendor/npm/*` 모듈 경로를 사용합니다. 샌드박스 iframe의 `Origin: null` 요청에는 `Access-Control-Allow-Origin: null`을 반환합니다. 이 방식으로 출처가 불투명한 iframe이 `allow-same-origin` 없이 로컬 ESM을 가져올 수 있습니다.
 
 브라우저 UI의 기본 언어는 영어입니다. 한국어 UI를 사용하려면 브라우저 경로에 `?lang=ko`를 추가하세요. API와 MCP 페이로드는 번역하지 않습니다.
 
@@ -123,14 +124,14 @@ artifacty users import --file users.csv
 
 행에 비밀번호가 없으면 Artifacty가 임시 비밀번호를 생성합니다. 이 비밀번호는 가져오기 결과에만 표시합니다. 가져온 사용자는 비밀번호를 변경해야 `/account`를 열고 MCP/API 토큰을 발급할 수 있습니다.
 
-- Claude: 프로젝트의 `.mcp.json`을 작성합니다. 부모 프로세스의 `MCP_TIMEOUT` 환경 변수가 시작 제한 시간을 제어합니다. 기본값은 30초입니다. Artifacty는 `.mcp.json`에 서버별 `timeout` 필드를 추가하지 않습니다.
+- Claude: 프로젝트의 `.mcp.json`을 작성합니다. 부모 프로세스에 설정한 `MCP_TIMEOUT` 환경 변수가 시작 제한 시간을 정합니다. 기본값은 30초입니다. Artifacty는 `.mcp.json`에 서버별 `timeout` 필드를 추가하지 않습니다.
 - Codex: `~/.codex/config.toml`의 `[mcp_servers.artifacty]`를 작성하거나 교체합니다. 다른 파일을 사용하려면 `--config`를 지정하세요. 생성된 블록은 느린 Windows 환경이나 첫 실행에 대비해 시작 제한 시간을 30초로 설정합니다.
 - Gemini: 프로젝트의 `.gemini/settings.json`을 작성하고 제한 시간을 30초로 설정합니다.
 - VS Code의 GitHub Copilot: VS Code의 `servers` 구조로 워크스페이스 `.vscode/mcp.json`을 작성합니다. 사용자 프로필의 `mcp.json`에 적용하려면 `--config`를 지정하세요.
 - Cursor: Cursor의 `mcpServers` 구조로 프로젝트 `.cursor/mcp.json`을 작성합니다. 전역 Cursor 설정에는 `--config ~/.cursor/mcp.json`을 사용하세요.
 - `--dry-run`은 파일을 쓰지 않고 생성된 설정을 반환합니다.
 - `--mcp-url <url>`은 중앙 Artifacty에 연결하는 stdio 브리지 모드를 설치합니다. URL에 경로가 없으면 `/mcp`를 추가합니다.
-- `--api-token <token>`은 브리지 모드용 MCP 환경 설정에 기록합니다. 중앙 서버에서는 `/account`에서 발급한 개인 토큰을 권장합니다.
+- `--api-token <token>`으로 지정한 토큰은 브리지 모드용 MCP 환경 설정에 기록됩니다. 중앙 서버에서는 `/account`에서 발급한 개인 토큰을 권장합니다.
 - `--url <url>`은 브라우저 링크만 재정의합니다. 이 옵션만으로 중앙 MCP 연결을 활성화하지는 않습니다.
 - `--timeout <ms>`는 Codex의 `startup_timeout_sec`와 Gemini의 `timeout`을 조정합니다. Claude Code의 시작 제한 시간은 변경하지 않습니다. Claude Code의 제한 시간을 늘리려면 실행 전에 `MCP_TIMEOUT`을 설정하세요.
 - `artifacty install all --config <path>`는 사용하지 마세요. MCP 클라이언트마다 설정 파일 구조가 달라서 공통 설정 경로 재정의를 허용하지 않습니다. 한 에이전트만 지정할 때 `artifacty install <agent> --config <path>`를 사용하세요.
@@ -194,7 +195,7 @@ claude mcp add --transport stdio artifacty -- node /path/to/artifacty/src/mcp-se
 }
 ```
 
-Claude 플러그인은 MCP 서버를 포함할 수 있습니다. 따라서 나중에 이 MCP 서버를 플러그인으로 묶을 수 있습니다. MVP에서는 서버를 독립적으로 유지합니다. Claude, Codex, Gemini, GitHub Copilot, Cursor 등 여러 MCP 클라이언트가 같은 연동 인터페이스를 사용하도록 하기 위해서입니다.
+Claude 플러그인은 MCP 서버를 포함할 수 있습니다. 따라서 나중에 이 MCP 서버를 플러그인으로 묶을 수 있습니다. MVP에서는 Claude, Codex, Gemini, GitHub Copilot, Cursor 등 여러 MCP 클라이언트가 같은 인터페이스로 연동할 수 있도록 서버를 독립적으로 제공합니다.
 
 Claude Code의 기본 MCP 시작 제한 시간은 30초입니다. 느린 환경에서 더 많은 시간이 필요하면 `MCP_TIMEOUT` 값을 늘려 실행하세요. 예를 들어 `MCP_TIMEOUT=45000 claude`를 사용할 수 있습니다. 시작 제한 시간을 설정하기 위해 `.mcp.json`에 `timeout` 필드를 추가하지 마세요. 이 필드는 도구 실행 제한 시간에 사용합니다.
 
@@ -303,13 +304,13 @@ node src/cli.js import --agent gemini --content '{"title":"Options","returnDispl
 - Claude: 로컬 `.html`, `.htm`, `.md`, `.svg`, `.mmd`, `.jsx`, `.tsx`, 소스 파일 또는 `title`/`content`/Claude 아티팩트 `type`을 포함한 JSON 페이로드입니다.
 - Codex: Markdown·텍스트·JSON 인수인계 파일, Artifacty 호환 JSON 페이로드, `agent` 또는 `sourceAgent`가 `codex`인 구조화된 인수인계·번들·변경 설명·리뷰·검증 JSON 페이로드입니다.
 - GitHub Copilot: Markdown·텍스트·JSON 출력, Artifacty 호환 JSON 페이로드, `agent` 또는 `sourceAgent`가 `github-copilot` 또는 `copilot`인 구조화된 인수인계·리뷰·변경 설명·검증 JSON 페이로드입니다.
-- Cursor: Markdown·텍스트·JSON 출력, Artifacty 호환 JSON 페이로드, `agent` 또는 `sourceAgent`가 `cursor`인 구조화된 인수인계·리뷰·변경 설명·검증·스크린샷·데모/동영상·시각 증거 번들 JSON 페이로드입니다.
+- Cursor: Markdown·텍스트·JSON 출력, Artifacty 호환 JSON 페이로드, `agent` 또는 `sourceAgent`가 `cursor`인 구조화된 인수인계·리뷰·변경 설명·검증·스크린샷·데모/동영상·시각 자료를 모은 검증 번들 JSON 페이로드입니다.
 - Gemini: `returnDisplay`, `llmContent`, 텍스트 블록 또는 로컬 Markdown·텍스트·JSON 파일입니다.
 - 일반 입력: 파일 확장자, 콘텐츠 유형, HTML doctype과 조각, JSON 구조, 미디어 data URL, Markdown 제목을 이용해 형식과 제목을 추론합니다. 일반 `text/plain` 업로드라도 파일명이나 내용으로 형식이 분명하면 `html` 같은 구체적인 형식으로 처리합니다.
 
 변환기는 생성 에이전트의 별칭을 정규화합니다. 예를 들어 `claude-code`와 `Claude Code`는 `claude`로 저장합니다. `imported` 태그와 생성 에이전트 태그를 추가합니다. 원본 콘텐츠는 변경 불가능한 Artifacty 버전으로 보존하고, 출처 정보는 `metadata.artifactyImport`에 기록합니다.
 
-Copilot/Cursor PR 리뷰, 스크린샷, 데모 녹화, 시각 증거 번들의 픽스처 예제는 `test/fixtures/`에 있습니다. 변환기 테스트에서 이 예제를 검증합니다.
+`test/fixtures/`에는 Copilot과 Cursor의 PR 리뷰, 스크린샷, 데모 녹화, 시각 자료를 모은 검증 번들 예제가 있습니다. 변환기 테스트에서 이 예제를 검증합니다.
 
 ## HTTP API
 
@@ -386,7 +387,7 @@ Linux 중앙 서버에서는 linger를 활성화하지 않으면 사용자의 sy
 
 ## 백업과 감사
 
-관리자는 `/admin/backup`에서 아티팩트 백업 JSON 파일을 내려받거나 현재 서버에 백업을 복원할 수 있습니다. 브라우저 복원은 소규모·중규모 이전에 적합합니다. 큰 번들은 CLI를 사용하세요.
+관리자는 `/admin/backup`에서 아티팩트 백업 JSON 파일을 내려받거나 현재 서버에 백업을 복원할 수 있습니다. 소규모·중규모 저장소를 이전할 때는 브라우저에서 복원할 수 있습니다. 큰 번들을 복원할 때는 CLI를 사용하세요.
 
 ```bash
 node src/cli.js audit --limit 20
@@ -395,6 +396,6 @@ node src/cli.js export --file ./artifacty-backup.json
 node src/cli.js import-store --file ./artifacty-backup.json
 ```
 
-기본 백업은 아티팩트 메타데이터와 변경 불가능한 버전 콘텐츠를 하나의 JSON 번들에 담습니다. 사용자, 세션, API 토큰 기록, 감사 로그는 제외합니다. 저장소 가져오기는 대상 아티팩트 기록을 교체하고 참조하지 않는 버전 파일을 제거합니다. 가져오기 전에 새 저장소 또는 의도한 대상 저장소를 `ARTIFACTY_HOME`으로 선택하세요.
+기본 백업은 아티팩트 메타데이터와 변경 불가능한 버전 콘텐츠를 하나의 JSON 번들에 담습니다. 사용자, 세션, API 토큰 기록, 감사 로그는 제외합니다. 저장소 가져오기는 대상 아티팩트 기록을 교체하고 참조하지 않는 버전 파일을 제거합니다. 가져오기 전에 `ARTIFACTY_HOME`을 새 저장소나 교체하려는 대상 저장소의 경로로 설정하세요.
 
 업그레이드 스냅샷은 스키마 마이그레이션을 보호하며, 선택적으로 애플리케이션 업데이트도 보호합니다. JSON 내보내기 백업과 달리 데이터베이스의 보안 상태를 원본 형태로 보존합니다. 복구 전에 모든 서버와 MCP 프로세스를 중지하세요. 자세한 내용은 [업그레이드 스냅샷과 복구](upgrade-backups.md)를 참고하세요.

@@ -20,7 +20,7 @@ uses one operator, one local store, and trusted local MCP clients.
   from LAN or team networks.
 - **MCP stdio server**: local process launched by an MCP client. It inherits the
   local user account's filesystem permissions. In bridge mode, it forwards
-  JSON-RPC to a configured central `/mcp` endpoint instead of touching local
+  JSON-RPC to a configured central `/mcp` endpoint instead of accessing local
   storage.
 - **HTTP MCP endpoint**: optional `POST /mcp` endpoint exposed only when
   `--mcp-http` or `ARTIFACTY_MCP_HTTP=true` is configured.
@@ -54,7 +54,7 @@ referrers.
 
 Controls:
 
-- Scripts should use `x-artifacty-token` or `Authorization: Bearer <token>`.
+- Scripts should send tokens in the `x-artifacty-token` or `Authorization: Bearer <token>` header.
 - Browser form token URLs exist only for local convenience.
 - Token comparisons use timing-safe digest comparison.
 - Personal API tokens are stored only as hashes.
@@ -75,7 +75,7 @@ Controls:
 
 - Mutating browser routes allow loopback or same-origin requests and reject
   cross-origin writes.
-- API routes require a token when configured.
+- When a server-wide API token is configured or user accounts exist, API routes require a valid server-wide or personal API token. Authentication does not bypass the route’s scope and artifact-access checks.
 - LAN/team mode does not allow arbitrary browser origins.
 
 ### Untrusted Artifact Rendering
@@ -151,7 +151,7 @@ Controls:
   `code: "scope_denied"` and writes a `token-scope-denied` audit row,
   throttled to one per token per minute.
 - The shared `ARTIFACTY_API_TOKEN` and browser sessions always have full
-  scopes — scoping only narrows a *personal* token.
+  scopes. Scope settings only restrict a *personal* token.
 - For HTTP MCP, `tools/list` omits write tools when the token lacks `write`.
   A direct call to one of these tools returns an `isError` result with
   `structuredContent.code: "scope_denied"`. The tool does not execute.
@@ -169,9 +169,10 @@ An attacker could also send repeated password guesses to `/login`.
 
 Controls:
 
-- A fixed one-minute-window in-memory limiter, keyed by
-  `(principal, bucket)` where principal is the token id, else the
-  authenticated user id, else the remote address.
+- The in-memory limiter uses fixed one-minute windows and the key
+  `(principal, bucket)`. The principal is the token ID. If there is no token
+  ID, it uses the authenticated user ID, or the remote address if neither
+  ID is available.
 - Buckets: `write` (mutating `/api/*` routes and browser write posts;
   default 120/min, `ARTIFACTY_RATE_WRITE_PER_MIN`), `auth` (`POST /login`;
   default 10/min per address, `ARTIFACTY_RATE_AUTH_PER_MIN`), `search`
@@ -222,22 +223,22 @@ Controls:
   (`224.0.0.0/4`), `0.0.0.0/8`, and IPv4-mapped IPv6 equivalents of all of
   the above (`::ffff:0:0/96`) are rejected as webhook target hosts unless
   `ARTIFACTY_WEBHOOK_ALLOW_PRIVATE=true` (intended for local development and
-  tests only — never set it on a shared or internet-reachable server). The
+  tests only; never set it on a shared or internet-reachable server). The
   IPv4 check parses every legacy `inet_aton` literal form (decimal, octal,
   hex, and 1-3 part shorthand, e.g. `2130706433`, `0177.0.0.1`, `0x7f000001`,
   `127.1`) into its 32-bit value before range-checking it, not just
-  four-part dotted-decimal, and the IPv6 check fully expands `::` and zone
-  ids before comparing groups, so an equivalent, differently-written form of
-  a blocked address (e.g. `[0:0:0:0:0:0:0:1]` for `::1`) is rejected the
-  same as its canonical form.
+  four-part dotted-decimal. The IPv6 check fully expands `::` and zone IDs
+  before comparing groups. It rejects alternate forms of a blocked address
+  in the same way as the canonical form. For example, it rejects
+  `[0:0:0:0:0:0:0:1]` as an alternate form of `::1`.
 - The guard is a literal-address check on the URL's hostname, evaluated only
   at webhook creation time (`assertPublicWebhookUrl`, also exercised by
   tests) — it does not resolve DNS, and it does not run again at delivery
   time. A hostname that resolves to a private/loopback address only when the
   outbound HTTP request is actually made (DNS rebinding, or a name whose
   records changed after the webhook was created) is not caught by this
-  control. Treat webhook creation as an admin-only, trusted-input operation,
-  not as safe to expose to untrusted callers.
+  control. Treat webhook creation as an administrator-only operation that
+  requires a trusted target URL. Do not expose it to untrusted callers.
 - Deliveries use `redirect: "manual"` and never follow redirects. A webhook
   target cannot use a 3xx response to send delivery to a blocked address.
 - The webhook secret is shown once, in the create response, and never stored
@@ -246,7 +247,7 @@ Controls:
   `X-Artifacty-Signature: sha256=HMAC-SHA256(key = secretHash, body =
   <raw request body>)`. A receiver that kept the raw secret from the create
   response verifies a delivery by computing `sha256(secret)` locally to
-  recover the same key before checking the HMAC — the server never needs to
+  recover the same key before checking the HMAC. The server does not need to
   read the raw secret again to sign future deliveries.
 - Webhook creation is admin-only once any user account exists; in
   single-user mode (no accounts configured) it is available to whoever holds
@@ -272,12 +273,14 @@ This includes sensitive drafts that the owner did not intend to share.
 Controls:
 
 - Administrators select public or private site mode at `/admin/access`.
-- In public mode, every artifact has `visibility` (`private` or `team`, default
-  `team`) and an `ownerUserId`. Only the owner or an administrator can read or
-  write `private` artifacts through normal artifact routes. Anonymous browser
-  visitors can read `team` artifacts. Authenticated principals can write them.
-  API authentication requirements still apply. `ARTIFACTY_TEAM_WRITE=owner` restricts these writes to owners and
-  administrators.
+- In public mode, every artifact has `visibility` (`private`, `team`, or
+  `public`, default `team`) and an `ownerUserId`. Anonymous browser visitors
+  can read `public` artifacts. Only the owner or an administrator can change
+  them. Reading or writing `team` artifacts requires a personal identity.
+  `ARTIFACTY_TEAM_WRITE=owner` further restricts these writes to owners and
+  administrators. Only the owner or an administrator can read or write
+  `private` artifacts through normal artifact routes. API authentication
+  requirements still apply. The no-account exception below also applies.
 - Private site mode requires a personal identity. Owners and administrators
   retain access. Other users need a direct or team grant. Grants permit
   reading, commenting, or editing. Artifacty applies the strongest matching
@@ -291,10 +294,11 @@ Controls:
 - List queries apply access checks in SQL for both metadata and FTS search.
   Relations to unreadable targets return `{ restricted: true }` without the
   target summary.
-- A shared `ARTIFACTY_API_TOKEN` has no personal identity. In public mode, it can
-  read and write `team` artifacts but cannot see `private` artifacts. In private
-  mode, it cannot read or create artifacts. Its administrative privileges on
-  other server routes do not grant a personal artifact identity.
+- A shared `ARTIFACTY_API_TOKEN` has no personal identity. In public mode with
+  user accounts, it can read `public` artifacts but cannot change them or access
+  `team` or `private` artifacts. In private mode, it cannot read or create
+  artifacts. Administrative privileges on other server routes do not give it
+  a personal artifact identity.
 - In public mode with no user accounts, user access checks do not apply.
 
 Guidance: use separate stores for mutually untrusted parties. Administrators can
@@ -314,7 +318,14 @@ Controls:
   them. The server stores token hashes and shows the raw token only at creation.
 - Share pages omit artifact ownership, tags, history, and internal artifact URLs.
   They use `Referrer-Policy: no-referrer` and `Cache-Control: no-store`.
-- All HTTP requests, including share links, obey the configured IP/CIDR allowlist.
+- By default, all HTTP requests, including share links, obey the configured
+  IP/CIDR allowlist. An administrator can enable **Allow shared links outside
+  these IP ranges**, which is off by default. This exception permits only
+  read access to a valid shared page and its raw content. It does not permit
+  access to the dashboard, search, API, MCP, or ordinary artifact URLs.
+  Expired or revoked links do not grant access. In private mode, the separate
+  setting that permits shared links must also be enabled. Changes to this
+  exception use the same confirmation and rollback process as IP ranges.
   The server checks the TCP peer address and ignores forwarding headers.
 - A network change must include the administrator's current address. It remains
   pending until confirmed. If it expires without confirmation, Artifacty restores
@@ -346,29 +357,29 @@ Controls:
 - Purging is irreversible and additionally requires
   `ARTIFACTY_RETENTION_ALLOW_PURGE=true` in the server's environment. A
   policy with purge candidates but no allow-purge gate set records them as
-  `purgeSkipped: true` in the sweep result instead of silently no-op'ing or
-  deleting anyway; the CLI's `--allow-purge` flag and the browser's "Allow
+  `purgeSkipped: true` in the sweep result instead of silently doing nothing or
+  deleting the candidates; the CLI's `--allow-purge` flag and the browser's "Allow
   purge" checkbox both map to the same environment-variable check rather
   than establishing an independent bypass.
 - Every applied sweep writes one `retention-sweep` audit summary row
   (actor `system:retention`), and every purged artifact gets its own
-  `retention-purge` audit row before deletion — `retention-purge` rows are
-  themselves exempt from `auditRetentionDays` pruning, so a purge always
-  remains traceable in the audit log even after the artifact it removed is
-  long gone.
+  `retention-purge` audit row before deletion. `retention-purge` rows are
+  exempt from `auditRetentionDays` pruning. The audit log therefore keeps a
+  record of the purge even after the artifact has been removed.
 - A purge deletes the artifact's dependent rows that cascade via foreign
   keys (comments, relations, embeddings) plus its `events` rows and search
   index entries (neither of which has a foreign key to the artifact, so
   those are cleared explicitly rather than relying on `ON DELETE CASCADE`).
-  Its audit log rows are the one thing that deliberately survive a purge —
-  they are the record that the purge happened.
+  Its audit log rows deliberately survive a purge. They record that the purge
+  happened.
 
 ## Out of Scope
 
 - Public internet hosting without a separate TLS/auth proxy.
 - OAuth. Personal API token scopes and direct or team artifact grants are
   supported, as described above.
-- Encrypted-at-rest storage.
+- Encrypted-at-rest storage in the current released version. Development work
+  on store encryption does not change the released version's security scope.
 - Malware analysis of arbitrary artifact content.
 
 ## Security Review Checklist

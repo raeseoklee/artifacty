@@ -10,7 +10,7 @@ Use this checklist before publishing or distributing Artifacty.
 npm run release:check
 ```
 
-This command runs syntax checks, the full Node test suite, and a local smoke test. The smoke test checks these operations:
+This command runs syntax checks, the full Node test suite, and a local smoke test. The smoke test verifies that Artifacty can:
 
 - Start the HTTP server with token authentication.
 - Create an artifact.
@@ -32,12 +32,12 @@ artifacty doctor
 
 ## Packaging
 
-- Confirm `package.json` `version` and `files` are intentional.
+- Confirm that `version` and `files` in `package.json` have the intended values.
 - Run `npm pack --dry-run`.
 - Inspect the paths in the package output.
 - Review the package size with renderer dependencies included. Mermaid is a default dependency.
   React, ReactDOM, and Babel standalone are optional dependencies for the gated React renderer.
-- Verify the global commands resolve after install: `artifacty`, `artifacty-mcp`.
+- After installation, verify that the shell can find the global commands `artifacty` and `artifacty-mcp`.
 
 ## Security
 
@@ -59,7 +59,7 @@ artifacty doctor
 - Confirm SVG viewer output removes `<script>`, `on*` attributes, and `javascript:` links.
 - Confirm `/raw` preserves the original source.
 - Test each renderer that executes client code in a browser. Confirm the rendered output.
-  A successful route response does not prove that Mermaid or React rendered inside the iframe.
+  A successful HTTP response does not prove that Mermaid or React rendered inside the iframe.
 - Keep `ARTIFACTY_ENABLE_REACT_RENDERER` disabled by default. Enable it only when the operator accepts arbitrary component execution risk.
 - Confirm the parent app CSP excludes `unsafe-eval`.
 - Confirm only the React frame response CSP permits `unsafe-eval`.

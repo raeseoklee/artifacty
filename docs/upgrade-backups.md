@@ -17,7 +17,7 @@ artifacty update --check
 artifacty upgrade --check --target-version <version> --home /path/to/store
 ```
 
-`--check` reports the release without changing the installation, service, or store. It works on other CLI platforms too and reports whether automatic installation is supported. It still needs network access to check the release. For the managed service, the updater compares the package version used by that service, not just the invoking CLI version. `--target-version` accepts an exact version. Without that option, the updater selects the latest release. `--home` selects the store to protect. Automatic downgrades are not supported. An explicitly selected older version is rejected; an older `latest` release leaves the newer installation unchanged.
+`--check` reports the release without changing the installation, service, or store. You can also run this check on other CLI platforms. It reports whether automatic installation is supported. The release check requires network access. For the managed service, the updater compares the package version used by that service, not just the invoking CLI version. `--target-version` accepts an exact version. Without that option, the updater selects the latest release. `--home` selects the store to protect. Automatic downgrades are not supported. An explicitly selected older version is rejected; an older `latest` release leaves the newer installation unchanged.
 
 For installed versions before 0.14.0, bootstrap the updater with:
 
@@ -39,15 +39,15 @@ Sign in with an administrator browser session. Open **Administration → Server 
 4. Select **Back up and update**.
 5. Keep the page open while the server restarts. Read the update result after reconnection.
 
-Confirmation expires after ten minutes and belongs to the browser session that checked the version. If it expires or the installed version changes, check again. Form submissions require the exact same origin as the server. No password re-entry is required.
+The update confirmation expires after ten minutes. Only the browser session that checked the version can use it. If it expires or the installed version changes, check again. Form submissions require the exact same origin as the server. No password re-entry is required.
 
 Browser installation requires this server to be the non-root Linux systemd user service. Other installations can check the latest release, but cannot start the update from this page. The worker runs in an independent systemd transient service, so stopping the Artifacty server does not stop the update worker. Status is stored outside the artifact store under `~/.local/share/artifacty/update-jobs`.
 
-Opening the page or reading status does not contact npm or install a package. Status checks can inspect systemd to identify a stopped worker. If dispatch is uncertain, the job remains reserved. An interrupted worker or incomplete recovery requires manual inspection before another update; it is not reported as success. Keep the retained snapshot and releases until recovery is verified.
+Opening the page or reading status does not contact npm or install a package. Status checks can inspect systemd to identify a stopped worker. If Artifacty cannot determine whether the worker started, it keeps the job reserved. If the worker stops unexpectedly or recovery is incomplete, inspect the job manually before another update. Artifacty does not report these states as success. Keep the retained snapshot and releases until recovery is verified.
 
 ### Automatic installation limits
 
-Automatic installation and restart support Linux with the systemd user service `com.artifacty.server`. Run the updater as the service's user. The unit must use the simple `ExecStart` form produced by Artifacty's installer and must explicitly pass `--home` for the selected store. Unsupported command expansion or quoting stops the update before service shutdown. Automatic updates reject root execution. Do not run the updater as root to replace a root-owned global package.
+Automatic installation and restart are supported on Linux with the systemd user service `com.artifacty.server`. Run the updater as the service's user. The unit must use the simple `ExecStart` form produced by Artifacty's installer and must explicitly pass `--home` for the selected store. Unsupported command expansion or quoting stops the update before service shutdown. Automatic updates reject root execution. Do not run the updater as root to replace a root-owned global package.
 
 The updater stages packages under `~/.local/share/artifacty/releases`. It changes the managed service's executable through a systemd drop-in and preserves its existing arguments and environment. User-owned launchers go under `~/.local/bin`. If that directory is not on `PATH`, add it before using those launchers. Existing unmanaged files in that directory are not overwritten. The existing root-owned global package remains unchanged. If `PATH` selects another command first, the result supplies an absolute `nextCommand`. The updater does not edit shell configuration.
 
@@ -59,7 +59,7 @@ Before updating, stop other HTTP servers and local MCP clients that use the same
 
 For an active service, the updater checks current health before shutdown. If its bind address or IP policy prevents that check, it refuses the update before downtime. Unsupported service configurations also fail before shutdown.
 
-The updater installs and verifies the exact target package in its staging directory. It then stops the managed service and creates and verifies a snapshot before switching code. If the service was active, it restarts the service and checks its health and PID. An inactive service remains inactive. It preserves the previous code and service configuration for rollback. If switching or startup fails, it attempts to restore the changed code, service configuration, and store, then restart the previous service. If service stop fails, it does not restore a store while the service may still be writing to it. A restored store includes the snapshot's credentials and security state. Review any recovery error before allowing clients to reconnect.
+The updater installs the exact target package in its staging directory and verifies it. It then stops the managed service, creates a snapshot, and verifies the snapshot before switching code. If the service was active, it restarts the service and checks its health and PID. An inactive service remains inactive. It preserves the previous code and service configuration for rollback. If switching or startup fails, it attempts to restore the changed code, service configuration, and store, then restart the previous service. If service stop fails, it does not restore a store while the service may still be writing to it. The restored store includes the credentials and security state from the snapshot. Review any recovery error before allowing clients to reconnect.
 
 An abrupt process or host termination during the switch can leave `update.lock` or a stopped service. The next update reports the lock instead of retrying blindly. Preserve snapshots, staged releases, and recovery files. Inspect the service and recovery state before a manual retry. Automatic rollback handles caught failures; it does not guarantee recovery from power loss or forced process termination.
 
@@ -102,7 +102,7 @@ Copy an `id` from the output. Verify that snapshot:
 artifacty backups verify <id> --home /path/to/store
 ```
 
-A successful response includes `valid: true`. Listing checks manifests; it does not replace full verification. From a repository checkout, use `node src/cli.js` in place of `artifacty`.
+A successful response includes `valid: true`. The list command checks manifests. It does not replace full snapshot verification. From a repository checkout, use `node src/cli.js` in place of `artifacty`.
 
 ## Restore a Snapshot
 

@@ -1,6 +1,7 @@
 [English](../mcp-public-api.md) | 한국어
 
 <!-- 번역 기준: 9e73a9f -->
+<!-- 문장·의미 대조: 2026-10-20, 영문 동시 개정본 기준 -->
 
 # MCP 공개 API
 
@@ -16,15 +17,15 @@ Artifacty의 MCP 서버는 에이전트 간 연동을 위한 기본 인터페이
 
 ## 공개 범위와 접근 제어
 
-관리자는 `/admin/access`에서 사이트 전체 접근 모드를 `public` 또는 `private`으로 선택할 수 있습니다. 공개 모드에서는 아래의 공개 범위 규칙을 유지합니다. 비공개 모드에서는 개인 신원이 필요합니다. 아티팩트를 읽을 수 있는 사람은 소유자, 관리자, 명시적으로 공유받은 사용자 또는 팀 구성원으로 제한합니다. 공유받은 사용자는 읽기, 댓글, 편집 권한 중 하나를 가집니다. 사용자에게 직접 부여된 권한과 팀을 통해 부여된 권한 중 가장 높은 권한을 적용합니다.
+관리자는 `/admin/access`에서 사이트 전체 접근 모드를 `public` 또는 `private`으로 선택할 수 있습니다. 공개 모드에서는 아래의 공개 범위 규칙을 유지합니다. 비공개 모드에서는 아티팩트의 공개 범위와 관계없이 개인 사용자 식별 정보가 필요합니다. 아티팩트를 읽을 수 있는 사람은 소유자, 관리자, 명시적으로 공유받은 사용자 또는 팀 구성원으로 제한합니다. 공유받은 사용자는 읽기, 댓글, 편집 권한 중 하나를 가집니다. 사용자에게 직접 부여된 권한과 팀을 통해 부여된 권한 중 가장 높은 권한을 적용합니다.
 
 댓글 권한으로 피드백을 남기고 자신의 댓글을 해결 처리할 수 있습니다. 편집 권한으로는 새 버전도 추가할 수 있습니다. 공유, 아카이브·복원, 리뷰 상태 관리는 소유자와 관리자만 수행할 수 있습니다. 토큰 범위는 추가 제한으로 적용됩니다. 사용자에게 편집 권한이 있어도 읽기 범위의 토큰으로는 변경 작업을 수행할 수 없습니다.
 
 비공개 모드에서는 공유 서버 토큰이나 익명 stdio 연결로 아티팩트를 읽거나 생성할 수 없습니다. 에이전트 접근에는 개인 API 토큰을 사용하세요. 공유를 취소하거나 팀 구성원을 제거하면 이후 리소스 읽기, 검색, 실시간 알림에 반영됩니다. HTTP 전송은 관리자의 IP/CIDR 허용 목록도 따릅니다. 전달 헤더가 아닌 TCP 연결 상대의 주소를 사용하며, 로컬 stdio에는 HTTP 출발지 주소가 없습니다.
 
-공개 모드에서는 서버에 사용자 계정이 생긴 뒤부터 아티팩트의 `visibility`와 `ownerUserId`로 접근을 제어합니다. 개인 API 토큰은 사용자를 식별합니다. 공유 `ARTIFACTY_API_TOKEN`에는 개인 신원이 없습니다. Artifacty는 이를 익명의 팀 접근 주체로 취급합니다. 이 주체는 `team` 아티팩트를 읽고 쓸 수 있지만, `private` 아티팩트는 읽을 수 없습니다.
+공개 모드에서는 서버에 사용자 계정이 생긴 뒤부터 아티팩트의 `visibility`와 `ownerUserId`로 접근을 제어합니다. 개인 API 토큰은 사용자를 식별합니다. 공유 `ARTIFACTY_API_TOKEN`은 개인 사용자를 식별하지 않습니다. Artifacty는 이를 익명 호출자로 취급합니다. 익명 호출자는 `public` 아티팩트를 읽을 수 있지만 수정할 수는 없으며, `team`이나 `private` 아티팩트는 읽을 수 없습니다. 인증된 사용자는 `team` 아티팩트를 읽고 수정할 수 있습니다. 단, `ARTIFACTY_TEAM_WRITE=owner`를 설정하면 팀 아티팩트의 쓰기 권한은 소유자와 관리자로 제한됩니다. `public` 아티팩트를 수정하거나 일반 아티팩트 경로로 `private` 아티팩트에 접근하려면 소유자나 관리자여야 합니다.
 
-로컬 stdio는 `ARTIFACTY_API_TOKEN`이 로컬 저장소의 개인 토큰으로 확인될 때만 개인 신원을 사용합니다. 그렇지 않으면 사용자 계정이 있는 저장소에서 익명으로 취급합니다. 사용자 계정이 생기기 전에는 공개 모드에서 이러한 사용자 접근 검사를 적용하지 않습니다.
+로컬 stdio는 `ARTIFACTY_API_TOKEN`이 로컬 저장소의 개인 토큰으로 확인될 때만 개인 사용자를 식별합니다. 그렇지 않으면 사용자 계정이 있는 저장소에서 익명으로 취급합니다. 사용자 계정이 생기기 전에는 공개 모드에서 이러한 사용자 접근 검사를 적용하지 않습니다.
 
 호출자가 아티팩트를 읽을 수 없으면 `artifacty_get`과 리소스 읽기는 `ARTIFACT_NOT_FOUND`를 반환하고, 목록 결과에서는 해당 아티팩트를 제외합니다. 아티팩트의 존재 자체가 노출되지 않도록 하는 규칙입니다. 읽기 권한은 있지만 필요한 쓰기 또는 관리 권한이 없으면 도구 결과에 `structuredContent.code === "forbidden"`을 포함합니다. 전체 권한 표는 [README의 보안 모델](../../README.ko.md)을 참조하세요.
 
@@ -32,14 +33,14 @@ Artifacty의 MCP 서버는 에이전트 간 연동을 위한 기본 인터페이
 
 안정적으로 유지하는 도구 이름은 다음과 같습니다.
 
-- `artifacty_create`: 네이티브 Artifacty 아티팩트를 생성합니다. 선택적인 `relations` 배열(`[{ toId, relation }]`)로 같은 호출에서 새 아티팩트를 다른 아티팩트와 연결할 수 있습니다. 선택적인 `visibility`도 받습니다. 값은 `"private"` 또는 `"team"`이며, 기본값은 `"team"`입니다.
+- `artifacty_create`: 네이티브 Artifacty 아티팩트를 생성합니다. 선택적인 `relations` 배열(`[{ toId, relation }]`)로 같은 호출에서 새 아티팩트를 다른 아티팩트와 연결할 수 있습니다. 선택적인 `visibility`도 받습니다. 값은 `"private"`, `"team"`, `"public"` 중 하나이며, 기본값은 `"team"`입니다.
 - `artifacty_publish`: 이전 버전과의 호환성을 위한 `artifacty_create`의 별칭입니다.
 - `artifacty_import`: 외부 Claude, Codex, Gemini, Copilot, Cursor, Artifacty 또는 일반 payload를 변환합니다.
-- `artifacty_list`: `query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `mode`, `includeArchived`, `view`, `limit`, `offset`으로 아티팩트 목록을 조회합니다. `relatedTo`는 지정한 아티팩트 ID와 어느 방향으로든 관련된 아티팩트로 결과를 제한하며, `relation`은 지정한 관계 이름으로 추가 제한합니다. `publisher`는 `publisherId`, `publisherUserId`, `ownerUserId`와 일치하는 항목을 찾습니다. `createdAfter`/`createdBefore`는 ISO 날짜 또는 날짜·시간을 받습니다. 파싱할 수 없으면 `isError: true` 결과와 `structuredContent.code === "invalid_filter"`를 반환합니다. `view`는 ID 또는 이름으로 저장된 뷰를 지정합니다([영문 로드맵 8절](../roadmap-design.md#8-dashboard-filters-and-saved-views) 참조). 먼저 해당 뷰의 필터를 펼친 다음, `view`와 함께 전달된 다른 인수로 해당 필터만 덮어씁니다. `mode`는 `"keyword"`, `"semantic"`, `"hybrid"` 중 하나입니다([영문 로드맵 6절](../roadmap-design.md#6-semantic-search) 참조). 임베딩 제공자(`ARTIFACTY_EMBEDDINGS_URL` 또는 `ARTIFACTY_EMBEDDINGS_COMMAND`)를 설정하고 `query`를 지정하면 `hybrid`가 기본값입니다. 제공자가 없으면 `semantic`/`hybrid`는 별도 오류 없이 `keyword`로 대체되며, 응답의 `search.fallback`은 `true`가 됩니다. 응답에는 `search.mode`가 포함됩니다. `semantic`/`hybrid` 결과에는 아티팩트별 `searchScore`도 포함됩니다.
+- `artifacty_list`: `query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `mode`, `includeArchived`, `view`, `limit`, `offset`으로 아티팩트 목록을 조회합니다. `relatedTo`는 지정한 아티팩트 ID와 어느 방향으로든 관련된 아티팩트로 결과를 제한하며, `relation`은 지정한 관계 이름으로 추가 제한합니다. `publisher`는 `publisherId`, `publisherUserId`, `ownerUserId`와 일치하는 항목을 찾습니다. `createdAfter`/`createdBefore`는 ISO 날짜 또는 날짜·시간을 받습니다. 파싱할 수 없으면 `isError: true` 결과와 `structuredContent.code === "invalid_filter"`를 반환합니다. `view`는 ID 또는 이름으로 저장된 뷰를 지정합니다([영문 로드맵 8절](../roadmap-design.md#8-dashboard-filters-and-saved-views) 참조). 먼저 해당 뷰의 필터를 적용한 다음, `view`와 함께 전달된 다른 인수로 해당 필터만 덮어씁니다. `mode`는 `"keyword"`, `"semantic"`, `"hybrid"` 중 하나입니다([영문 로드맵 6절](../roadmap-design.md#6-semantic-search) 참조). 임베딩 제공자(`ARTIFACTY_EMBEDDINGS_URL` 또는 `ARTIFACTY_EMBEDDINGS_COMMAND`)를 설정하고 `query`를 지정하면 `hybrid`가 기본값입니다. 제공자가 없으면 `semantic`/`hybrid`는 별도 오류 없이 `keyword`로 대체되며, 응답의 `search.fallback`은 `true`가 됩니다. 응답에는 `search.mode`가 포함됩니다. `semantic`/`hybrid` 결과에는 아티팩트별 `searchScore`도 포함됩니다.
 - `artifacty_get`: `id`와 선택적인 `version`으로 아티팩트 하나를 읽습니다. 응답에는 `relations: { outgoing, incoming }`이 포함됩니다. 각 항목에는 관련 아티팩트의 요약이 들어가며, 대상이 더 이상 없으면 `missing: true`를 포함합니다. `includeComments: true`를 전달하면 요청한 버전의 열린 댓글, 즉 미해결 상태이면서 삭제되지 않은 댓글을 `comments`로 함께 반환합니다. 기본적으로 댓글은 포함하지 않습니다.
-- `artifacty_update`: 변경 불가능한 버전을 추가합니다. 선택적인 `expectedVersion`을 받으며, 여기에 `artifacty_get`이 반환한 `latestVersion`을 전달합니다. 그 사이 아티팩트가 다른 `latestVersion`으로 바뀌었다면 새 버전을 생성하지 않습니다. 대신 `isError: true` 도구 결과에 `structuredContent.code === "version_conflict"`와 `structuredContent.latestVersion`을 포함합니다. 이를 통해 다른 변경 사항을 알리지 않고 덮어쓰는 일을 방지합니다. 에이전트는 수정할 때 마지막 `artifacty_get`의 `latestVersion`을 `expectedVersion`으로 전달하는 것이 좋습니다. `artifacty_create`와 같은 선택적 `relations` 배열도 받습니다.
+- `artifacty_update`: 변경 불가능한 버전을 추가합니다. 선택적인 `expectedVersion`을 받으며, 여기에 `artifacty_get`이 반환한 `latestVersion`을 전달합니다. 그 사이 아티팩트가 다른 `latestVersion`으로 바뀌었다면 새 버전을 생성하지 않습니다. 대신 `isError: true` 도구 결과에 `structuredContent.code === "version_conflict"`와 `structuredContent.latestVersion`을 포함합니다. 이를 통해 동시에 이루어진 다른 변경 사항이 알림 없이 덮어써지는 일을 방지합니다. 에이전트는 수정할 때 마지막 `artifacty_get`의 `latestVersion`을 `expectedVersion`으로 전달하는 것이 좋습니다. `artifacty_create`와 같은 선택적 `relations` 배열도 받습니다.
 - `artifacty_archive` / `artifacty_restore`: 아카이브 상태를 전환합니다. 사용자 계정이 하나라도 있으면 아티팩트 소유자 또는 관리자여야 합니다.
-- `artifacty_set_visibility`: `id`의 `visibility`를 `"private"` 또는 `"team"`으로 변경합니다. 사용자 계정이 하나라도 있으면 아티팩트 소유자 또는 관리자여야 합니다.
+- `artifacty_set_visibility`: `id`의 `visibility`를 `"private"`, `"team"`, `"public"` 중 하나로 변경합니다. 사용자 계정이 하나라도 있으면 아티팩트 소유자 또는 관리자여야 합니다.
 - `artifacty_link`: 한 아티팩트(`id`)에서 다른 아티팩트(`toId`)로 유형과 방향이 있는 관계를 만듭니다. `relation` 이름은 `derived-from`, `supersedes`, `reviews`, `references`, `part-of` 중 하나입니다.
 - `artifacty_unlink`: 동일한 `id`, `toId`, `relation`을 지정해 기존 관계를 제거합니다.
 - `artifacty_comment`: 아티팩트(`id`)에 댓글이나 답글을 추가합니다. `body`는 Markdown이며 최대 16 KB입니다. 선택적으로 `version`(기본값은 최신 버전), `anchor`(형식별 렌더링 힌트로, 예를 들어 `{ line: 42 }`이며 콘텐츠와 일치하는지 검증하지 않음), `parentId`를 받습니다. 답글은 최상위 댓글에만 달 수 있습니다. 스레드 깊이는 한 단계이므로 대상 댓글이 답글이어서는 안 됩니다.
@@ -52,7 +53,7 @@ Artifacty의 MCP 서버는 에이전트 간 연동을 위한 기본 인터페이
 
 도구 스키마는 Artifacty 스키마 v1의 형식과 아티팩트 유형을 사용합니다. 0.x 릴리스에서는 유지보수 담당자가 선택적 속성을 추가할 수 있습니다. 기존 속성의 이름은 마이그레이션을 문서화하지 않고 변경하지 않는 것이 좋습니다.
 
-저장소 검증 오류와 찾을 수 없음 오류에는 기계가 읽을 수 있는 `code`가 포함됩니다. 관계와 댓글 오류도 여기에 해당합니다. `tools/call`은 JSON-RPC 프로토콜 오류 대신 `isError: true` 도구 결과와 `structuredContent.code`를 반환합니다. 오류 코드에는 `INVALID_RELATION`, `SELF_RELATION`, `ARTIFACT_NOT_FOUND`, `RELATION_NOT_FOUND`, `COMMENT_NOT_FOUND`, `THREAD_TOO_DEEP`, `COMMENT_TOO_LARGE`, `INVALID_REVIEW_STATUS` 등이 있습니다. 클라이언트는 오류 메시지 텍스트를 파싱하지 않고 코드를 사용할 수 있습니다.
+저장소 검증 오류와 찾을 수 없음 오류에는 프로그램에서 처리할 수 있는 `code`가 포함됩니다. 관계와 댓글 오류도 여기에 해당합니다. `tools/call`은 JSON-RPC 프로토콜 오류 대신 `isError: true` 도구 결과와 `structuredContent.code`를 반환합니다. 오류 코드에는 `INVALID_RELATION`, `SELF_RELATION`, `ARTIFACT_NOT_FOUND`, `RELATION_NOT_FOUND`, `COMMENT_NOT_FOUND`, `THREAD_TOO_DEEP`, `COMMENT_TOO_LARGE`, `INVALID_REVIEW_STATUS` 등이 있습니다. 클라이언트는 오류 메시지 텍스트를 파싱하지 않고 코드를 사용할 수 있습니다.
 
 ## 리소스
 
@@ -89,7 +90,7 @@ streamable-HTTP `/mcp` 전송은 POST 요청마다 상태를 유지하지 않는
 
 각 프롬프트는 사용자 메시지 하나를 반환합니다. 이 메시지는 검색 가능한 `artifactType`, `sourceAgent`, 태그를 포함해 아티팩트를 생성하거나 수정하도록 에이전트에 지시합니다. 프롬프트는 `artifactId`, `goal`, `scope`, `target`, `version` 같은 선택적 컨텍스트 인수를 받습니다.
 
-`artifacty_handoff`와 `artifacty_review`는 생성·수정 호출에 `relations`를 전달하도록 추가로 지시해 그래프가 자동으로 채워지게 합니다. `artifacty_handoff`는 `relations: [{ toId: <source artifact ID>, relation: "derived-from" }]`를, `artifacty_review`는 `relations: [{ toId: <reviewed artifact ID>, relation: "reviews" }]`를 권장합니다.
+`artifacty_handoff`와 `artifacty_review`는 생성·수정 호출에 `relations`를 전달하도록 추가로 지시해 Artifacty가 관계 그래프를 자동으로 구성하도록 합니다. `artifacty_handoff`는 `relations: [{ toId: <source artifact ID>, relation: "derived-from" }]`를, `artifacty_review`는 `relations: [{ toId: <reviewed artifact ID>, relation: "reviews" }]`를 권장합니다.
 
 발견 사항이 몇 개뿐인 짧은 리뷰에서는 `artifacty_review`가 `artifacty_comment`를 권장합니다. 리뷰 판단을 기록할 때는 `artifacty_set_review_status`를 권장합니다. 긴 리뷰와 여러 파일을 대상으로 하는 리뷰는 별도의 리뷰 아티팩트를 사용합니다.
 
@@ -97,7 +98,7 @@ streamable-HTTP `/mcp` 전송은 POST 요청마다 상태를 유지하지 않는
 
 OpenAPI 3.1 문서는 모든 `/api/*` HTTP 경로와 `/mcp` JSON-RPC 엔드포인트를 설명합니다. HTTP 경로에는 아티팩트, 버전, 가져오기, 감사, 관리자 백업이 포함됩니다.
 
-- `GET /openapi.json`: 기계가 읽을 수 있는 문서입니다. 인증이 필요하지 않습니다. `cache-control: no-store`로 제공하므로 실행 중인 서버의 경로 구성을 항상 반영합니다.
+- `GET /openapi.json`: 프로그램에서 처리할 수 있는 문서입니다. 인증이 필요하지 않습니다. `cache-control: no-store`로 제공하므로 실행 중인 서버의 경로 구성을 항상 반영합니다.
 - `GET /docs/api`: 같은 문서에서 생성한 서버 렌더링 HTML 참조 페이지입니다. 외부 UI 번들이나 CDN에 의존하지 않습니다.
 - MCP 도구 `artifacty_info`와 `artifacty doctor`는 문서 URL을 `<serverUrl>/openapi.json`으로 알립니다.
 
@@ -115,7 +116,7 @@ OpenAPI 3.1 문서는 모든 `/api/*` HTTP 경로와 `/mcp` JSON-RPC 엔드포�
 `tools/list`는 `structuredContent`를 반환하는 모든 도구에 `outputSchema`를 제공합니다. 스키마는 앞에서 설명한 공유 스키마 테이블에서 생성합니다.
 
 - 로컬 stdio가 기본값입니다. `artifacty serve --mcp-http`로 중앙 HTTP 엔드포인트를 활성화하고, `artifacty install <agent> --mcp-url http://host:8787/mcp --api-token <token>`으로 브리지 모드를 설치하세요.
-- 중앙 서버에서는 `/account`에서 만든 개인 토큰을 사용하세요. 생성된 아티팩트의 `publisherId`에 토큰 소유자의 이메일이 포함되고, 감사 로그의 `actor`에도 같은 신원이 기록됩니다.
+- 중앙 서버에서는 `/account`에서 만든 개인 토큰을 사용하세요. 생성된 아티팩트의 `publisherId`에 토큰 소유자의 이메일이 포함되고, 감사 로그의 `actor`에도 같은 사용자가 기록됩니다.
 - 원격 MCP는 bearer 또는 헤더 토큰 인증을 사용합니다. 개인 토큰은 `read`, `write`, `admin` 범위를 지원합니다. OAuth는 지원하지 않습니다.
 - 바이너리 미디어 리소스는 MCP를 통해 저장된 base64 텍스트를 반환합니다. 브라우저의 `/raw`는 독립적인 `image`와 `video` 아티팩트를 바이트로 디코딩합니다.
 - 클라이언트마다 리소스와 프롬프트를 표시하는 방식이 다를 수 있습니다. 도구는 Claude, Codex, Gemini, Copilot, Cursor 전반에서 가장 널리 지원되는 연동 방식입니다.

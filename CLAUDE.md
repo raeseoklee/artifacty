@@ -6,7 +6,7 @@ Artifacty is a local, agent-to-agent artifact exchange for LLM workflows. One ag
 
 See `AGENTS.md` for repository structure, coding-style conventions, and commit/PR guidelines.
 
-For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Use clear sentences and consistent terms. Keep technical vocabulary precise. Write Korean in natural, fluent Korean rather than translating English sentence patterns.
+For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Apply relaxed STE-100 clarity principles to both languages. Preserve conditions, defaults, permissions, exceptions, and recovery requirements. For Korean, apply fluent-korean as well; resolve conflicts in this order: technical accuracy, natural Korean, then brevity and sentence form.
 
 ## Commands
 
@@ -30,7 +30,7 @@ The three entry points are thin adapters:
 - `src/cli.js` handles command-line workflows.
 - `src/mcp-server.js` handles MCP JSON-RPC over stdio.
 
-Shared behavior belongs in `src/lib/*`. Storage logic lives in `src/lib/storage.js`, conversion logic in `src/lib/converters.js`, installer logic in `src/lib/installer.js`, security checks in `src/lib/security.js`, and server URL discovery in `src/lib/server-state.js`.
+Shared behavior belongs in `src/lib/*`. Use `src/lib/storage.js` for storage, `src/lib/converters.js` for conversion, and `src/lib/installer.js` for installers. Security checks belong in `src/lib/security.js`; server URL discovery belongs in `src/lib/server-state.js`.
 
 ### Storage Model
 
@@ -43,7 +43,9 @@ The store lives at `ARTIFACTY_HOME` or `~/.artifacty` by default.
 
 Versions are append-only. To correct a historical version, use the admin repair (`replaceArtifactVersion`) or delete (`deleteArtifactVersion`) path. These paths record every change in the audit log. Do not modify prior content files through other paths.
 
-Before changing upgrade behavior, read [upgrade snapshots and recovery](docs/upgrade-backups.md). `src/lib/upgrade-backup.js` protects schema migrations with a mandatory verified snapshot. Optional application-update snapshots use `ARTIFACTY_BACKUP_ON_UPDATE=true`. Keep recovery commands independent of normal storage initialization so they cannot trigger migration. Stop every server and MCP process before restoring a store. Test recovery only with temporary stores.
+Before changing upgrade behavior, read [upgrade snapshots and recovery](docs/upgrade-backups.md). Schema migrations require a verified snapshot through `src/lib/upgrade-backup.js`. Use `ARTIFACTY_BACKUP_ON_UPDATE=true` for optional application-update snapshots.
+
+Keep recovery commands independent of normal storage initialization so they cannot trigger a migration. Stop every server and MCP process before restoring a store. Test recovery only with temporary stores.
 
 ### Security Model
 

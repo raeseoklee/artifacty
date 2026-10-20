@@ -2,7 +2,7 @@
 
 English | [한국어](ko/network-sharing.md)
 
-Artifacty stores artifacts locally. By default, the server binds to `127.0.0.1` for use on one machine. You can bind to a non-local address for a short sharing session. This exposes the server to other machines.
+Artifacty stores artifacts locally. By default, the server binds to `127.0.0.1` for use on one machine. For a short sharing session, you can bind to a non-local address. Other machines can then reach the server.
 
 ## Recommended Defaults
 
@@ -28,7 +28,7 @@ artifacty serve --host 10.0.0.50 --share-mode team --api-token "$ARTIFACTY_BOOTS
 artifacty install all --mcp-url http://10.0.0.50:8787/mcp --api-token "$ARTIFACTY_PERSONAL_TOKEN"
 ```
 
-Use `0.0.0.0` only when you intentionally want Artifacty to listen on every network interface:
+Use `0.0.0.0` only if you intend to listen on every network interface:
 
 ```bash
 artifacty serve --host 0.0.0.0 --share-mode lan --generate-token
@@ -48,8 +48,9 @@ If Artifacty binds outside loopback, startup output warns that other machines ca
 
 In **Administration → Access → Network access**, enter one allowed IP address
 or CIDR per line. Commas also work. An empty list allows all addresses. Include
-your current connection IP, save, then confirm within 120 seconds. Otherwise,
-the previous policy is restored on the next access after the deadline.
+the IP address of your current connection. Save the policy, then confirm it
+within 120 seconds. If you do not confirm it, Artifacty restores the previous
+policy on the first access after the deadline.
 
 **Allow shared links outside these IP ranges** is off by default. Enable it to
 let people outside the allowed ranges read an artifact through its valid shared
@@ -59,14 +60,15 @@ revoked links do not grant access. Private mode still requires the separate
 setting that permits shared links in private mode. Saving this option uses the
 same confirmation and rollback process as the IP ranges.
 
-Rules use the direct socket peer, not forwarded IP headers. With a reverse
-proxy, that peer is the proxy; enforce client IP ranges at the proxy when needed.
+Artifacty applies the rules to the direct socket peer and ignores forwarded IP
+headers. With a reverse proxy, the peer is the proxy. If you need client IP
+restrictions, enforce them at the proxy.
 
 ## Browser Write Behavior
 
 Remote browsers can read pages allowed by the current access mode and artifact permissions. To submit a browser form, the request origin must match the Artifacty host. For example, `Origin: http://10.0.0.50:8787` matches `Host: 10.0.0.50:8787`. Routes that change data reject cross-origin browser requests to reduce CSRF risk. For scripts and agents, use API or MCP writes with an explicit token header.
 
-Keep the origin check enabled. A write from the central dashboard should pass when its origin matches the server. A write from another website should fail with `NON_LOCAL_ORIGIN`.
+Keep the origin check enabled. A write request from the central dashboard should pass when its origin matches the server. A write from another website should fail with `NON_LOCAL_ORIGIN`.
 
 ## Renderer Guidance
 

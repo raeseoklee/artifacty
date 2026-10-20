@@ -1,8 +1,8 @@
 # Central Team Deployment Design
 
 This document defines the design for a shared internal Artifacty service.
-Users connect Claude Code, Codex, Gemini, GitHub Copilot, Cursor, or another MCP
-client to one central Artifacty server.
+Users connect their MCP clients to one central Artifacty server. Clients can
+include Claude Code, Codex, Gemini, GitHub Copilot, and Cursor.
 
 ## Problem
 
@@ -13,29 +13,31 @@ directly. It can also run as a stdio bridge to a central `/mcp` endpoint.
 The installer `--url` option controls only the browser URL in MCP responses.
 Use `--mcp-url` to select central MCP mode.
 
-For a central deployment, every MCP client must write through the central
+In a central deployment, every MCP client must write through the central
 service. Clients must not write to local SQLite or shared network files. Use
 the native HTTP `/mcp` endpoint when the client supports it. The installer
 uses a local stdio bridge by default for compatibility with more clients.
 
 ## Goals
 
-- One central Artifacty store per internal deployment.
-- Native central MCP over Streamable HTTP for clients that support remote MCP.
-- Per-user local stdio bridge compatibility for clients that only support local
+- Use one central Artifacty store per internal deployment.
+- Provide native central MCP over Streamable HTTP for clients that support
+  remote MCP.
+- Provide a local stdio bridge for each user whose client supports only local
   stdio MCP configuration.
-- Stable install commands that can target a central server.
-- HTTP writes authenticated by tokens. Query strings must not contain tokens.
-- Clear audit attribution for user, agent, host, and client surface.
-- Safe defaults for LAN and team operation. Local operation must retain its
-  existing protections.
+- Provide stable install commands that can target a central server.
+- Authenticate HTTP writes with tokens. Query strings must not contain tokens.
+- Record clear audit attribution for the user, agent, host, and client surface.
+- Use safe defaults for LAN and team operation. Retain the existing
+  protections for local operation.
 
 ## Non-Goals
 
-- Public internet hosting without a reverse proxy, TLS, and stronger auth.
-- SQLite access over NFS or SMB as the recommended sharing model.
-- Relaxing browser-origin checks to make remote browser writes easier.
-- Removing the local stdio MCP path for single-user or legacy clients.
+- This design does not support public internet hosting without a reverse
+  proxy, TLS, and stronger authentication.
+- This design does not recommend sharing SQLite through NFS or SMB.
+- This design does not relax browser-origin checks to simplify remote writes.
+- This design does not remove local stdio MCP for single-user or legacy clients.
 
 ## Target Architecture
 
@@ -54,7 +56,7 @@ MCP client with stdio-only support
 
 The central MCP handler is the main team integration interface. HTTP JSON API
 routes remain available for scripts, browser workflows, and compatibility.
-A REST-only bridge should not implement a separate set of MCP tool behavior.
+A REST-only bridge should not define separate behavior for MCP tools.
 Both stdio and Streamable HTTP should use the same tool, resource, and prompt
 dispatcher.
 
@@ -62,15 +64,15 @@ dispatcher.
 
 Artifacty supports these explicit MCP operation modes:
 
-- `local`: default mode; MCP reads and writes the local store directly.
+- `local` is the default mode. MCP reads and writes the local store directly.
 - `streamable-http`: a central `/mcp` endpoint serves MCP over HTTP when
   `--mcp-http` or `ARTIFACTY_MCP_HTTP=true` is enabled.
-- `bridge`: local stdio process forwards MCP JSON-RPC to a remote `/mcp`
-  endpoint for clients that cannot connect to remote MCP directly.
+- In `bridge` mode, a local stdio process forwards MCP JSON-RPC to a remote
+  `/mcp` endpoint. Use it for clients that cannot connect to remote MCP directly.
 
 Select the mode explicitly. For backward compatibility, `ARTIFACTY_URL` must
-remain the public browser URL override. Use new variables to define remote
-MCP behavior:
+remain the public browser URL override. Use separate variables to define
+remote MCP behavior:
 
 ```bash
 ARTIFACTY_MCP_MODE=bridge
@@ -103,8 +105,8 @@ The current installer generates a local bridge entry for every supported client:
 }
 ```
 
-The installer should continue to support `--url` for link-only overrides.
-`--mcp-url` should imply central MCP behavior; `--url` should not.
+The installer should continue to support `--url` for overrides that affect
+links only. `--mcp-url` should select central MCP behavior. `--url` should not.
 
 ## Central Server Operation
 
@@ -127,8 +129,8 @@ login form creates an administrator. Administrators can create users from
 personal API tokens from `/account`.
 
 CSV imports support `email,name,role,password,password_reset_required`. If a
-password is blank, the importer generates it once. The user must change that
-password at first sign-in. Use personal tokens with
+password is blank, the importer generates a password and shows it once. The
+user must change that password at first sign-in. Use personal tokens with
 `artifacty install ... --api-token`. MCP and API audit logs then record the
 user's email as `actor`. Created artifacts record the same email as `publisherId`.
 
@@ -160,11 +162,12 @@ enable MCP access for a team.
 
 ## MCP Requirements
 
-Remote MCP mode needs complete parity with local MCP tools:
+Remote MCP mode must provide the same tools, resources, and prompts as local
+MCP:
 
-- create/import/list/get/update/archive/restore/audit/info
-- resources: recent artifact list, artifact by ID, schema
-- prompts: handoff, review, test report, visual QA, release notes
+- Support create/import/list/get/update/archive/restore/audit/info operations.
+- Provide resources for the recent artifact list, an artifact by ID, and the schema.
+- Provide prompts for handoff, review, test report, visual QA, and release notes.
 
 The stdio server and `/mcp` HTTP endpoint call the same dispatcher. This keeps
 tool schemas, resources, prompts, validation, and audit behavior consistent.
@@ -191,12 +194,12 @@ remains a compatibility fallback for the bootstrap/global token path.
 Central mode extends access from one machine to a team network. It requires
 these safeguards:
 
-- non-loopback binding still requires `ARTIFACTY_SHARE_MODE=lan|team`
-- central API always requires `ARTIFACTY_API_TOKEN`
-- remote MCP uses header auth only
-- shared instances should prefer TLS through a reverse proxy
-- browser-origin protections remain in place
-- artifact renderers continue treating stored content as untrusted
+- Keep `ARTIFACTY_SHARE_MODE=lan|team` mandatory for non-loopback binding.
+- Always require `ARTIFACTY_API_TOKEN` for the central API.
+- Authenticate remote MCP through headers only.
+- Prefer TLS through a reverse proxy for shared instances.
+- Retain browser-origin protections.
+- Continue treating stored content as untrusted in artifact renderers.
 
 For larger organizations, the planned next steps after personal tokens are
 scoped tokens, a token rotation policy, and SSO/OIDC.
@@ -209,17 +212,17 @@ scoped tokens, a token rotation policy, and SSO/OIDC.
   config for Claude, Codex, Gemini, GitHub Copilot, and Cursor.
 - `/login`, `/account`, and `/admin/users` provide server-side user management,
   administrator/user roles, CSV user import, required password reset, password
-  change, and personal token issue/revoke flows.
+  changes, and personal token creation and revocation.
 - Remote MCP requests use header auth and never put tokens in URLs.
 - Tests cover direct HTTP MCP calls and stdio bridge calls to a token-protected
   central server.
 
 ## Remaining Work
 
-- Client-specific direct remote MCP config generation where the client supports
-  it.
-- Scoped tokens, token rotation policy, and stronger audit identity.
-- Optional reverse proxy examples for TLS termination.
+- Generate client-specific configurations for direct remote MCP where the
+  client supports it.
+- Add scoped tokens, a token rotation policy, and stronger audit identity.
+- Add optional reverse proxy examples for TLS termination.
 
 ## Acceptance Criteria
 

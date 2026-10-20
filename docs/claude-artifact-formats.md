@@ -18,7 +18,7 @@ proposal. Dated implementation sections record the work completed at each stage.
 
 Users can import Claude artifacts through MCP `artifacty_import`, CLI `import`,
 or `POST /api/import`. Artifacty preserves their source and makes them available
-for listing, search, and browser viewing. The viewer uses local assets and keeps
+in lists, search results, and the browser viewer. The viewer uses local assets and keeps
 untrusted content inside the existing sandbox.
 
 Artifacty also imports Codex continuation artifacts as handoffs, bundles, reviews,
@@ -103,7 +103,7 @@ viewer must continue to treat the content as untrusted.
 
 - **Formats** are normalized to one of four values in `src/lib/storage.js`
   (`FORMAT_TO_EXTENSION`, `FORMAT_TO_CONTENT_TYPE`, `normalizeFormat`):
-  `html | markdown | text | json`. `md` aliases to `markdown`. Max 16 MiB.
+  `html | markdown | text | json`. `md` aliases to `markdown`. The maximum size was 16 MiB.
 - **`artifactType`** is a *separate*, descriptive taxonomy (not a renderer):
   `document, html-page, handoff, code-review, test-report, dashboard,
   design-option, diff-walkthrough, bundle, asset, unknown`.
@@ -201,19 +201,19 @@ It resizes the frame and contains untrusted code. Inert code text needs no frame
 
 - **`code`** → render read-only highlighted source. Reuse the vendored CodeMirror
   language modes (`@codemirror/lang-*`) in a read-only EditorView, or a lighter
-  static highlighter. No iframe needed (it is inert text); escape as today but with
-  token spans. Show the `language` label in the meta strip.
+  static highlighter. No iframe is needed because the source is inert text. Keep the existing
+  escaping behavior and add token spans. Show the `language` label in the meta strip.
 - **`svg`** → embed the SVG in a sandboxed iframe **without** `allow-scripts`
   (SVG can carry `<script>`/`on*` handlers). Optionally also strip script nodes and
-  event-handler attributes server-side as defense-in-depth. Center it, fit width.
+  event-handler attributes server-side as defense-in-depth. Center the image and fit it to the available width.
 - **`mermaid`** → a sandboxed iframe (`allow-scripts`, no `allow-same-origin`) whose
   `srcdoc` contains: an importmap to the vendored Mermaid module, an inline boot
   script that calls `mermaid.render(source)`, and the height reporter. The Mermaid
   source is injected as a data island, not interpolated into script.
 - **`react`** → a sandboxed iframe (`allow-scripts`, no `allow-same-origin`) that
   imports vendored React + ReactDOM and a JSX transform, compiles the component
-  source at runtime, and mounts it. Same height reporter. This is the most
-  security-sensitive and heaviest path (see Security).
+  source at runtime, and mounts it. Use the same height reporter. This path has the greatest security risk
+  and the largest runtime requirements (see Security).
 
 Reuse the existing HTML parent listener (`frameResizeScript`) and reporter
 injection for SVG, Mermaid, and React frames.
@@ -239,7 +239,7 @@ the larger additions opt-in.
   `metadata` JSON. `format` gains the new enum values.
 - `artifactType` mapping suggestions: `mermaid`/`svg` → `asset` or a new
   `diagram`; `react` → `design-option` or a new `component`; `code` → `code-review`
-  is wrong semantically, prefer a new `snippet`/`code` artifactType. Decide as part
+  misrepresents the content. Prefer a new `snippet`/`code` artifactType. Decide as part
   of the taxonomy review (Open Questions).
 
 ## Security considerations
@@ -247,8 +247,9 @@ the larger additions opt-in.
 The viewer renders **untrusted** content. Apply these security requirements:
 
 - Keep CSP local-only. Vendored libs are served from `/vendor/npm/*` (same origin);
-  no CDN, no `unsafe-eval` unless a renderer strictly requires it (a JSX transform
-  may — scope it to the artifact iframe via a per-iframe CSP, not the whole app).
+  do not use a CDN. Allow `unsafe-eval` only if a renderer requires it, such as
+  a JSX transform. Scope that permission to the artifact iframe through its
+  own CSP, not the whole app.
 - Keep `allow-same-origin` **off** for any scripted artifact iframe (Mermaid,
   React, HTML). Without it the iframe is an opaque origin and cannot touch the
   store, cookies, or `server.json`; cross-frame messaging stays `postMessage`-only
@@ -258,7 +259,7 @@ The viewer renders **untrusted** content. Apply these security requirements:
 - React/JSX runs arbitrary author code. If a runtime needs `eval`/`new Function`,
   confine it with a dedicated, tighter CSP applied to that iframe's `srcdoc`, and
   document the residual risk. Consider gating `react` rendering behind an explicit
-  opt-in (config flag) given the blast radius.
+  opt-in (config flag) because author code can execute in the frame.
 - Enforce `MAX_ARTIFACT_BYTES` and the existing secret-scan before persisting, for
   all new formats.
 
@@ -466,8 +467,8 @@ default behavior.
   runtime strategy.
 - Gate React execution behind an explicit config flag such as
   `ARTIFACTY_ENABLE_REACT_RENDERER=true`.
-- Default disabled behavior should show source plus a clear non-executing preview
-  state.
+- When execution is disabled, the viewer should show the source and clearly
+  state that the preview does not execute it.
 - If the transform requires `eval` or `new Function`, scope the relaxed CSP to the
   artifact iframe only, never the parent app.
 - Add tests proving the parent origin remains isolated and `allow-same-origin` is
@@ -531,7 +532,7 @@ test with an isolated temporary store:
   (iframe sandbox flags for svg/mermaid/react; highlighted block for code); `/raw`
   returns untouched source.
 - `mcp-server.test.js`: `artifacty_import` and `artifacty_create` accept the new
-  `format` enum values and echo them in `structuredContent`.
+  `format` enum values and return them in `structuredContent`.
 - A security test asserting SVG script/`on*` stripping and that scripted artifact
   iframes never carry `allow-same-origin`.
 
@@ -636,7 +637,7 @@ Status: Complete.
 
 Implemented:
 
-- Centralized the 30 second MCP timeout default used by Artifacty installers.
+- Centralized the MCP timeout default of 30 seconds used by Artifacty installers.
 - Codex config generation now supports custom `--timeout <ms>` by converting it to `startup_timeout_sec`.
 - Gemini config generation uses the same default and supports custom `--timeout <ms>`.
 - The Claude installer does not write a per-server `timeout` field. Claude Code

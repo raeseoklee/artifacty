@@ -1,6 +1,7 @@
 [English](../artifact-schema-v1.md) | 한국어
 
 <!-- 번역 기준: 9e73a9f -->
+<!-- 문장·의미 대조: 2026-10-20, 영문 동시 개정본 기준 -->
 
 # 아티팩트 스키마 v1
 
@@ -51,17 +52,17 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 
 변환기는 알 수 없는 레거시 유형이나 외부 유형을 거부하지 않고 `unknown`으로 매핑하는 것이 좋습니다. 네이티브 생성·수정 작업은 명시적으로 지정한 유형이 지원되지 않으면 요청을 거부합니다.
 
-`sourceAgent`는 아티팩트를 만든 도구나 모델 인터페이스를 식별합니다. 예를 들어 `codex`나 `claude`를 사용합니다. `publisherId`는 Artifacty 저장소에 아티팩트를 게시한 사람을 식별합니다. 인증을 사용하는 중앙 서버에서는 개인 토큰 소유자의 이메일입니다. 서버가 요청을 로컬 사용자 레코드와 연결할 수 있으면 `publisherName`과 `publisherUserId`도 포함합니다. 레거시 아티팩트에서는 최초 `create` 또는 `import` 감사 기록의 작업자를 바탕으로 이 필드를 채우려고 시도합니다.
+`sourceAgent`는 아티팩트를 만든 도구나 모델 인터페이스를 식별합니다. 예를 들어 `codex`나 `claude`를 사용합니다. `publisherId`는 Artifacty 저장소에 아티팩트를 게시한 사람을 식별합니다. 인증을 사용하는 중앙 서버에서는 개인 토큰 소유자의 이메일입니다. 서버가 요청을 로컬 사용자 레코드와 연결할 수 있으면 `publisherName`과 `publisherUserId`도 포함합니다. 레거시 아티팩트에서는 최초 `create` 또는 `import` 감사 기록의 작업자를 바탕으로 이 필드를 채우도록 시도합니다.
 
 알려진 에이전트 별칭은 저장 전에 표준 이름으로 정규화합니다. 예를 들어 `claude-code`, `Claude Code`, `anthropic`은 `claude`가 되고, `github-copilot`은 `copilot`, `gemini-cli`는 `gemini`가 됩니다. 기존 `unknown` 레코드는 버전 메타데이터, 감사 데이터, 에이전트 태그에서 알려진 에이전트를 확인할 수 있을 때만 갱신합니다.
 
-`visibility`는 `"private"` 또는 `"team"`이며, 기본값은 `"team"`입니다. `ownerUserId`는 소유자를 식별합니다. 공개 사이트 모드에서 일반 아티팩트 경로를 통해 `private` 아티팩트에 접근하려면 소유자 또는 관리자여야 합니다. 익명의 브라우저 방문자는 `team` 아티팩트를 읽을 수 있고, 인증된 주체는 수정할 수 있습니다. API 인증 요구사항은 그대로 적용됩니다. 이러한 쓰기 작업을 소유자와 관리자만 수행하도록 제한하려면 `ARTIFACTY_TEAM_WRITE=owner`를 설정하세요.
+`visibility`는 `"private"`, `"team"`, `"public"` 중 하나이며, 기본값은 `"team"`입니다. `ownerUserId`는 소유자를 식별합니다. 사용자 계정이 있는 공개 사이트 모드에서는 누구나 `public` 아티팩트를 읽을 수 있지만, 소유자나 관리자만 수정할 수 있습니다. 인증된 사용자는 `team` 아티팩트를 읽고 수정할 수 있습니다. 팀 아티팩트의 쓰기 권한을 소유자와 관리자로 제한하려면 `ARTIFACTY_TEAM_WRITE=owner`를 설정하세요. 일반 아티팩트 경로로 `private` 아티팩트에 접근하려면 소유자나 관리자여야 합니다. API 인증 요구사항은 그대로 적용됩니다.
 
-비공개 사이트 모드에서는 개인 신원이 필요합니다. 소유자와 관리자는 계속 접근할 수 있습니다. 그 외 사용자는 사용자 또는 팀에 직접 부여된 읽기, 댓글, 편집 권한이 있어야 합니다. 여러 권한이 일치하면 가장 높은 권한을 적용합니다. 두 모드 모두 아카이브, 복원, 공유, 공개 범위 변경, 소유권 변경은 소유자나 관리자만 수행할 수 있습니다. 토큰 범위에 따라 접근이 추가로 제한될 수 있습니다.
+비공개 사이트 모드에서는 공개 범위가 public인 아티팩트에도 개인 사용자 식별 정보가 필요합니다. 소유자와 관리자는 계속 접근할 수 있습니다. 그 외 사용자는 자신에게 직접 부여되거나 소속 팀을 통해 부여된 읽기, 댓글, 편집 권한이 있어야 합니다. 여러 권한이 일치하면 가장 높은 권한을 적용합니다. 두 모드 모두 아카이브, 복원, 공유, 공개 범위 변경, 소유권 변경은 소유자나 관리자만 수행할 수 있습니다. 토큰 범위에 따라 접근이 추가로 제한될 수 있습니다.
 
 소유자가 만든 공유 링크는 별도의 읽기 전용 접근 경로를 제공합니다. 비공개 사이트 모드에서는 관리자가 공유 링크를 명시적으로 허용해야 합니다. 만료와 폐기 규칙은 [공개 공유 링크](threat-model.md#public-share-links-and-network-restrictions)를 참조하세요.
 
-사용자 계정이 없는 공개 모드에서는 사용자 접근 검사를 적용하지 않습니다. `ownerUserId`의 기본값은 `publisherUserId`에서 가져온 생성 사용자입니다. 마이그레이션도 같은 규칙으로 기존 레코드의 이 필드를 채웁니다. 전체 권한 표는 [README의 보안 모델](../../README.ko.md)을 참조하세요.
+사용자 계정이 없는 공개 모드에서는 사용자 접근 검사를 적용하지 않습니다. `ownerUserId`의 기본값은 `publisherUserId`에서 가져온 생성자의 사용자 ID입니다. 마이그레이션도 같은 규칙으로 기존 레코드의 이 필드를 채웁니다. 전체 권한 표는 [README의 보안 모델](../../README.ko.md)을 참조하세요.
 
 `reviewStatus`는 `none`(기본값), `pending`, `changes-requested`, `approved` 중 하나입니다. 소유자나 관리자가 `POST /api/artifacts/:id/review-status`, `artifacty_set_review_status`, `artifacty review-status`로 설정할 수 있습니다.
 
@@ -95,9 +96,9 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 - `code`: 읽기 전용 CodeMirror 뷰어를 사용하며, 이를 사용할 수 없으면 이스케이프한 원본을 표시합니다.
 - `svg`: 뷰어에서 위험 요소를 제거한 뒤 스크립트를 실행하지 않는 샌드박스 iframe에 표시합니다. `/raw`는 원본을 그대로 보존합니다.
 - `mermaid`: 함께 배포하는 로컬 Mermaid 번들을 `allow-same-origin`이 없는 샌드박스 iframe에서 실행합니다. 출처가 불투명한 프레임에서도 ESM을 가져올 수 있도록, 로컬 JavaScript 자산은 `Origin: null` 요청에 `Access-Control-Allow-Origin: null`을 사용합니다.
-- `react`: 기본적으로 소스만 표시합니다. `ARTIFACTY_ENABLE_REACT_RENDERER=true`를 설정하면 JSX 변환과 실행을 위한 별도의 샌드박스 프레임을 활성화합니다. 이 프레임에는 프레임 범위의 CSP를 적용합니다.
+- `react`: 기본적으로 소스만 표시합니다. `ARTIFACTY_ENABLE_REACT_RENDERER=true`를 설정하면 JSX 변환과 실행을 위한 별도의 샌드박스 프레임을 활성화합니다. CSP는 해당 프레임에만 적용합니다.
 - `sarif`: 크기가 제한된 분석 결과 요약과 형식을 정리한 원본 JSON 상세 패널을 표시합니다.
-- `csv`: 행과 열의 수를 제한하고, RFC 4180 방식으로 처리한 이스케이프된 표를 표시합니다.
+- `csv`: 행과 열의 수를 제한하고, RFC 4180 방식으로 해석한 데이터를 이스케이프하여 표로 표시합니다.
 - `image`: base64 미디어 원본을 `<img>`로 표시합니다. `/raw`는 바이트로 디코딩합니다.
 - `video`: base64 미디어 원본을 `<video controls>`로 표시합니다. `/raw`는 바이트로 디코딩합니다.
 - `markdown`: fenced 코드 블록은 서버에서 이스케이프한 `<pre><code class="language-x">`로 렌더링합니다. 브라우저에서는 함께 배포하는 언어 패키지를 사용해 읽기 전용 CodeMirror 뷰로 전환합니다. JavaScript가 없어도 이스케이프된 마크업만으로 올바르게 표시됩니다. ```mermaid``` 블록은 문서 전체가 Mermaid인 아티팩트와 같은 샌드박스 Mermaid iframe으로 표시합니다. 다이어그램마다 iframe 하나를 만들며, `IntersectionObserver`를 통해 필요한 시점에 생성합니다. 문서별 개수는 `ARTIFACTY_MAX_INLINE_DIAGRAMS`로 제한하며 기본값은 20입니다. 한도를 넘는 블록은 안내문과 함께 이스케이프된 소스로 남깁니다. 작업 목록 항목(`- [ ]`/`- [x]`)은 비활성 체크박스로, 표는 가로로 스크롤할 수 있는 컨테이너 안에 표시합니다. Markdown 원본의 인라인 HTML은 항상 이스케이프하며 HTML로 해석하지 않습니다.
@@ -113,7 +114,7 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 - `bundlePolicy`: 번들 파일을 보존한 방식입니다.
 - `language`: 상위 에이전트가 제공한 코드 또는 컴포넌트 아티팩트의 소스 언어입니다.
 - `continuation`: 에이전트 출력에 관한 구조화된 인수인계·리뷰·검증 메타데이터입니다. 변경 파일, 명령어, 테스트, 장애 요인, 결정 사항, 다음 단계, 발견 사항, diff 텍스트, 잔여 위험을 포함합니다.
-- `<agent>Continuation`: 구조화된 작업 이어받기 메타데이터의 호환성용 사본입니다. 예를 들어 `codexContinuation`, `copilotContinuation`, `cursorContinuation`을 사용합니다.
+- `<agent>Continuation`: 호환성을 위해 유지하는 구조화된 작업 인수인계 메타데이터의 사본입니다. 예를 들어 `codexContinuation`, `copilotContinuation`, `cursorContinuation`을 사용합니다.
 
 ## 관계
 
@@ -170,11 +171,11 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 ```
 
 - `version`을 생략하면 아티팩트의 `latestVersion`을 사용합니다.
-- `body`는 Markdown이며 16 KB로 제한합니다(`MAX_COMMENT_BYTES`). 뷰어는 Markdown 형식 아티팩트와 동일하게 위험 요소를 제거하는 Markdown 렌더러를 사용합니다.
+- `body`는 Markdown이며 16 KB로 제한합니다(`MAX_COMMENT_BYTES`). 뷰어는 Markdown 형식 아티팩트와 같은 렌더러로 위험 요소를 제거한 뒤 표시합니다.
 - `anchor`는 선택 사항이며 형식에 따라 다릅니다. 텍스트 형식은 `{ "line": 42 }`, JSON/SARIF는 `{ "path": "$.runs[0].results[3]" }`, CSV는 `{ "row": 7 }`을 사용합니다. 렌더링을 위한 힌트일 뿐이며 실제 아티팩트 콘텐츠와 일치하는지 검증하지 않습니다.
 - 답글은 한 단계까지만 허용합니다. `parentId`를 지정한다면 자체 `parentId`가 없는 최상위 댓글을 가리켜야 합니다. 답글에 다시 답글을 달면 `code: "THREAD_TOO_DEEP"`를 반환합니다.
 - `status`는 `"open"` 또는 `"resolved"`입니다. 해결 처리를 통해 설정하며, 이때 `resolvedAt`/`resolvedBy`도 채웁니다.
-- 댓글은 소프트 삭제합니다. Artifacty는 `deletedAt`을 설정하고, 기본적으로 `listComments`와 `GET .../comments` 결과에서 해당 행을 숨깁니다. 삭제된 댓글까지 포함하려면 `includeDeleted: true`를 전달하세요. 댓글 행과 `comment-delete` 감사 기록은 보존합니다.
+- 댓글을 삭제해도 실제 행은 지우지 않고 삭제 상태로 표시합니다. Artifacty는 `deletedAt`을 설정하고, 기본적으로 `listComments`와 `GET .../comments` 결과에서 해당 행을 숨깁니다. 삭제된 댓글까지 포함하려면 `includeDeleted: true`를 전달하세요. 댓글 행과 `comment-delete` 감사 기록은 보존합니다.
 - 댓글을 읽으려면 해당 아티팩트에 접근할 수 있어야 합니다. 비공개 사이트 모드에서 댓글을 작성하려면 댓글·편집 권한이 있거나 소유자·관리자여야 합니다. 댓글 권한을 받은 사용자는 자신의 댓글을 해결 처리할 수 있습니다.
 - `author_label`은 호출자의 감사 컨텍스트에서 가져옵니다. 인증된 사용자의 표시 이름이나 이메일을 사용하고, 없으면 게시자 ID, `sourceAgent`, `"anonymous"` 순서로 대체합니다.
 
@@ -229,7 +230,7 @@ Gemini 멀티모달 payload도 같은 번들 유형을 사용하며, `parts`와 
 - 바이너리 항목의 `contentType`이 허용 목록에 없으면 거부합니다.
 - 바이너리 파일 콘텐츠와 바이너리 자산의 `data`는 텍스트가 아니므로 비밀정보 검사를 건너뜁니다. 다만 파일·자산 이름과 `files`/`assets`의 비바이너리 텍스트 콘텐츠는 계속 검사합니다.
 
-뷰어는 PDF 항목을 `GET /artifacts/:id/raw?file=<path>`를 가리키는 샌드박스 iframe에 표시합니다. 이 프레임에는 `allow-same-origin`과 스크립트를 허용하지 않습니다. 다른 문서 유형은 메타데이터와 같은 경로로 연결되는 다운로드 링크를 표시합니다. 이 경로는 항목의 `contentType`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`를 응답에 포함합니다. PDF에는 `Content-Disposition: inline`, 그 외에는 `attachment`를 사용합니다. 다른 아티팩트 읽기와 동일한 `access` 규칙을 적용하며, 호출자에게 아티팩트 읽기 권한이 없거나 `file` 이름을 찾을 수 없으면 404를 반환합니다.
+뷰어는 PDF 항목을 `GET /artifacts/:id/raw?file=<path>`를 가리키는 샌드박스 iframe에 표시합니다. 이 프레임에는 `allow-same-origin`과 스크립트를 허용하지 않습니다. 다른 문서 유형에는 메타데이터와 다운로드 링크를 표시합니다. 다운로드 링크도 같은 경로를 사용합니다. 이 경로는 항목의 `contentType`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`를 응답에 포함합니다. PDF에는 `Content-Disposition: inline`, 그 외에는 `attachment`를 사용합니다. 다른 아티팩트 읽기와 동일한 `access` 규칙을 적용하며, 호출자에게 아티팩트 읽기 권한이 없거나 `file` 이름을 찾을 수 없으면 404를 반환합니다.
 
 ## 자산 정책
 

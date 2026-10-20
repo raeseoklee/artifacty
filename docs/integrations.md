@@ -12,7 +12,7 @@ Use Node.js 22.12.0 or newer. The optional Babel 8 React renderer requires Node 
 npm start
 ```
 
-The dashboard prefers `http://127.0.0.1:8787`. If that port is busy and you did not configure a port, the server uses the next available local port. It records the actual URL in the store. The default store is `~/.artifacty`. To use a different local directory, set `ARTIFACTY_HOME`.
+The dashboard uses `http://127.0.0.1:8787` by default. If that port is busy and you did not configure a port, the server uses the next available local port. It records the actual URL in the store. The default store is `~/.artifacty`. To use a different local directory, set `ARTIFACTY_HOME`.
 
 Use a generated startup token when running a protected foreground server:
 
@@ -22,7 +22,7 @@ node src/cli.js serve --foreground --host 0.0.0.0 --share-mode lan --generate-to
 npm start -- --generate-token
 ```
 
-Foreground runs print the generated token with ready-to-open create and import URLs. Background runs return the same values in JSON.
+When the server runs in the foreground, it prints the generated token and URLs for creating and importing artifacts. You can open these URLs directly. Background runs return the same values in JSON.
 
 To run the local server in the background, use these lifecycle commands:
 
@@ -50,13 +50,13 @@ node src/cli.js doctor --skip-mcp
 
 `doctor` checks Node version support, local exposure settings, store integrity, managed server health, service definition rendering, and MCP discovery. A stopped server is reported as a warning, not a failure.
 
-For login/startup persistence, use the operating system's service manager. Artifacty's `service` command can generate macOS LaunchAgent, Linux systemd user-unit, and Windows Task Scheduler definitions.
+To start the server at login or system startup, use the operating system's service manager. Artifacty's `service` command can generate macOS LaunchAgent, Linux systemd user-unit, and Windows Task Scheduler definitions.
 
 Create artifacts directly in the browser at `http://127.0.0.1:8787/new`.
 
 For LAN or VPN sharing, keep the default local binding unless you intentionally need another machine to reach the server. See [network-sharing.md](network-sharing.md) before using `--host 0.0.0.0`.
 
-The browser create/import/edit screens use CodeMirror 6. They support Markdown, HTML, JSON, source-like text, SVG, Mermaid, React, SARIF, CSV, image, and video artifacts. Artifacty serves editor and renderer assets from local npm dependencies. It uses `/assets/*.js` and allowlisted `/vendor/npm/*` module routes. For sandboxed iframe imports, `Origin: null` requests receive `Access-Control-Allow-Origin: null`. This lets opaque-origin iframes import local ESM without `allow-same-origin`.
+The browser screens for creating, importing, and editing artifacts use CodeMirror 6. They support Markdown, HTML, JSON, source-like text, SVG, Mermaid, React, SARIF, CSV, image, and video artifacts. Artifacty serves editor and renderer assets from local npm dependencies. It uses `/assets/*.js` and allowlisted `/vendor/npm/*` module routes. For sandboxed iframe imports, `Origin: null` requests receive `Access-Control-Allow-Origin: null`. This lets opaque-origin iframes import local ESM without `allow-same-origin`.
 
 The browser UI defaults to English. Add `?lang=ko` to browser routes to use Korean UI labels; API and MCP payloads are not localized.
 
@@ -327,9 +327,9 @@ Supported converter inputs:
 
 The converter normalizes source-agent aliases. For example, it stores `claude-code` and `Claude Code` as `claude`. It adds `imported` and source-agent tags. It preserves the raw content as an immutable Artifacty version and records source details under `metadata.artifactyImport`.
 
-Fixture examples for Copilot/Cursor PR review, screenshot, demo recording, and
-visual evidence bundle live under `test/fixtures/` and are covered by converter
-tests.
+The `test/fixtures/` directory contains Copilot and Cursor examples for PR
+reviews, screenshots, demo recordings, and visual evidence bundles. Converter
+tests verify these examples.
 
 ## HTTP API
 
@@ -394,7 +394,7 @@ Use `--platform macos|linux|windows` when preparing a definition for another hos
 
 The generated service runs `src/server.js` with explicit `--host` and `--home` arguments. If you configure a port, it also includes `--port`. Otherwise, the default port fallback remains available. If you provide `--api-token`, `--share-mode`, or `--allow-secrets`, the generated definition preserves those values.
 
-Activation is still delegated to the OS service manager:
+Use the OS service manager to activate the service:
 
 - macOS: `launchctl load ~/Library/LaunchAgents/com.artifacty.server.plist`
 - Linux: `sudo loginctl enable-linger $USER`, then `systemctl --user enable --now com.artifacty.server.service`
@@ -407,8 +407,8 @@ For background services, prefer a stable `ARTIFACTY_API_TOKEN` or `--api-token` 
 ## Backup and Audit
 
 Administrators can open `/admin/backup` to download an artifact backup JSON file
-or restore a backup into the current server. The browser restore flow is useful
-for small and medium migrations; use the CLI for large bundles.
+or restore a backup into the current server. Use browser restore for small and medium migrations. Use the CLI for large
+bundles.
 
 ```bash
 node src/cli.js audit --limit 20
@@ -420,7 +420,7 @@ node src/cli.js import-store --file ./artifacty-backup.json
 The default backup contains artifact metadata and immutable version contents
 in one JSON bundle. It excludes users, sessions, API token records, and audit
 logs. A store import replaces the target artifact records and removes
-unreferenced version files. Before importing, select a new or intended
-`ARTIFACTY_HOME`.
+unreferenced version files. Before importing, set `ARTIFACTY_HOME` to a new store or the store you intend to
+replace.
 
 Upgrade snapshots protect schema migrations and optionally application updates. They preserve raw database security state and differ from JSON export backups. Stop all server and MCP processes before recovery. See [upgrade snapshots and recovery](upgrade-backups.md).

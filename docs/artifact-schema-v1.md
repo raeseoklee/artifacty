@@ -64,15 +64,16 @@ Known source-agent aliases are canonicalized before storage. For example,
 Existing `unknown` rows are upgraded only when version metadata, audit data, or
 source-agent tags provide one of the known agent identities.
 
-`visibility` is `"private"` or `"team"` (default `"team"`). `ownerUserId`
-identifies the owner. In public site mode, `private` artifacts require the owner
-or an administrator through normal artifact routes. Anonymous browser visitors can read `team` artifacts.
-Authenticated principals can write them. API authentication requirements still
-apply. Set `ARTIFACTY_TEAM_WRITE=owner` to restrict these writes to the owner
-or an administrator.
+`visibility` is `"private"`, `"team"`, or `"public"` (default `"team"`).
+`ownerUserId` identifies the owner. In public site mode with user accounts,
+anyone can read `public` artifacts, but only the owner or an administrator can
+write them. Authenticated users can read and write `team` artifacts. Set
+`ARTIFACTY_TEAM_WRITE=owner` to restrict team writes to the owner or an
+administrator. Through normal artifact routes, `private` artifacts require
+the owner or an administrator. API authentication requirements still apply.
 
-Private site mode requires a personal identity. Owners and administrators retain
-access. Other users need a direct or team grant with read, comment, or edit
+Private site mode requires a personal identity, even for artifacts whose
+visibility is public. Owners and administrators retain access. Other users need a direct or team grant with read, comment, or edit
 permission. Artifacty applies the strongest matching grant. Archiving, restoring,
 sharing, and changes to visibility or ownership require the owner or an
 administrator in both modes. Token scopes can further restrict access.
@@ -144,11 +145,11 @@ treat all source as untrusted:
   bytes.
 - `markdown`: fenced code blocks render as server-escaped
   `<pre><code class="language-x">`, upgraded client-side to a read-only
-  CodeMirror view using the vendored language packages; the escaped markup
-  alone is already correct without JS. ```mermaid``` fences render through
-  the same sandboxed Mermaid iframe as whole-document Mermaid artifacts, one
-  iframe per diagram created lazily via `IntersectionObserver`, capped per
-  document by `ARTIFACTY_MAX_INLINE_DIAGRAMS` (default 20; fences beyond the
+  CodeMirror view using the vendored language packages. The escaped markup
+  displays correctly even without JavaScript. ```mermaid``` fences render through
+  the same sandboxed Mermaid iframe as whole-document Mermaid artifacts, with one
+  iframe per diagram. Frames are created when needed through
+  `IntersectionObserver`. The number per document is capped by `ARTIFACTY_MAX_INLINE_DIAGRAMS` (default 20; fences beyond the
   cap stay as escaped source with a notice). Task list items (`- [ ]`/`- [x]`)
   render as disabled checkboxes; tables render inside a horizontally
   scrolling container. Inline HTML in Markdown source is always escaped, not
@@ -159,9 +160,9 @@ treat all source as untrusted:
   as escaped highlighted source with their execution count. Cell outputs are
   limited to `text/plain`, `text/markdown`, `image/png`, `image/jpeg`
   (decoded from base64), `image/svg+xml` (scriptless sandboxed iframe), and
-  `text/html` (sandboxed iframe); other MIME types show a placeholder naming
-  the type, `stream`/`error` outputs render as escaped text, and any output
-  over 2 MB is replaced with a truncated notice. Rendering is bounded to the
+  `text/html` (sandboxed iframe); other MIME types show a placeholder that names
+  the type. `stream`/`error` outputs render as escaped text. Any output
+  over 2 MB is replaced with a truncation notice. Rendering is bounded to the
   first 500 cells, with a notice when a notebook has more.
 
 ## Metadata
@@ -183,8 +184,8 @@ Metadata is free-form JSON, but converter-generated metadata uses these keys:
 
 ## Relations
 
-Artifacts can carry typed, directional relations to other artifacts, stored in
-an `artifact_relations` table (`from_id`, `to_id`, `relation`, `created_at`,
+Artifacts can have typed, directional relations to other artifacts. Relations
+are stored in an `artifact_relations` table (`from_id`, `to_id`, `relation`, `created_at`,
 `created_by`, `metadata_json`, unique per `(from_id, to_id, relation)`).
 
 Allowed `relation` values (closed set for v1):
@@ -252,10 +253,10 @@ Comments are lightweight, version-anchored notes stored in an
 - `version` defaults to the artifact's `latestVersion` when omitted.
 - `body` is Markdown with a 16 KB limit (`MAX_COMMENT_BYTES`). The viewer uses
   the same sanitized Markdown renderer as markdown-format artifacts.
-- `anchor` is optional and format-specific — `{ "line": 42 }` for text
+- `anchor` is optional and format-specific: `{ "line": 42 }` for text
   formats, `{ "path": "$.runs[0].results[3]" }` for JSON/SARIF, `{ "row": 7 }`
-  for CSV — and is a rendering hint only, not validated against the
-  artifact's actual content.
+  for CSV. It is only a rendering hint. Artifacty does not validate it against
+  the artifact's actual content.
 - Threads are one level deep. If supplied, `parentId` must identify a root
   comment, which has no `parentId`. A reply to another reply returns
   `code: "THREAD_TOO_DEEP"`.
@@ -337,9 +338,9 @@ Rules enforced on every write (`createArtifact`/`updateArtifact` and
 conversion via `convertAgentArtifact`):
 
 - Each binary file entry is capped at 32 MB decoded; the bundle artifact as a
-  whole still has to fit under the general `MAX_ARTIFACT_BYTES` limit
+  whole must still fit under the general `MAX_ARTIFACT_BYTES` limit
   (16 MB by default for text bundles; a bundle with document assets can
-  legitimately exceed that only if `MAX_ARTIFACT_BYTES` is raised, since the
+  exceed that limit only if `MAX_ARTIFACT_BYTES` is raised, since the
   base64 text itself counts toward the artifact size).
 - `path` (or `name`) must be a safe relative path: no `..` segments, no
   absolute or drive-letter paths, no control characters.

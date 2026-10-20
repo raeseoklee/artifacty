@@ -28,7 +28,9 @@ Artifacty shares LLM artifacts over HTTP, CLI, and MCP.
 
 ## Coding Style & Naming Conventions
 
-Use modern ESM JavaScript and Node built-ins where practical. Keep modules small and route shared behavior through `src/lib/*` instead of duplicating logic in CLI, HTTP, and MCP layers. Use two-space indentation, semicolons only where already present, `camelCase` for functions and variables, and descriptive tool names such as `artifacty_create`.
+Use modern ESM JavaScript and Node built-ins where practical. Keep modules small. Put shared behavior in `src/lib/*` so the CLI, HTTP, and MCP layers use the same implementation. Use two-space indentation, semicolons only where already present, `camelCase` for functions and variables, and descriptive tool names such as `artifacty_create`.
+
+For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Apply relaxed STE-100 principles while preserving technical meaning. In Korean, combine these principles with fluent-korean; prioritize accuracy, then natural Korean, then brevity and form.
 
 Do not add new dependencies unless the operational value clearly outweighs the extra install and security surface.
 
@@ -38,7 +40,7 @@ Use `node:test` and `node:assert/strict`. Name tests `*.test.js` and keep them c
 
 ## Commit & Pull Request Guidelines
 
-This repository has no existing Git history to infer from. Use concise, intent-first commit messages, and include useful trailers when relevant:
+Use concise, intent-first commit messages. Include trailers when they explain a constraint, verification result, or risk:
 
 ```text
 Add MCP artifact creation tool

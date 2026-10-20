@@ -28,9 +28,10 @@ Include the following information:
 Artifacty is local-first. The HTTP server binds to `127.0.0.1` by default.
 To bind outside loopback, set `ARTIFACTY_SHARE_MODE=lan|team` and an API token.
 
-The project treats artifact content as untrusted:
+Artifacty treats artifact content as untrusted:
 
-- HTML, SVG, Mermaid, and React rendering use sandboxed frames and scoped CSP.
+- HTML, SVG, Mermaid, and React render in sandboxed frames. Each frame uses
+  a scoped Content Security Policy (CSP).
 - React execution is disabled unless `ARTIFACTY_ENABLE_REACT_RENDERER=true`.
 - Mutating browser routes reject cross-origin writes. They allow loopback and
   same-origin requests.
@@ -40,12 +41,12 @@ The project treats artifact content as untrusted:
 
 Administrators can select public or private site access. Private mode requires
 a personal account and limits artifact access to owners, administrators, and
-users with direct or team grants. Grants permit reading, commenting, or editing.
+users with direct or team grants. A grant permits reading, commenting, or editing.
 Token scopes further restrict API and MCP actions.
 
 Administrators can also restrict HTTP access by IP address or CIDR range.
 Artifacty checks the TCP peer address and does not trust forwarding headers.
-Public share links require explicit administrator opt-in in private mode.
+In private mode, an administrator must explicitly enable public share links.
 
 Artifacty does not provide TLS termination, remote OAuth, or a hosted sync
 service. Do not expose the server directly to the public internet.

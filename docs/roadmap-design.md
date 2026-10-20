@@ -1,10 +1,10 @@
 # Artifacty Enhancement Roadmap Design
 
-This document specifies the design for the next set of Artifacty capabilities.
+This document records the design for a set of Artifacty capabilities.
 Each feature can be implemented and tested independently. Features are grouped
 by theme and listed in the recommended priority order.
 
-Every feature follows these architecture rules:
+Apply these architecture rules to every feature:
 
 - Put shared behavior in `src/lib/*`.
 - Keep the HTTP, CLI, and MCP interfaces as thin adapters.
@@ -63,8 +63,8 @@ stores upgrade on first access.
 
 ### 1.2 Audit actions
 
-Every new mutation writes an audit row through `insertAuditRecord`. New action
-names introduced in this document:
+Every new mutation writes an audit row through `insertAuditRecord`. This
+document introduces these action names:
 
 `relation-add`, `relation-remove`, `comment-add`, `comment-resolve`,
 `comment-delete`, `webhook-create`, `webhook-delete`, `webhook-deliver-failed`,
@@ -80,8 +80,8 @@ machine-readable `code`:
 { "error": "Version conflict", "code": "version_conflict", "details": { "latestVersion": 4 } }
 ```
 
-MCP tools map the same `code` into `isError: true` results with the code in
-`structuredContent.code`.
+MCP tools return the same `code` in `structuredContent.code` and set
+`isError: true`.
 
 ### 1.4 Feature flags
 
@@ -106,13 +106,15 @@ and its release notes, users must know the publishing agent's tag scheme.
 
 ### Goals
 
-- Typed, directional links between artifacts.
-- Discoverable from list, get, MCP resources, and the browser viewer.
-- Links survive archive and restore; a dangling link is reported, not deleted.
+- Provide typed, directional links between artifacts.
+- Make links discoverable through list and get operations, MCP resources, and
+  the browser viewer.
+- Preserve links through archive and restore. Report dangling links without
+  deleting them.
 
 ### Data model
 
-New table:
+Add this table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS artifact_relations (
@@ -131,7 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_relations_from ON artifact_relations(from_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON artifact_relations(to_id);
 ```
 
-Relation vocabulary (validated, closed set for v1):
+Validate relations against this closed vocabulary for v1:
 
 | Relation | Meaning |
 | --- | --- |
@@ -176,9 +178,10 @@ agent can then add the graph links without user intervention.
 
 ### Tests
 
-Round trip, uniqueness constraint, cascade on artifact delete, dangling
-reporting after admin version delete does not touch relations, `relatedTo`
-filter with pagination, MCP tool schema exposure.
+Test relation round trips, the uniqueness constraint, and cascading deletion
+when an artifact is deleted. Verify dangling-link reporting and confirm that
+admin version deletion does not change relations. Test the `relatedTo` filter
+with pagination and verify MCP tool schema exposure.
 
 ---
 
@@ -191,16 +194,17 @@ There is no push channel.
 
 ### Goals
 
-- In-process event bus that every mutation publishes to.
-- Browser and CLI consumers via Server-Sent Events.
-- External consumers via signed webhooks.
-- MCP consumers via `notifications/resources/updated` when the transport
-  supports it (`/mcp` HTTP transport and the stdio bridge).
+- Publish every mutation to an in-process event bus.
+- Support browser and CLI consumers through Server-Sent Events.
+- Support external consumers through signed webhooks.
+- Notify MCP consumers through `notifications/resources/updated` when the
+  transport supports it (`/mcp` HTTP transport and the stdio bridge).
 
 ### Non-goals
 
-- Durable delivery guarantees beyond bounded retry.
-- Cross-process fan-out between two server processes sharing one store.
+- This design does not guarantee durable delivery beyond bounded retries.
+- This design does not provide cross-process fan-out between two server
+  processes that share one store.
 
 ### Event model
 
@@ -244,12 +248,12 @@ CREATE TABLE IF NOT EXISTS events (
 );
 ```
 
-Retention: keep the newest `ARTIFACTY_EVENT_HISTORY` rows (default 10000);
-prune on insert.
+Keep the newest `ARTIFACTY_EVENT_HISTORY` rows (default 10000). Prune older
+rows when inserting a new event.
 
 ### SSE endpoint
 
-`GET /api/events` with `Accept: text/event-stream`.
+Request `GET /api/events` with `Accept: text/event-stream`.
 
 Query filters are `type`, `tag`, `artifactId`, and `sourceAgent`. Authentication
 uses the same token rules as other API routes. The server sends a heartbeat
@@ -286,10 +290,11 @@ CREATE TABLE IF NOT EXISTS webhooks (
 - SSRF guard: the target URL must be `http` or `https`; loopback, link-local,
   and private ranges are rejected unless `ARTIFACTY_WEBHOOK_ALLOW_PRIVATE=true`.
   Redirects are not followed.
-- Admin only for creation in team mode; the token owner in single-user mode.
+- In team mode, only administrators can create webhooks. In single-user mode,
+  the token owner can create them.
 
-Routes: `GET/POST /api/webhooks`, `DELETE /api/webhooks/:id`,
-`POST /api/webhooks/:id/test`. Browser page `/admin/webhooks`.
+Expose `GET/POST /api/webhooks`, `DELETE /api/webhooks/:id`, and
+`POST /api/webhooks/:id/test`. Use `/admin/webhooks` as the browser page.
 
 ### MCP
 
@@ -310,9 +315,10 @@ See section 18 for `artifacty watch`.
 
 ### Tests
 
-Event ordering matches audit sequence, replay by `Last-Event-ID`, filter
-matching, webhook signature verification, SSRF rejection, retry then disable,
-MCP subscribe round trip through the HTTP transport, `artifacty_wait` timeout.
+Verify that event ordering matches the audit sequence. Test replay through
+`Last-Event-ID`, filter matching, webhook signatures, and SSRF rejection. Test
+webhook retries and disabling after repeated failures. Test an MCP subscription
+round trip through HTTP and an `artifacty_wait` timeout.
 
 ---
 
@@ -330,8 +336,8 @@ reporting a conflict.
   `etag` string equal to `"<id>:<latestVersion>"`.
 - `updateArtifact` accepts `expectedVersion` (number). In the existing
   transaction, check whether `artifact.latestVersion !== expectedVersion`.
-  If the versions differ, throw `VersionConflictError` with `latestVersion`. Write an
-  `update-conflict` audit row.
+  If the versions differ, throw `VersionConflictError` with `latestVersion`.
+  Write an `update-conflict` audit row.
 - HTTP: `POST /api/artifacts/:id/versions` (and the browser edit form) accept
   `If-Match: "<etag>"` or body `expectedVersion`. Conflict returns `409` with
   `code: "version_conflict"` and the current summary so the client can rebase.
@@ -351,9 +357,10 @@ and MCP writes.
 
 ### Tests
 
-Conflict raised inside the transaction (no version file written), success path
-with matching version, `If-Match` header parsing including weak validators,
-`304` on `If-None-Match`, browser banner rendering, MCP conflict result shape.
+Verify that a conflict is raised inside the transaction without writing a
+version file. Test successful updates with a matching version. Test `If-Match`
+parsing, including weak validators, and a `304` response to `If-None-Match`.
+Verify the browser conflict banner and the MCP conflict result shape.
 
 ---
 
@@ -393,7 +400,7 @@ CREATE INDEX IF NOT EXISTS idx_comments_artifact ON artifact_comments(artifact_i
   content.
 - `body` is Markdown with a 16 KB size limit. The renderer uses the same
   sanitized Markdown pipeline as artifact content.
-- Comments are soft-deleted; the audit log keeps the action.
+- Soft-delete comments and retain the action in the audit log.
 - Threads are one level deep (`parent_id` points to a root comment).
 
 ### Review state
@@ -419,9 +426,10 @@ publishing a separate review artifact when the review is short.
 
 ### Tests
 
-Thread depth limit, anchor pass-through, soft delete hides from list but audit
-remains, review status reset on new version, MCP tool round trip, Markdown
-sanitization of comment bodies.
+Test the thread depth limit and anchor pass-through. Verify that soft-deleted
+comments disappear from lists while their audit records remain. Test review
+status reset on a new version, MCP tool round trips, and Markdown sanitization
+of comment bodies.
 
 ---
 
@@ -430,13 +438,13 @@ sanitization of comment bodies.
 ### Problem
 
 FTS5 handles keyword queries. A natural-language question can miss relevant
-results if it uses different words. For example: "the analysis of last week's
-failed deploy".
+results if it uses different words. For example, a user might search for
+"the analysis of last week's failed deploy".
 
 ### Design principles
 
-- No mandatory dependency and no bundled model. A configurable provider
-  supplies embeddings.
+- Do not require an additional dependency or bundle a model. Use a
+  configurable provider to supply embeddings.
 - If semantic search is disabled or unavailable, keep the existing search
   behavior.
 - Store vectors in SQLite as BLOBs. Compute similarity in JavaScript. This
@@ -490,12 +498,12 @@ failures. Use `artifacty index rebuild --embeddings` to retry indexing.
 
 `GET /api/artifacts?q=...&mode=semantic|keyword|hybrid`.
 
-- `keyword`: current FTS5 path.
+- `keyword`: use the current FTS5 search path.
 - `semantic`: embed the query. Calculate cosine similarity across all vectors
   for the configured provider and model. Return the top `limit` results after
   `offset`.
-- `hybrid` (default when a provider is configured): reciprocal rank fusion of
-  keyword and semantic rankings, `k = 60`.
+- `hybrid` (default when a provider is configured): combine keyword and
+  semantic rankings through reciprocal rank fusion with `k = 60`.
 
 Responses add `search.mode` and per-row `search_score`. `artifacty_list` gets
 the same `mode` argument. The dashboard exposes a mode toggle only when
@@ -503,15 +511,16 @@ the same `mode` argument. The dashboard exposes a mode toggle only when
 
 ### Tests
 
-Provider-less path unchanged, `command` provider with a fixture script,
-cosine ordering, RRF merge determinism, rebuild command, secret redaction of
-the API key in doctor output.
+Verify that search without a provider remains unchanged. Test the `command`
+provider with a fixture script, cosine ordering, deterministic RRF merging,
+and the rebuild command. Confirm that doctor output redacts the API key.
 
 ---
 
 ## 7. SARIF and CSV Sort, Filter, Download
 
-Completes the "Future Extensions" list in `docs/sarif-csv-artifact-plan.md`.
+This section completes the "Future Extensions" list in
+`docs/sarif-csv-artifact-plan.md`.
 
 ### Design
 
@@ -520,8 +529,8 @@ Completes the "Future Extensions" list in `docs/sarif-csv-artifact-plan.md`.
 - SARIF viewer: add level filter chips (`error`, `warning`, `note`) and a rule
   id text filter. Allow sorting by level, rule, or location. Filter only the
   rendered results. Show a notice if the result set was truncated.
-- CSV viewer: click column header to sort; per-column contains filter; row
-  count shown.
+- In the CSV viewer, let users click a column header to sort. Provide a
+  per-column contains filter and show the row count.
 - Download: `GET /artifacts/:id/export?format=csv&filter=...&sort=...` for CSV,
   and `?format=sarif&level=error` for SARIF. The server re-parses the stored
   original, applies the filter, and streams a fresh file. `/raw` is untouched.
@@ -531,8 +540,9 @@ Completes the "Future Extensions" list in `docs/sarif-csv-artifact-plan.md`.
 
 ### Tests
 
-Fixture parsing, filter/sort parameter validation, export content type and
-byte cap, viewer script has no inline event handlers (CSP compatibility).
+Test fixture parsing, filter/sort parameter validation, export content types,
+and the export byte cap. Confirm that the viewer script has no inline event
+handlers, as required for CSP compatibility.
 
 ---
 
@@ -544,7 +554,7 @@ byte cap, viewer script has no inline event handlers (CSP compatibility).
   `createdBefore`, `reviewStatus`, `relatedTo`, and `mode` (search). Put the
   filters in query strings so users can share URLs. The CLI and MCP list
   interfaces reuse the same `listArtifactsPage` filters.
-- Saved views:
+- Store saved views in this table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS saved_views (
@@ -562,17 +572,18 @@ In single-user mode (no users table rows), views are global. In team mode,
 each view belongs to a user. Mark a view as `shared` to make it appear for
 everyone.
 
-- Routes: `GET/POST /api/views`, `DELETE /api/views/:id`; browser sidebar
-  lists views and a "Save current filters" action.
+- Expose `GET/POST /api/views` and `DELETE /api/views/:id`. The browser sidebar
+  lists views and provides a "Save current filters" action.
 - MCP: `artifacty_list` accepts `view: "<name or id>"` which expands to the
   saved filters, so a prompt can say "list the `open-reviews` view".
-- Dashboard grouping: optional `groupBy=artifactType|sourceAgent|day` renders
-  section headers; purely presentational.
+- The optional `groupBy=artifactType|sourceAgent|day` parameter renders
+  dashboard section headers. It changes presentation only.
 
 ### Tests
 
-Filter parsing edge cases (invalid dates), view ownership and sharing
-visibility, MCP view expansion, i18n keys present for `en` and `ko`.
+Test filter parsing edge cases, including invalid dates. Verify view ownership,
+sharing visibility, and MCP view expansion. Confirm that the i18n keys exist
+for `en` and `ko`.
 
 ---
 
@@ -580,7 +591,7 @@ visibility, MCP view expansion, i18n keys present for `en` and `ko`.
 
 ### Problem
 
-Artifacts, audit rows, and (after section 3) events grow without bound.
+Artifacts and audit rows grow without bound. After section 3, events do too.
 
 ### Design
 
@@ -614,7 +625,7 @@ Semantics:
   `ARTIFACTY_RETENTION_ALLOW_PURGE=true`.
 - `auditRetentionDays`: audit rows older than the window are deleted, except
   `version-repair`, `version-delete`, `retention-purge`, and
-  `owner-change` which are kept indefinitely.
+  `owner-change`, which are kept indefinitely.
 - Every sweep writes a summary row (`retention-sweep`). The row shows when
   the sweep ran and what it changed.
 
@@ -623,9 +634,9 @@ purge.
 
 ### Tests
 
-Policy parsing and defaults, `keepTags` exemption, dry-run produces no
-changes, purge removes files and dependent rows, audit exemptions, sweep
-idempotency.
+Test policy parsing, defaults, and the `keepTags` exemption. Confirm that a
+dry run makes no changes and that a purge removes files and dependent rows.
+Verify audit exemptions and sweep idempotency.
 
 ---
 
@@ -633,12 +644,12 @@ idempotency.
 
 ### Problem
 
-In team mode every user sees and can update every artifact. There are only two
-roles.
+In team mode, every user can see and update every artifact. The system has
+only two roles.
 
 ### Data model
 
-New columns on `artifacts`:
+Add these columns to `artifacts`:
 
 - `visibility TEXT NOT NULL DEFAULT 'team'` with values `private`, `team`.
 - `owner_user_id TEXT` backfilled from `publisher_user_id` on migration.
@@ -656,7 +667,8 @@ without changing the API shape.
 | Archive, restore, change visibility, change owner | owner, admin | owner, admin |
 | Admin version repair/delete | admin | admin |
 
-- In single-user mode (no users) everything is allowed as today.
+- In single-user mode (no users), keep the existing behavior that allows
+  every operation.
 - Anonymous access with a shared `ARTIFACTY_API_TOKEN` but no personal token
   is treated as `team` read/write and cannot see `private` artifacts.
 - List queries add a `WHERE visibility = 'team' OR owner_user_id = ?` clause;
@@ -665,7 +677,8 @@ without changing the API shape.
   expose it with a description that defaults to `team`.
 - `POST /api/artifacts/:id/visibility` and `POST /api/artifacts/:id/owner`
   (admin or owner) write `visibility-change` / `owner-change` audit rows.
-- Backup export includes both columns; import of an older bundle defaults them.
+- Include both columns in backup exports. When importing an older bundle,
+  supply their default values.
 
 ### Browser
 
@@ -675,9 +688,10 @@ artifacts".
 
 ### Tests
 
-Predicate applied on every read path including `/raw`, relation listing hides
-private targets from non-owners (returns `restricted: true` instead of the
-summary), MCP resource read denial, migration backfill of `owner_user_id`.
+Verify the visibility predicate on every read path, including `/raw`. Confirm
+that relation lists hide private targets from non-owners by returning
+`restricted: true` instead of a summary. Test MCP resource read denial and
+migration backfill of `owner_user_id`.
 
 ---
 
@@ -708,8 +722,8 @@ Scopes:
 
 ### Tests
 
-Scope enforcement per route, MCP tool list filtering, admin scope requires
-admin role, default for legacy tokens.
+Test scope enforcement on each route and MCP tool list filtering. Verify that
+admin scope requires an admin role and that legacy tokens receive the default.
 
 ---
 
@@ -726,7 +740,8 @@ the principal in this order: token id, user id, then remote address.
 | `auth` (login, token exchange) | 10 / minute per address | `ARTIFACTY_RATE_AUTH_PER_MIN` |
 | `search` | 300 / minute | `ARTIFACTY_RATE_SEARCH_PER_MIN` |
 
-- Disabled on loopback binds unless `ARTIFACTY_RATE_LIMIT=always`.
+- Disable rate limiting on loopback binds unless
+  `ARTIFACTY_RATE_LIMIT=always`.
 - Responses over the limit return `429` with `Retry-After` and
   `code: "rate_limited"`. MCP tools return the same as an error result.
 - Body size limits already exist (`MAX_ARTIFACT_BYTES`, `MAX_BACKUP_BYTES`);
@@ -735,8 +750,8 @@ the principal in this order: token id, user id, then remote address.
 
 ### Tests
 
-Window reset, principal selection order, loopback bypass, `Retry-After`
-header.
+Test window reset, principal selection order, and loopback bypass. Verify the
+`Retry-After` header.
 
 ---
 
@@ -766,8 +781,9 @@ the store to another server therefore requires manual steps.
 
 ### Tests
 
-Round trip of every table, v1 bundle compatibility, refusal conditions,
-sessions absent, file mode.
+Test a round trip for every table, compatibility with v1 bundles, and the
+conditions that refuse an import. Confirm that sessions are absent and that
+backup files have the required mode.
 
 ---
 
@@ -784,14 +800,14 @@ sessions absent, file mode.
   iframe path, one iframe per diagram, lazily created when scrolled into view.
   A per-document cap (`ARTIFACTY_MAX_INLINE_DIAGRAMS`, default 20) prevents
   resource exhaustion.
-- Task lists (`- [ ]`) render as disabled checkboxes; tables get horizontal
-  scroll containers.
-- No change to stored content or to `/raw`.
+- Render task lists (`- [ ]`) as disabled checkboxes. Put tables in
+  containers that allow horizontal scrolling.
+- Leave stored content and `/raw` unchanged.
 
 ### Tests
 
-Highlight class assignment, Mermaid fence extraction, cap enforcement,
-sanitization unchanged for inline HTML in Markdown.
+Test highlight class assignment, Mermaid fence extraction, and cap enforcement.
+Confirm that sanitization of inline HTML in Markdown remains unchanged.
 
 ---
 
@@ -799,9 +815,10 @@ sanitization unchanged for inline HTML in Markdown.
 
 ### Design
 
-- New format `notebook` (`.ipynb`, `application/x-ipynb+json`), default
-  artifact type `analysis-report`.
-- Import detection: JSON object with `nbformat` and `cells[]`.
+- Add the `notebook` format (`.ipynb`, `application/x-ipynb+json`) with
+  `analysis-report` as the default artifact type.
+- Detect an import as a notebook when its JSON object has `nbformat` and
+  `cells[]`.
 - The converter produces a normalized structure only for rendering. Store
   the original notebook JSON.
 - The viewer renders cells in order. Render Markdown cells through the
@@ -816,8 +833,8 @@ sanitization unchanged for inline HTML in Markdown.
 
 ### Tests
 
-Detection, cell rendering order, output MIME allowlist, oversized output
-truncation, `/raw` fidelity.
+Test detection, cell rendering order, and the output MIME allowlist. Verify
+truncation of oversized outputs and `/raw` fidelity.
 
 ---
 
@@ -839,7 +856,7 @@ createStructuredDiff(before, after, { format })
 | `bundle` | Per-file diff using the strategy of each file's format. |
 
 - `/artifacts/:id/diff?from=1&to=2&view=structured|lines` picks the renderer;
-  `structured` is default for JSON-like formats.
+  `structured` is the default for JSON-like formats.
 - `GET /api/artifacts/:id/diff?from&to` returns the diff as JSON.
 - MCP: `artifacty_diff` tool `{ id, from, to, view }` returns both a unified
   text rendering in `content[].text` and the structure in `structuredContent`.
@@ -848,8 +865,8 @@ createStructuredDiff(before, after, { format })
 
 ### Tests
 
-Key-matched array diff, positional fallback, CSV header change, word-level
-highlight escaping, cap flag, MCP tool shape.
+Test array diffs matched by key and their positional fallback. Test CSV header
+changes, escaping in word-level highlights, the cap flag, and the MCP tool shape.
 
 ---
 
@@ -866,13 +883,13 @@ highlight escaping, cap flag, MCP tool shape.
   `Content-Disposition: inline`; other document types show metadata and a
   download link with `Content-Disposition: attachment` and `X-Content-Type-
   Options: nosniff`.
-- Per-file cap 32 MB and total bundle cap remains `MAX_ARTIFACT_BYTES`.
-- Secret scanning is skipped for binary entries but file names are still
-  checked.
+- Cap each file at 32 MB. Keep the total bundle cap at `MAX_ARTIFACT_BYTES`.
+- Skip secret scanning for binary entries, but continue checking file names.
 
 ### Tests
 
-Type allowlist, disposition headers, size caps, download route auth.
+Test the type allowlist, disposition headers, size caps, and authentication
+on the download route.
 
 ---
 
@@ -885,9 +902,10 @@ artifacty watch --tag handoff --type artifact.updated --json
 artifacty watch --artifact release-handoff-abc12345 --exec "./on-change.sh"
 ```
 
-- Connects to `/api/events` using the URL from `server.json` or
-  `ARTIFACTY_URL`. If the connection drops, reconnects with `Last-Event-ID`.
-- Prints one JSON line per event with `--json`, or a human line otherwise.
+- Connect to `/api/events` using the URL from `server.json` or
+  `ARTIFACTY_URL`. If the connection drops, reconnect with `Last-Event-ID`.
+- With `--json`, print one JSON line per event. Otherwise, print a
+  human-readable line.
 - `--exec` runs the command with event JSON on stdin and `ARTIFACTY_EVENT_*`
   environment variables. It prints failures and continues watching.
 - `--once` exits after the first match (a shell-friendly `artifacty_wait`).
@@ -898,17 +916,19 @@ artifacty watch --artifact release-handoff-abc12345 --exec "./on-change.sh"
 artifacty diff <id> [--from N] [--to M] [--structured] [--json]
 ```
 
-Defaults `--to` to latest and `--from` to `to - 1`. Uses section 16.
+Default `--to` to the latest version and `--from` to `to - 1`. Use the diff
+behavior from section 16.
 
 ### `artifacty relations`, `artifacty comment`, `artifacty retention`, `artifacty views`
 
-Thin wrappers over the storage APIs described in their sections, following the
-existing `cli.js` command table pattern and JSON output conventions.
+Implement these commands as thin wrappers over the storage APIs described in
+their sections. Follow the existing `cli.js` command table pattern and JSON
+output conventions.
 
 ### Tests
 
-Argument parsing, reconnect logic with a mocked SSE server, `--once` exit
-code, `--exec` environment injection.
+Test argument parsing and reconnect logic with a mocked SSE server. Verify
+the `--once` exit code and `--exec` environment injection.
 
 ---
 
@@ -925,8 +945,9 @@ code, `--exec` environment injection.
 { method: "POST", path: "/api/artifacts", handler, auth: "write", summary, requestSchema, responseSchema }
 ```
 
-- Served at `GET /openapi.json` (no auth) and rendered as a static reference
-  page at `/docs/api` using server-side HTML (no external UI bundle).
+- Serve the document at `GET /openapi.json` without authentication. Render
+  a static reference page at `/docs/api` with server-side HTML and no
+  external UI bundle.
 - JSON Schemas reuse `ARTIFACT_FORMATS`, `ARTIFACT_TYPES`, and the MCP tool
   input schemas so one definition feeds both HTTP and MCP.
 - A test asserts every registered route appears in the spec and every spec
@@ -944,24 +965,25 @@ code, `--exec` environment injection.
   against the newest MCP specification. Use this checklist:
   - Negotiate the newest protocol version while continuing to accept
     `2025-06-18` from older clients.
-  - `tools/list` `outputSchema` for every tool that returns
-    `structuredContent`, generated from the same schema table as section 19.
-  - `resources/subscribe`, `listChanged` notifications (section 3).
+  - Generate `tools/list` `outputSchema` for every tool that returns
+    `structuredContent`. Use the same schema table as section 19.
+  - Support `resources/subscribe` and `listChanged` notifications (section 3).
   - Elicitation: if a conflict occurs and the client advertises `elicitation`,
     `artifacty_update` without `expectedVersion` may ask the user whether to
     rebase. Otherwise, return the conflict error.
-  - Pagination cursors on `tools/list`, `resources/list`, and
+  - Provide pagination cursors on `tools/list`, `resources/list`, and
     `prompts/list` when result counts exceed 50.
-  - Streamable HTTP session resumption on `/mcp` (`Mcp-Session-Id`, event
-    replay) reusing the events table.
+  - Support Streamable HTTP session resumption on `/mcp` with
+    `Mcp-Session-Id` and event replay. Reuse the events table.
 - `artifacty check` validates the negotiated version and capability set and
   fails when a client requires a capability the server does not report.
 - `docs/mcp-public-api.md` gains a compatibility matrix by protocol version.
 
 ### Tests
 
-Version negotiation with old and new clients, `outputSchema` presence,
-subscribe flow, cursor pagination, session resume through the HTTP transport.
+Test version negotiation with old and new clients. Verify `outputSchema`
+presence, subscription flow, cursor pagination, and session resumption through
+the HTTP transport.
 
 ---
 
@@ -1000,7 +1022,7 @@ are pending.** This is a substantial storage change, not a current feature.
 Existing SMTP configuration encryption does not encrypt artifact data.
 
 An administrator should be able to opt in or turn encryption off. Each change
-must migrate the existing store between encrypted and plaintext states; a
+must migrate the existing store between encrypted and plaintext states. A
 setting that affects only future writes is insufficient. The design must cover
 artifact/version blobs and bundle assets, metadata, and search indexes, including
 any retained plaintext copies or derived data. Cipher and storage choices remain

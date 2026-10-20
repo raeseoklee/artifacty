@@ -6,7 +6,9 @@ Start with the [project README](../README.md) for installation, features, CLI co
 
 ## Browser language
 
-Administrators enable installed languages and choose the default at `/admin/languages`. Enabled URL choices take priority over the browser cookie, then the saved default. Before settings are saved, the initial default comes from `ARTIFACTY_LOCALE` or English. Disabled choices and `Accept-Language` are ignored. See [language packs](language-packs.md) for imports and fallback rules. UI translations do not translate commands, API/MCP identifiers, or stored artifact content.
+Administrators use `/admin/languages` to enable installed languages and choose the default. For each request, Artifacty first checks whether the URL selects an enabled language. If it does not, Artifacty checks the browser cookie, then uses the saved default. Before settings are saved, the default comes from `ARTIFACTY_LOCALE` or falls back to English.
+
+Artifacty ignores disabled language choices and the `Accept-Language` header. See [language packs](language-packs.md) for import and fallback rules. Changing the UI language does not translate commands, API/MCP identifiers, or stored artifact content.
 
 ## User and operator guides
 
@@ -27,7 +29,7 @@ Administrators enable installed languages and choose the default at `/admin/lang
 
 ## Design and implementation history
 
-These documents are currently available in English. They contain proposals and historical implementation notes; a planned feature is not necessarily available in the current release.
+These documents are currently available in English. They include proposals and records of earlier implementations. Check each feature’s status before treating a design as behavior supported by the current release.
 
 - [Central team deployment](central-team-deployment-design.md)
 - [Roadmap and design](roadmap-design.md)
@@ -38,7 +40,7 @@ These documents are currently available in English. They contain proposals and h
 
 - Keep `README.md` as the default English entry point and `README.ko.md` as its Korean counterpart. Detailed Korean documents mirror filenames under `docs/ko/`.
 - Keep language links in both directions. Prefer translated links when available; label English-only references clearly.
-- Preserve commands, API identifiers, example values, defaults, permission rules, and requirements. Translate prose using the [writing style guide](writing-style.md).
+- Preserve commands, API identifiers, example values, defaults, permission rules, and requirements. Apply relaxed STE-100 clarity principles to both languages using the [writing style guide](writing-style.md). For Korean, resolve conflicts with fluent-korean in this order: technical accuracy, natural phrasing, then brevity and form.
 - Update both languages in the same pull request when behavior changes. If a translation cannot be updated, mark it as outdated and link to the current English section.
 - Each translation records its source revision in an HTML comment. Update that revision after checking the translation against the source. The initial translations use revision `9e73a9f`.
 - Verify relative links, section anchors, code examples, and environment-variable coverage before merging. Do not execute destructive or production commands just to verify a translation.
