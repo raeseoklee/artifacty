@@ -28,7 +28,7 @@ artifacty doctor
 - Verify recovery commands against temporary stores only. See [upgrade snapshots and recovery](upgrade-backups.md).
 - Confirm mandatory schema snapshots complete before migrations change the store.
 - Check the Node.js 22.12.0 minimum. The optional Babel 8 renderer requires Node `^22.18.0 || >=24.11.0`.
-- Check Mermaid 12.1.0 in an ES2024-capable browser. Preserve its `classic` look, `dagre` layout, and `default` theme.
+- Check Mermaid 12.2.0 in an ES2024-capable browser. Preserve its `classic` look, `dagre` layout, and `default` theme.
 
 ## Packaging
 

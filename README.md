@@ -24,7 +24,7 @@ Artifacty requires Node.js 22.12.0 or newer.
 The optional React renderer uses Babel 8. Its supported Node.js versions are
 `^22.18.0 || >=24.11.0`. Use a compatible version if you enable that renderer.
 
-The browser renderer uses Mermaid 12.1.0. Use a current browser with ES2024 support, such as Safari 17.4 or newer. Mermaid keeps the `classic` look, `dagre` layout, and `default` theme.
+The browser renderer uses Mermaid 12.2.0. Use a current browser with ES2024 support, such as Safari 17.4 or newer. Mermaid keeps the `classic` look, `dagre` layout, and `default` theme.
 
 Install the CLI globally from npm:
 

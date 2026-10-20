@@ -59,7 +59,7 @@ Keep recovery commands independent of normal storage initialization so they cann
 
 The create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, and text editing. CodeMirror assets are served locally through allowlisted `/vendor/npm/*` routes, not from a CDN. UI text defaults to English and supports Korean with `?lang=ko`. Keep each document in its existing language unless a translation is requested.
 
-Mermaid uses version 12.1.0 with the existing `classic` look, `dagre` layout, and `default` theme. Its browser code requires ES2024 support, such as Safari 17.4 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`.
+Mermaid uses version 12.2.0 with the existing `classic` look, `dagre` layout, and `default` theme. Its browser code requires ES2024 support, such as Safari 17.4 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`.
 
 ### MCP Server
 

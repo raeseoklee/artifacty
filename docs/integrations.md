@@ -4,7 +4,7 @@ English | [한국어](ko/integrations.md)
 
 Artifacty exposes one shared MCP stdio server and one local browser server.
 
-Use Node.js 22.12.0 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`. Mermaid 12.1.0 requires an ES2024-capable browser, such as Safari 17.4 or newer.
+Use Node.js 22.12.0 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`. Mermaid 12.2.0 requires an ES2024-capable browser, such as Safari 17.4 or newer.
 
 ## Start the Browser Server
 
