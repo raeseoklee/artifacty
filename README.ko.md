@@ -2,7 +2,7 @@
 
 [English](README.md) | 한국어
 
-[한국어 문서 안내](docs/ko/README.md) · [English documentation](docs/README.md)
+[문서 안내](docs/ko/README.md)
 
 <!-- 번역 기준: 영문 README.md, commit 9e73a9f -->
 <!-- 문체 및 영문 대조 검토: 2026-10-20 -->
@@ -15,6 +15,22 @@
 Artifacty는 AI가 만든 아티팩트를 로컬에 보관하고 에이전트끼리 공유할 수 있는 저장소입니다. Claude, Codex, Gemini, GitHub Copilot, Cursor 등 MCP 도구가 같은 저장소에 아티팩트를 게시할 수 있습니다. 다른 에이전트는 채팅에 내용을 복사하지 않고도 결과물을 찾아 읽고 수정할 수 있습니다.
 
 ![여러 AI 에이전트가 로컬 저장소를 통해 아티팩트를 공유하는 Artifacty 개요](docs/assets/artifacty.png)
+
+## 주요 화면
+
+아래는 예시 데이터를 사용해 영어 UI로 촬영한 화면입니다.
+
+**여러 에이전트의 아티팩트를 한곳에서 찾습니다.** 공통 목록에서 텍스트로 검색하고, 필터와 저장된 보기로 결과를 좁힐 수 있습니다.
+
+![Claude, Codex, Gemini, Cursor의 아티팩트를 보여 주는 영어 대시보드](docs/assets/screenshots/dashboard.png)
+
+**브라우저에서 다이어그램을 봅니다.** Mermaid 소스를 다이어그램으로 렌더링하고, 버전 이력과 아티팩트 정보를 함께 제공합니다.
+
+![에이전트 작업 흐름을 Mermaid 다이어그램으로 보여 주는 영어 아티팩트 뷰어](docs/assets/screenshots/diagram.png)
+
+**버전별 변경 내용을 비교합니다.** 한 에이전트가 만들고 다른 에이전트가 수정한 아티팩트에서 추가·삭제된 줄을 확인할 수 있습니다.
+
+![릴리스 체크리스트의 추가·삭제 내용을 보여 주는 영어 버전 비교 화면](docs/assets/screenshots/version-diff.png)
 
 ## MCP를 사용하는 이유
 

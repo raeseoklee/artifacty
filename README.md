@@ -2,7 +2,7 @@
 
 English | [한국어](README.ko.md)
 
-[Documentation](docs/README.md) · [한국어 문서](docs/ko/README.md)
+[Documentation](docs/README.md)
 
 [![Publish](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml/badge.svg)](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml)
 [![npm version](https://img.shields.io/npm/v/artifacty.svg)](https://www.npmjs.com/package/artifacty)
@@ -12,6 +12,22 @@ English | [한국어](README.ko.md)
 Artifacty stores AI-generated artifacts locally so agents can share them. Claude, Codex, Gemini, GitHub Copilot, Cursor, and other MCP tools can publish artifacts to the same store. Other agents can find, read, and update them without copying content through chat.
 
 ![Artifacty overview showing multiple AI agents sharing artifacts through a local exchange](docs/assets/artifacty.png)
+
+## See it in action
+
+These screenshots show the English interface with example data.
+
+**Find artifacts across agents.** Browse a shared catalog, search by text, and narrow results with filters and saved views.
+
+![English dashboard with artifacts from Claude, Codex, Gemini, and Cursor](docs/assets/screenshots/dashboard.png)
+
+**View diagrams in the browser.** Render Mermaid source as a diagram alongside version history and artifact details.
+
+![English artifact viewer rendering a Mermaid diagram of an agent workflow](docs/assets/screenshots/diagram.png)
+
+**Review changes between versions.** Compare an artifact created by one agent and updated by another. Added and removed lines appear together.
+
+![English version comparison showing additions and removals in a release checklist](docs/assets/screenshots/version-diff.png)
 
 ## Why MCP
 
