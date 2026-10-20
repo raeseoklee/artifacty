@@ -10,7 +10,7 @@ Use this checklist before publishing or distributing Artifacty.
 npm run release:check
 ```
 
-This command runs syntax checks, the full Node test suite, and a local smoke test. The smoke test verifies that Artifacty can:
+This command runs syntax checks, the full Node test suite, documentation and package checks, a dependency vulnerability audit, and a local smoke test. The audit blocks high or critical advisories. The smoke test verifies that Artifacty can:
 
 - Start the HTTP server with token authentication.
 - Create an artifact.
@@ -31,6 +31,9 @@ artifacty doctor
 - Check Mermaid 12.2.0 in an ES2024-capable browser. Preserve its `classic` look, `dagre` layout, and `default` theme.
 
 ## Packaging
+
+- Review resolved dependency licenses and preserve [third-party notices](../THIRD_PARTY_NOTICES.md) and their license files.
+- Confirm the release commit passes every supported CI platform. Local checks do not replace the CI matrix.
 
 - Confirm that `version` and `files` in `package.json` have the intended values.
 - Run `npm pack --dry-run`.

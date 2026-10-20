@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Check repository documentation links and images shipped with the npm README.
+// Check local documentation links and images shipped with the npm package.
 import { readdir, readFile, stat } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -34,7 +34,7 @@ function anchors(text) {
 }
 const files = [...await markdownFiles(root), ...await markdownFiles(path.join(root, "docs"), true)];
 let checked = 0;
-const readmeImages = new Set();
+const documentationImages = new Set();
 for (const file of files) {
   const text = prose(await readFile(file, "utf8"));
   for (const match of text.matchAll(/(!?)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
@@ -48,7 +48,7 @@ for (const file of files) {
       if (fragment && info.isFile() && resolved.endsWith(".md")) {
         if (!anchors(await readFile(resolved, "utf8")).has(decodeURIComponent(fragment))) errors.push(`${label} (missing anchor)`);
       }
-      if (match[1] && /^README(?:\.ko)?\.md$/.test(path.relative(root, file))) readmeImages.add(path.relative(root, resolved).split(path.sep).join("/"));
+      if (match[1]) documentationImages.add(path.relative(root, resolved).split(path.sep).join("/"));
       checked++;
     } catch {
       errors.push(`${label} (missing target)`);
@@ -59,7 +59,8 @@ const pack = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", ["pack"
 if (pack.status !== 0) errors.push(`npm pack dry run failed: ${pack.stderr}`);
 else {
   const shipped = new Set(JSON.parse(pack.stdout)[0].files.map(file => file.path));
-  for (const image of readmeImages) if (!shipped.has(image)) errors.push(`${image} (README image missing from npm package)`);
+  for (const image of documentationImages) if (!shipped.has(image)) errors.push(`${image} (documentation image missing from npm package)`);
+  if (!shipped.has("scripts/check-docs.mjs")) errors.push("scripts/check-docs.mjs (docs:check command missing from npm package)");
   for (const file of files.filter(file => file.startsWith(path.join(root, "docs") + path.sep))) {
     const relative = path.relative(root, file).split(path.sep).join("/");
     if (!shipped.has(relative)) errors.push(`${relative} (documentation missing from npm package)`);

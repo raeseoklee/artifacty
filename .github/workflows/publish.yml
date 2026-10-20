@@ -53,6 +53,13 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Documentation and package contents
+        run: npm run docs:check
+
+      - name: Dependency audit
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '24.x'
+        run: npm audit --audit-level=high
+
       - name: Smoke
         if: matrix.smoke
         run: npm run smoke

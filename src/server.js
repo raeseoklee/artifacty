@@ -463,6 +463,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "POST" && pathname === "/login") {
+    assertBrowserFormOrigin(request);
     await enforceRateLimit({ store, host, request, bucket: "auth" });
     const body = await readFormBody(request);
     const bodyLocale = localeFromBodyOrUrl(body, url);
@@ -492,6 +493,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "POST" && pathname === "/logout") {
+    assertBrowserFormOrigin(request);
     await revokeSession(store, sessionTokenFromRequest(request));
     return sendRedirect(response, "/login", {
       "set-cookie": clearSessionCookie()
@@ -512,6 +514,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "POST" && pathname === "/account/password") {
+    assertBrowserFormOrigin(request);
     if (!currentUser) {
       return sendRedirect(response, "/login");
     }
@@ -528,6 +531,9 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       }), 400);
     }
     try {
+      if (typeof body.currentPassword !== "string" || !body.currentPassword) {
+        throw Object.assign(new Error("Current password is required"), { statusCode: 400, code: "CURRENT_PASSWORD_REQUIRED" });
+      }
       const updatedUser = await changeUserPassword(store, currentUser.id, {
         currentPassword: body.currentPassword,
         newPassword: body.newPassword
@@ -577,6 +583,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "POST" && pathname === "/account/tokens") {
+    assertBrowserFormOrigin(request);
     if (!currentUser) {
       return sendRedirect(response, "/login");
     }
@@ -609,6 +616,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
 
   const tokenRevokeMatch = /^\/account\/tokens\/([^/]+)\/revoke$/.exec(pathname);
   if (tokenRevokeMatch && method === "POST") {
+    assertBrowserFormOrigin(request);
     if (!currentUser) {
       return sendRedirect(response, "/login");
     }
@@ -896,6 +904,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "POST" && pathname === "/admin/users") {
+    assertBrowserFormOrigin(request);
     if (!currentUser) {
       return sendRedirect(response, "/login");
     }
@@ -912,6 +921,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "POST" && pathname === "/admin/users/import") {
+    assertBrowserFormOrigin(request);
     if (!currentUser) {
       return sendRedirect(response, "/login");
     }
@@ -1007,6 +1017,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
 
   const userActiveMatch = /^\/admin\/users\/([^/]+)\/(enable|disable)$/.exec(pathname);
   if (userActiveMatch && method === "POST") {
+    assertBrowserFormOrigin(request);
     if (!currentUser) {
       return sendRedirect(response, "/login");
     }
@@ -2146,6 +2157,11 @@ export async function readBody(request, limitBytes) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+// Non-browser clients may omit Origin; browser forms must match the full origin.
+function assertBrowserFormOrigin(request) {
+  if (request.headers.origin !== undefined) assertSameOrigin(request);
 }
 
 function assertSameOrigin(request) {

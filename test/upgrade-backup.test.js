@@ -89,6 +89,62 @@ test("simultaneous processes perform one upgrade and stale dead-owner locks are 
   });
 });
 
+test("store version inspection waits for a temporary exclusive SQLite lock", async () => {
+  await fixture(async (store) => {
+    reopen(store);
+    const writer = new DatabaseSync(store.dbPath);
+    let releaseTimer;
+    let released = false;
+    try {
+      // Rollback-journal EXCLUSIVE locks block readers, as can WAL recovery.
+      writer.exec("PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE");
+      const script = `import {openDatabase,createStore} from ${JSON.stringify(storageUrl)};
+        process.stdout.write("ready\\n");
+        openDatabase(createStore({home:process.argv[1]})).close();`;
+      await new Promise((resolve, reject) => {
+        const child = execFile(process.execPath, ["--input-type=module", "-e", script, store.home], { timeout: 20000 }, (cause) => cause ? reject(cause) : resolve());
+        child.stdout.once("data", () => {
+          releaseTimer = setTimeout(() => {
+            writer.exec("COMMIT");
+            released = true;
+          }, 250);
+        });
+      });
+      assert.equal(released, true);
+      assert.deepEqual(listUpgradeBackups(store), []);
+      assert.equal(fs.existsSync(path.join(store.home, ".upgrade.lock")), false);
+    } finally {
+      clearTimeout(releaseTimer);
+      writer.close();
+    }
+  });
+});
+
+test("stale lock recovery retries when another opener wins acquisition", async () => {
+  await fixture(async (store) => {
+    reopen(store);
+    const lock = path.join(store.home, ".upgrade.lock");
+    fs.writeFileSync(lock, JSON.stringify({ pid: 2147483647, token: randomUUID() }));
+    const script = `import fs from 'node:fs'; import path from 'node:path'; import {syncBuiltinESMExports} from 'node:module';
+      import {openDatabase,createStore} from ${JSON.stringify(storageUrl)};
+      const home=process.argv[1], lock=path.join(home,'.upgrade.lock'), open=fs.openSync;
+      let collided=false;
+      fs.openSync=(file,...args)=>{
+        if(file===lock && fs.existsSync(path.join(home,'.upgrade-reaper')) && !collided){
+          collided=true;
+          fs.writeFileSync(lock,JSON.stringify({pid:2147483647,token:'competing-owner'}));
+        }
+        return open(file,...args);
+      };
+      syncBuiltinESMExports();
+      openDatabase(createStore({home})).close();
+      if(!collided)throw new Error('Expected an acquisition collision');`;
+    await exec(process.execPath, ["--input-type=module", "-e", script, store.home], { timeout: 20000 });
+    assert.equal(fs.existsSync(lock), false);
+    assert.equal(fs.existsSync(path.join(store.home, ".upgrade-reaper")), false);
+  });
+});
+
 test("optional application backups record unknown source honestly and retain only owned automatic snapshots", async () => {
   await fixture(async (store) => {
     const original = process.env.ARTIFACTY_BACKUP_ON_UPDATE;

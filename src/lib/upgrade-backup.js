@@ -121,7 +121,10 @@ function lockStore(store) {
             const current = JSON.parse(readFileSync(lock, "utf8"));
             if (current.token === owner.token && !alive(current.pid)) rmSync(lock);
           }
-          if (!existsSync(lock)) return acquire();
+          if (!existsSync(lock)) {
+            // An opener that passed the reaper check can still win this race.
+            try { return acquire(); } catch (cause) { if (cause.code !== "EEXIST") throw cause; }
+          }
         } finally { rmSync(reaper, { recursive: true }); }
       }
     }
@@ -137,6 +140,8 @@ function rawState(store) {
   safePath(store.home, "artifacty.sqlite");
   const db = new DatabaseSync(store.dbPath, { readOnly: true });
   try {
+    // The upgrade lock does not cover SQLite locks held by existing handles.
+    db.exec("PRAGMA busy_timeout=5000");
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
     const hasMeta = tables.some((table) => table.name === "meta");
     const schema = hasMeta ? db.prepare("SELECT value FROM meta WHERE key='store_version'").get()?.value : null;

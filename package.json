@@ -32,7 +32,7 @@
     "docs:check": "node scripts/check-docs.mjs",
     "build:ui": "node scripts/build-ui.mjs",
     "smoke": "bash scripts/smoke.sh",
-    "release:check": "npm run lint && npm test && npm run smoke"
+    "release:check": "npm run lint && npm test && npm run docs:check && npm audit --audit-level=high && npm run smoke"
   },
   "files": [
     "src",
@@ -53,6 +53,7 @@
     "docs/upgrade-backups.md",
     "docs/writing-style.md",
     "scripts/lint.mjs",
+    "scripts/check-docs.mjs",
     "scripts/build-ui.mjs",
     "scripts/smoke.sh",
     "README.md",
@@ -65,7 +66,8 @@
     "SECURITY.ko.md",
     "docs/README.md",
     "docs/ko",
-    "docs/claude-artifact-formats.md"
+    "docs/claude-artifact-formats.md",
+    "licenses"
   ],
   "engines": {
     "node": ">=22.12"

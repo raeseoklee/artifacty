@@ -59,3 +59,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Mermaid and ELK
+
+The audited dependency snapshot uses Mermaid 12.2.0 (MIT) and elkjs 0.9.3
+(Eclipse Public License 2.0). Mermaid distributes ELK layout code in its renderer
+chunks. Preserve these notices when redistributing those files.
+
+- [Mermaid license](licenses/mermaid-LICENSE.txt) and [corresponding source](https://github.com/mermaid-js/mermaid/tree/mermaid%4012.2.0).
+- [ELK license](licenses/elkjs-LICENSE.txt) and [corresponding source](https://github.com/kieler/elkjs/tree/0.9.3).
+
+Dependency versions can change within the package ranges. Review the resolved
+versions and their license files before each release. Other installed dependencies
+retain their own notices through npm installation, including DOMPurify
+(MPL-2.0 OR Apache-2.0), caniuse-lite (CC-BY-4.0), and Khroma (MIT).

@@ -7,7 +7,8 @@ const targets = [
   { dir: "src", pattern: /\.js$/ },
   { dir: path.join("src", "lib"), pattern: /\.js$/ },
   { dir: path.join("src", "client"), pattern: /\.js$/ },
-  { dir: "test", pattern: /\.test\.js$/ }
+  { dir: "test", pattern: /\.test\.js$/ },
+  { dir: "scripts", pattern: /\.mjs$/ }
 ];
 
 const files = [];
