@@ -26,8 +26,10 @@ have read, comment, or edit grants. Artifacty applies the strongest permission
 from the user's direct and team grants.
 Comment grants permit feedback and resolution of the caller's own comments;
 edit grants also permit new versions. Sharing, archive/restore, and review-status
-management stay owner/admin-only. Token scopes are an additional restriction:
-a read-scoped token cannot mutate even when its user has an edit grant.
+management stay owner/admin-only. Over HTTP, including the stdio bridge,
+token scopes are an additional restriction: a read-scoped token cannot mutate
+even when its user has an edit grant. Trusted local stdio does not enforce
+token scopes, but still applies artifact permissions to the identified user.
 In private mode, a shared server token or an anonymous stdio connection cannot
 read or create artifacts. Use a personal API token for
 agent access. Revoking shares or team membership affects subsequent resource

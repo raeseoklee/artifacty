@@ -12,9 +12,11 @@ The application updater and schema migration snapshots serve different purposes.
 
 ### Check and select a release
 
+Replace `<version>`, `<id>`, and `/path/to/store` with the exact release, snapshot ID, and store path before running these examples.
+
 ```bash
 artifacty update --check
-artifacty upgrade --check --target-version <version> --home /path/to/store
+artifacty upgrade --check --target-version "<version>" --home /path/to/store
 ```
 
 `--check` reports the release without changing the installation, service, or store. You can also run this check on other CLI platforms. It reports whether automatic installation is supported. The release check requires network access. For the managed service, the updater compares the package version used by that service, not just the invoking CLI version. `--target-version` accepts an exact version. Without that option, the updater selects the latest release. `--home` selects the store to protect. Automatic downgrades are not supported. An explicitly selected older version is rejected; an older `latest` release leaves the newer installation unchanged.
@@ -99,7 +101,7 @@ artifacty backups list --home /path/to/store
 Copy an `id` from the output. Verify that snapshot:
 
 ```bash
-artifacty backups verify <id> --home /path/to/store
+artifacty backups verify "<id>" --home /path/to/store
 ```
 
 A successful response includes `valid: true`. The list command checks manifests. It does not replace full snapshot verification. From a repository checkout, use `node src/cli.js` in place of `artifacty`.
@@ -116,7 +118,7 @@ A restore replaces the current database, version files, and legacy index. Change
 4. Restore it with explicit confirmation:
 
 ```bash
-artifacty backups restore <id> --confirm restore-store --home /path/to/store
+artifacty backups restore "<id>" --confirm restore-store --home /path/to/store
 ```
 
 5. Save the returned `recoveryBackupId`.

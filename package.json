@@ -29,6 +29,7 @@
     "mcp": "node src/mcp-server.js",
     "test": "node --test",
     "lint": "node scripts/lint.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
     "build:ui": "node scripts/build-ui.mjs",
     "smoke": "bash scripts/smoke.sh",
     "release:check": "npm run lint && npm test && npm run smoke"
@@ -37,6 +38,8 @@
     "src",
     "docs/artifact-schema-v1.md",
     "docs/assets/artifacty.png",
+    "docs/assets/screenshots",
+    "docs/user-guide.md",
     "docs/central-team-deployment-design.md",
     "docs/integrations.md",
     "docs/language-packs.md",

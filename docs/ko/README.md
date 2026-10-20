@@ -17,6 +17,7 @@
 | 문서 | 한국어 | English |
 | --- | --- | --- |
 | 설치와 기능 참조 | [README](../../README.ko.md) | [README](../../README.md) |
+| 브라우저 사용 매뉴얼 | [매뉴얼](user-guide.md) | [Guide](../user-guide.md) |
 | 언어 팩 | [안내](language-packs.md) | [Guide](../language-packs.md) |
 | SMTP와 비밀번호 재설정 | [안내](smtp.md) | [Guide](../smtp.md) |
 | 에이전트 연동 | [연동 안내](integrations.md) | [Guide](../integrations.md) |

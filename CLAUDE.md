@@ -6,7 +6,7 @@ Artifacty is a local, agent-to-agent artifact exchange for LLM workflows. One ag
 
 See `AGENTS.md` for repository structure, coding-style conventions, and commit/PR guidelines.
 
-For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Apply relaxed STE-100 clarity principles to both languages. Preserve conditions, defaults, permissions, exceptions, and recovery requirements. For Korean, apply fluent-korean as well; resolve conflicts in this order: technical accuracy, natural Korean, then brevity and sentence form.
+For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Apply relaxed STE-100 clarity principles to both languages. Preserve conditions, defaults, permissions, exceptions, and recovery requirements. For Korean, apply fluent-korean as well; resolve conflicts in this order: technical accuracy, natural Korean, then brevity and sentence form. Follow its required documentation workflow: update both languages, capture and inspect English UI screenshots for browser workflows, run `npm run docs:check`, verify changed examples in isolated stores, and report validation limits.
 
 ## Commands
 
@@ -18,7 +18,7 @@ For English and Korean documentation, follow the [writing style guide](docs/writ
 - `node src/mcp-server.js` or `npm run mcp` — run the MCP stdio server.
 - `node src/cli.js help` — inspect CLI usage.
 
-Run `npm run release:check` before claiming a release-ready change. There is no build step; this is plain ESM run directly by Node `>=22.12.0`.
+Run `npm run release:check` before claiming a release-ready change. The server runs plain ESM directly on Node `>=22.12.0`. Generated UI assets are committed, so ordinary startup needs no build. After changing `src/styles/ui-controls.scss` or the icon set in `scripts/build-ui.mjs`, run `npm run build:ui` and include the generated assets.
 
 ## Architecture
 

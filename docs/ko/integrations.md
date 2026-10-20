@@ -87,7 +87,7 @@ Artifacty는 지원하는 로컬 에이전트의 MCP 설정을 작성할 수 있
 
 ```bash
 node src/cli.js install claude
-node src/cli.js install codex --dry-run
+node src/cli.js install codex
 node src/cli.js install gemini
 node src/cli.js install copilot
 node src/cli.js install cursor
@@ -95,7 +95,9 @@ node src/cli.js install all
 node src/cli.js check
 ```
 
-중앙 팀 서버 설정:
+사용하는 에이전트의 명령을 선택하거나 `install all`로 지원하는 모든 클라이언트를 설정하세요. 파일을 변경하지 않고 설정을 미리 보려면 `--dry-run`을 붙이세요.
+
+서버 터미널에서 중앙 팀 서버를 시작하세요.
 
 ```bash
 ARTIFACTY_BOOTSTRAP_TOKEN="$(node src/cli.js token --raw)"
@@ -104,7 +106,12 @@ node src/cli.js serve --foreground \
   --share-mode team \
   --api-token "$ARTIFACTY_BOOTSTRAP_TOKEN" \
   --mcp-http
-# Open http://10.0.0.50:8787/login, create the first admin, then create a personal token at /account.
+```
+
+서버 터미널은 실행 상태로 두세요. `http://10.0.0.50:8787/login`에서 첫 관리자 계정을 만들고 `/account`에서 개인 토큰을 발급하세요. 각 클라이언트 컴퓨터의 Artifacty 체크아웃 디렉터리에서 별도 터미널을 여세요. 아래 예시 값을 해당 사용자의 개인 토큰으로 바꾼 뒤 MCP 설정을 설치하세요.
+
+```bash
+ARTIFACTY_PERSONAL_TOKEN="paste-your-personal-token-here"
 node src/cli.js install all \
   --mcp-url http://10.0.0.50:8787/mcp \
   --api-token "$ARTIFACTY_PERSONAL_TOKEN"
@@ -122,7 +129,7 @@ admin2@example.com,Admin Two,admin,temporary-password,true
 artifacty users import --file users.csv
 ```
 
-행에 비밀번호가 없으면 Artifacty가 임시 비밀번호를 생성합니다. 이 비밀번호는 가져오기 결과에만 표시합니다. 가져온 사용자는 비밀번호를 변경해야 `/account`를 열고 MCP/API 토큰을 발급할 수 있습니다.
+행에 비밀번호가 없으면 Artifacty가 임시 비밀번호를 생성합니다. 이 비밀번호는 가져오기 결과에만 표시하며, 반드시 변경해야 합니다. 직접 지정한 비밀번호도 기본적으로 변경을 요구합니다. 직접 지정한 비밀번호에 한해 CSV의 `password_reset_required=false`로 변경 요구를 해제할 수 있습니다. CLI의 `--no-password-reset`은 이 CSV 설정이 없는 행의 기본값을 바꿉니다. 비밀번호 변경이 필요한 사용자는 변경을 마쳐야 `/account`를 열고 MCP/API 토큰을 발급할 수 있습니다.
 
 - Claude: 프로젝트의 `.mcp.json`을 작성합니다. 부모 프로세스에 설정한 `MCP_TIMEOUT` 환경 변수가 시작 제한 시간을 정합니다. 기본값은 30초입니다. Artifacty는 `.mcp.json`에 서버별 `timeout` 필드를 추가하지 않습니다.
 - Codex: `~/.codex/config.toml`의 `[mcp_servers.artifacty]`를 작성하거나 교체합니다. 다른 파일을 사용하려면 `--config`를 지정하세요. 생성된 블록은 느린 Windows 환경이나 첫 실행에 대비해 시작 제한 시간을 30초로 설정합니다.
@@ -396,6 +403,8 @@ node src/cli.js export --file ./artifacty-backup.json
 node src/cli.js import-store --file ./artifacty-backup.json
 ```
 
-기본 백업은 아티팩트 메타데이터와 변경 불가능한 버전 콘텐츠를 하나의 JSON 번들에 담습니다. 사용자, 세션, API 토큰 기록, 감사 로그는 제외합니다. 저장소 가져오기는 대상 아티팩트 기록을 교체하고 참조하지 않는 버전 파일을 제거합니다. 가져오기 전에 `ARTIFACTY_HOME`을 새 저장소나 교체하려는 대상 저장소의 경로로 설정하세요.
+기본 백업은 아티팩트 메타데이터와 변경 불가능한 버전 콘텐츠를 하나의 JSON 번들에 담습니다. 사용자, 세션, API 토큰 기록, 감사 로그, 댓글, 관계, 공유 권한은 제외합니다. 저장소 가져오기는 대상 아티팩트 기록을 교체하고 참조하지 않는 버전 파일을 제거합니다. 가져오기 전에 `ARTIFACTY_HOME`을 새 저장소나 교체하려는 대상 저장소의 경로로 설정하세요. 대상에 댓글, 관계, 공유 권한이 있으면 `--confirm replace-all` 없이는 아티팩트 전용 백업을 가져올 수 없습니다. 이 확인 옵션은 해당 기록의 삭제를 허용합니다. 기본 백업으로는 삭제된 기록을 복원할 수 없습니다.
+
+더 많은 데이터를 함께 이전하려면 `--full`로 내보내고 `--confirm replace-all`로 가져오세요. 대상에 사용자가 이미 있으면 사용자를 교체하기 위한 `--force-users`도 필요합니다. 복원 전에 [백업 범위와 제외 항목](../../README.ko.md#저장소)을 확인하세요.
 
 업그레이드 스냅샷은 스키마 마이그레이션을 보호하며, 선택적으로 애플리케이션 업데이트도 보호합니다. JSON 내보내기 백업과 달리 데이터베이스의 보안 상태를 원본 형태로 보존합니다. 복구 전에 모든 서버와 MCP 프로세스를 중지하세요. 자세한 내용은 [업그레이드 스냅샷과 복구](upgrade-backups.md)를 참고하세요.

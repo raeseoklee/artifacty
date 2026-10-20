@@ -29,6 +29,8 @@ These screenshots show the English interface with example data.
 
 ![English version comparison showing additions and removals in a release checklist](docs/assets/screenshots/version-diff.png)
 
+Follow the [browser user guide](docs/user-guide.md) for step-by-step instructions and checks.
+
 ## Why MCP
 
 Artifacts make session output available as pages that you can share and version. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
@@ -99,7 +101,7 @@ Install MCP configuration for local agents:
 
 ```bash
 artifacty install claude
-artifacty install codex --dry-run
+artifacty install codex
 artifacty install gemini
 artifacty install copilot
 artifacty install cursor
@@ -107,13 +109,21 @@ artifacty install all
 artifacty check
 ```
 
+Choose the command for your agent, or use `artifacty install all` to install all supported configurations. Add `--dry-run` to preview changes without writing configuration files.
+
 For a central internal server, enable the HTTP MCP endpoint on the server and
 let users issue personal MCP/API tokens from the account page:
 
 ```bash
 ARTIFACTY_BOOTSTRAP_TOKEN="$(artifacty token --raw)"
 artifacty serve --host 10.0.0.50 --share-mode team --api-token "$ARTIFACTY_BOOTSTRAP_TOKEN" --mcp-http --foreground
-# Open http://10.0.0.50:8787/login, create the first admin, then create a personal token at /account.
+```
+
+Open `http://10.0.0.50:8787/login` to create the first administrator, then issue a personal token at `/account`. Keep the server terminal running. In a Bash terminal on each client machine, read that token without echoing it and install the client configuration:
+
+```bash
+read -r -s -p "Personal API token: " ARTIFACTY_PERSONAL_TOKEN
+printf '\n'
 artifacty install all --mcp-url http://10.0.0.50:8787/mcp --api-token "$ARTIFACTY_PERSONAL_TOKEN"
 ```
 
@@ -202,10 +212,14 @@ Run the production-readiness check:
 npm run release:check
 ```
 
+Replace example IDs and paths with your own values. Values in angle brackets, such as `<artifact-id>`, are placeholders; replace the entire value before running a command.
+
 Publish from the CLI:
 
 ```bash
-artifacty publish --title "handoff note" --format markdown --source codex --content "# Next step\nReview the API plan."
+artifacty publish --title "handoff note" --format markdown --source codex --content "# Next step
+
+Review the API plan."
 ```
 
 Import an artifact produced by another agent and convert it to Artifacty format:
@@ -253,7 +267,7 @@ artifacty import --agent codex --tag handoff --content '{
 }'
 ```
 
-Claude or Gemini finds the handoff and continues from the same artifact:
+Claude or Gemini finds the handoff and continues from the same artifact: Replace `release-handoff-abc12345` in the following commands with the ID returned by the import or list command.
 
 ```bash
 artifacty list --tag handoff
@@ -262,7 +276,9 @@ artifacty update release-handoff-abc12345 \
   --format markdown \
   --source claude \
   --tag handoff \
-  --content "# Release Handoff\n\nReviewed README and prepared publish notes."
+  --content "# Release Handoff
+
+Reviewed README and prepared publish notes."
 ```
 
 List artifacts:
@@ -297,7 +313,7 @@ artifacty backup --full
 artifacty export --file ./artifacty-backup.json
 artifacty export --file ./artifacty-backup-full.json --full
 artifacty import-store --file ./artifacty-backup.json
-artifacty import-store --file ./artifacty-backup-full.json --confirm replace-all [--force-users]
+artifacty import-store --file ./artifacty-backup-full.json --confirm replace-all
 artifacty start
 artifacty status
 artifacty stop
@@ -324,10 +340,10 @@ Every artifact row has a `visibility` (`private`/`team`/`public`, default `team`
 
 Administrators can download and restore backups from `/admin/backup`. The
 default `artifacts` scope contains artifact metadata and version contents,
-but not users, sessions, API token records, or audit logs. Restoring an
+but not users, sessions, API token records, audit logs, comments, relations, or sharing grants. Restoring an
 artifacts-scope bundle replaces the target server's artifact records and
 prunes unreferenced version files, leaving users, tokens, and audit history
-untouched.
+untouched. If the target contains comments, relations, or sharing grants, restore refuses unless you pass `--confirm replace-all` (API: `confirm: "replace-all"`). This confirmation permits deleting those records without restoring them. Use a `full` backup when you need to preserve them.
 
 A `full`-scope backup (`artifacty backup --full`, `?scope=full` on the
 download, or the scope selector on `/admin/backup`) additionally includes
@@ -399,10 +415,10 @@ Use typed, directional relations to connect a handoff, its review, and follow-up
 - A relation whose target was deleted is reported with `missing: true` instead of being omitted.
 
 ```bash
-artifacty link <from-id> derived-from <to-id>
-artifacty relations <artifact-id>
-artifacty show <artifact-id> --relations
-artifacty unlink <from-id> derived-from <to-id>
+artifacty link "<from-id>" derived-from "<to-id>"
+artifacty relations "<artifact-id>"
+artifacty show "<artifact-id>" --relations
+artifacty unlink "<from-id>" derived-from "<to-id>"
 ```
 
 ### Automatic application of preferences
@@ -428,7 +444,7 @@ Add feedback to a specific version without publishing a new version or a separat
 
 - Comments use the same sanitized Markdown renderer as artifact content. Each comment has a 16 KB limit. The optional `anchor` field provides a display hint: `{ line: 42 }` for text, `{ path: "$.runs[0].results[3]" }` for JSON/SARIF, or `{ row: 7 }` for CSV. Artifacty does not validate the hint against the content.
 - Threads are one level deep: `parentId` on a new comment must point to a root comment (one with no `parentId` of its own).
-- Deleting a comment is a soft delete: it disappears from `artifacty comments`/`GET .../comments` but its audit-log entry is kept. Pass `--include-deleted`/`includeDeleted=true` to see it anyway.
+- Deleting a comment is a soft delete: it disappears from `artifacty comments`/`GET .../comments` but its audit-log entry is kept. Pass `--include-deleted`/`includeDeleted=true` to include deleted comments. Authenticated non-administrators can see only their own deleted comments; administrators and trusted local calls can see all deleted comments for the artifact.
 - Each artifact has a `reviewStatus`: `none`, `pending`, `changes-requested`, or `approved`. Set the status explicitly. If you append a version to an approved artifact, Artifacty resets the status to `pending`. The update's audit metadata records this change.
 - `GET`/`POST /api/artifacts/:id/comments`, `POST /api/artifacts/:id/comments/:commentId/resolve`, `DELETE /api/artifacts/:id/comments/:commentId`, and `POST /api/artifacts/:id/review-status` manage comments and review status over HTTP.
 - `artifacty_comment`, `artifacty_resolve_comment`, and `artifacty_set_review_status` provide the same operations through MCP. `artifacty_get` accepts `includeComments: true` to return the requested version's open comments alongside the artifact.
@@ -437,7 +453,7 @@ Add feedback to a specific version without publishing a new version or a separat
 ```bash
 artifacty comment release-handoff-abc12345 --body "Looks good, one nit" --line 42
 artifacty comments release-handoff-abc12345
-artifacty resolve-comment release-handoff-abc12345 <comment-id>
+artifacty resolve-comment release-handoff-abc12345 "<comment-id>"
 artifacty review-status release-handoff-abc12345 approved
 ```
 
@@ -457,7 +473,7 @@ artifacty diff release-handoff-abc12345 --from 1 --to 3 --json
 By default, Artifacty does not limit retained artifacts, audit rows, or events. Administrators can set a retention policy at `/admin/retention` or with `artifacty retention set`. Artifacty stores the policy in the `meta` table:
 
 - `archiveAfterDays` (a default plus optional per-artifact-type overrides) auto-archives artifacts that have not been updated within the window, unless the artifact carries a tag in `keepTags` or has `reviewStatus: "approved"`.
-- `purgeArchivedAfterDays` hard-deletes artifacts that have been archived longer than the window, including their version files, dependent rows that cascade via foreign keys (comments, relations, embeddings), and their `events`/search-index rows. Audit log rows for the artifact are deliberately kept (see `auditRetentionDays` below) as the historical record that the purge happened, even though the artifact itself is gone. This is the only retention action that permanently deletes artifact content. It is refused unless the operator has set `ARTIFACTY_RETENTION_ALLOW_PURGE=true` in the server environment; `--allow-purge` (or the `allowPurge` request field) only opts a single run in and never sets that environment variable itself. Always dry-run first (`artifacty retention run --dry-run`, or the report on `/admin/retention`) to review what would be purged.
+- `purgeArchivedAfterDays` hard-deletes artifacts that have been archived longer than the window, including their version files, dependent rows that cascade via foreign keys (comments, relations, embeddings), and their `events`/search-index rows. Audit log rows for the artifact are deliberately kept (see `auditRetentionDays` below) as the historical record that the purge happened, even though the artifact itself is gone. This is the only retention action that permanently deletes artifact content. It is refused unless the operator has set `ARTIFACTY_RETENTION_ALLOW_PURGE=true` in the server environment. With that environment variable enabled, scheduled sweeps and CLI runs can purge eligible artifacts even without `--allow-purge`. Browser and HTTP API runs additionally require `allowPurge: true`. Neither the CLI flag nor the request field sets the environment variable. Always dry-run first (`artifacty retention run --dry-run`, or the report on `/admin/retention`) to review what would be purged.
 - `auditRetentionDays` prunes old audit log rows, except `version-repair`, `version-delete`, `retention-purge`, `retention-policy-update`, and `owner-change`, which are kept indefinitely.
 - `eventRetentionRows` caps how many rows the `events` change-notification table keeps.
 
@@ -495,7 +511,7 @@ A frequently used filter combination can be saved as a **view**:
 artifacty list --type handoff --review-status pending --created-after 2025-01-01
 artifacty views save open-handoffs --type handoff --review-status pending --shared
 artifacty list --view open-handoffs --group-by sourceAgent
-artifacty views delete <view-id>
+artifacty views delete "<view-id>"
 ```
 
 ## Events
@@ -603,7 +619,7 @@ curl -s "http://127.0.0.1:8787/api/artifacts?q=handoff&limit=20&offset=0" \
 Every artifact response carries `latestVersion` and an `etag` (`"<id>:<latestVersion>"`). When two agents read the same version and both try to save a new one, the second write can replace the latest content without incorporating the first agent's changes. To avoid that, pass back the version you read as `expectedVersion` in the update body, or send it as an `If-Match` header (a weak `W/"..."` prefix is accepted):
 
 ```bash
-curl -s http://127.0.0.1:8787/api/artifacts/<id> \
+curl -s "http://127.0.0.1:8787/api/artifacts/<id>" \
   -H 'content-type: application/json' \
   -H "x-artifacty-token: $ARTIFACTY_API_TOKEN" \
   -H 'If-Match: "<id>:3"' \
@@ -779,7 +795,7 @@ manuals with the intended users or teams from each artifact's Sharing page.
 - When users exist, personal API tokens issued from `/account` also authenticate HTTP API and MCP requests. Created artifacts record the token owner's email as `publisherId`, and audit logs record the same identity as `actor`.
 - API token checks use timing-safe digest comparison.
 - Personal API tokens support `read`, `write`, and `admin` scopes. The default is `read`+`write`. Select scopes when creating a token at `/account`. Only administrator tokens can receive `admin`. Each `/api/*` route requires the matching token scope. The shared `ARTIFACTY_API_TOKEN` and browser sessions have full scopes.
-  If a scope check fails, the server returns `403` with `code: "scope_denied"`. It also writes a rate-limited `token-scope-denied` audit row. For MCP tokens without `write`, `tools/list` omits tools that change data. Calls to those tools return `structuredContent.code: "scope_denied"`.
+  If a scope check fails, the server returns `403` with `code: "scope_denied"`. It also writes a rate-limited `token-scope-denied` audit row. For HTTP MCP or bridge tokens without `write`, `tools/list` omits tools that change data. Calls to those tools return `structuredContent.code: "scope_denied"`. Trusted local stdio does not enforce token scopes; it still applies the resolved user’s artifact permissions.
 - Once any user account exists, artifacts use `visibility` (`public`, `team`, or `private`, default `team`) and `ownerUserId`. In public server mode, `public` allows anonymous read-only access; `team` requires authentication; `private` permits only the owner or administrator. Writes and owner-management operations remain permission-checked. In private mode, explicit sharing controls access. Restricted reads return 404 to avoid disclosing existence. The no-account single-user mode remains a separate local behavior. Change visibility or ownership through `POST /api/artifacts/:id/visibility`, `POST /api/artifacts/:id/owner`, `artifacty visibility <id> private|team|public`, or `artifacty_set_visibility`.
 - HTTP and MCP-over-HTTP requests are rate limited per `(token or user or remote address, bucket)` in fixed one-minute windows: `write` (mutating routes, default 120/min, `ARTIFACTY_RATE_WRITE_PER_MIN`), `auth` (`/login`, default 10/min per address, `ARTIFACTY_RATE_AUTH_PER_MIN`), and `search` (`GET /api/artifacts?q=`, default 300/min, `ARTIFACTY_RATE_SEARCH_PER_MIN`). Rate limiting is disabled on a loopback bind unless `ARTIFACTY_RATE_LIMIT=always`, and always disabled with `ARTIFACTY_RATE_LIMIT=off`. Exceeding a limit returns `429` with a `Retry-After` header, `code: "rate_limited"`, and a rate-limited `rate-limited` audit row.
 - To bind outside localhost, set `ARTIFACTY_SHARE_MODE=lan` or `team` and also set `ARTIFACTY_API_TOKEN`.

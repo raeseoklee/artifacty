@@ -15,9 +15,11 @@ Artifacty는 기존 저장소를 새 스키마로 마이그레이션하기 전�
 
 ### 릴리스 확인과 선택
 
+예시의 `<version>`, `<id>`, `/path/to/store`는 실행 전에 정확한 릴리스 버전, 스냅샷 ID, 저장소 경로로 바꾸세요.
+
 ```bash
 artifacty update --check
-artifacty upgrade --check --target-version <version> --home /path/to/store
+artifacty upgrade --check --target-version "<version>" --home /path/to/store
 ```
 
 `--check`는 설치, 서비스, 저장소를 변경하지 않고 릴리스를 확인합니다. 다른 CLI 플랫폼에서도 사용할 수 있으며, 자동 설치 지원 여부도 표시합니다. 릴리스를 조회하려면 네트워크에 연결되어 있어야 합니다. 관리 대상 서비스를 업데이트할 때는 해당 서비스가 사용하는 패키지 버전을 비교합니다. 명령어를 실행한 CLI 버전만으로 판단하지 않습니다. `--target-version`에는 정확한 버전을 지정합니다. 이 옵션이 없으면 최신 릴리스를 선택합니다. `--home`으로 보호할 저장소를 지정합니다. 자동 다운그레이드는 지원하지 않습니다. 이전 버전을 명시적으로 지정하면 거부합니다. `latest`가 설치된 버전보다 낮으면 현재의 더 최신 버전을 그대로 유지합니다.
@@ -102,7 +104,7 @@ artifacty backups list --home /path/to/store
 출력에서 `id`를 복사하세요. 해당 스냅샷을 검증하세요.
 
 ```bash
-artifacty backups verify <id> --home /path/to/store
+artifacty backups verify "<id>" --home /path/to/store
 ```
 
 검증이 성공하면 응답에 `valid: true`가 포함됩니다. 목록 조회는 매니페스트만 확인하므로 전체 검증을 대신할 수 없습니다. 저장소를 체크아웃한 환경에서는 `artifacty` 대신 `node src/cli.js`를 사용하세요.
@@ -119,7 +121,7 @@ artifacty backups verify <id> --home /path/to/store
 4. 명시적인 확인 옵션을 넣어 복원하세요.
 
 ```bash
-artifacty backups restore <id> --confirm restore-store --home /path/to/store
+artifacty backups restore "<id>" --confirm restore-store --home /path/to/store
 ```
 
 5. 응답의 `recoveryBackupId`를 저장하세요.

@@ -30,7 +30,7 @@ Artifacty shares LLM artifacts over HTTP, CLI, and MCP.
 
 Use modern ESM JavaScript and Node built-ins where practical. Keep modules small. Put shared behavior in `src/lib/*` so the CLI, HTTP, and MCP layers use the same implementation. Use two-space indentation, semicolons only where already present, `camelCase` for functions and variables, and descriptive tool names such as `artifacty_create`.
 
-For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Apply relaxed STE-100 principles while preserving technical meaning. In Korean, combine these principles with fluent-korean; prioritize accuracy, then natural Korean, then brevity and form.
+For English and Korean documentation, follow the [writing style guide](docs/writing-style.md). Apply relaxed STE-100 principles while preserving technical meaning. In Korean, combine these principles with fluent-korean; prioritize accuracy, then natural Korean, then brevity and form. Follow its required documentation workflow: update both languages, capture and inspect English UI screenshots for browser workflows, run `npm run docs:check`, verify changed examples in isolated stores, and report validation limits.
 
 Do not add new dependencies unless the operational value clearly outweighs the extra install and security surface.
 

@@ -128,7 +128,7 @@ Practice handing an artifact from an author to a reviewer. Keep its evidence, ac
 
 ## Current state
 
-The four sample manuals are installed. You can open the browser dashboard. To practice multi-user access, first ask an administrator to create the author and reviewer accounts. Local single-user mode cannot demonstrate how separate accounts restrict access.
+The four sample manuals are installed. You can open the browser dashboard. Use a separate practice store in private site mode for this exercise. Ask its administrator to create ordinary, non-administrator author and reviewer accounts. Explicit read, comment, and edit grants control access in private site mode. In public site mode, removing grants does not remove the default edit access to team artifacts. Local single-user mode cannot demonstrate how separate accounts restrict access.
 
 ## Exercise
 

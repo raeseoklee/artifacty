@@ -254,14 +254,14 @@ Artifacty 서버 프로세스는 다음 바이트 제한을 적용합니다. 리
 
 ### 보존 정책의 영구 삭제 허용 조건
 
-위험: 잘못된 보존 정책은 아티팩트와 버전 파일을 영구 삭제할 수 있습니다. 예를 들어 운영자가 `purgeArchivedAfterDays`를 너무 낮게 설정하거나 대상 아티팩트를 검토하지 않고 적용할 수 있습니다. 영구 삭제는 보존 설정이 유발할 수 있는 유일한 되돌릴 수 없는 작업입니다.
+위험: 잘못된 보존 정책은 아티팩트와 버전 파일을 영구 삭제할 수 있습니다. 예를 들어 운영자가 `purgeArchivedAfterDays`를 너무 낮게 설정하거나 대상 아티팩트를 검토하지 않고 적용할 수 있습니다. 아티팩트 영구 삭제뿐 아니라 감사 로그와 이벤트 정리도 기록을 영구 삭제합니다. 아티팩트 영구 삭제 허용 조건은 이러한 기록 정리를 막지 않습니다.
 
 대응:
 
 - `archiveAfterDays`, `purgeArchivedAfterDays`, `auditRetentionDays`, `eventRetentionRows`, `keepTags`를 변경하는 것만으로는 데이터를 삭제하지 않습니다. 새 정책은 다음 정리 작업이나 명시적인 `artifacty retention run` 실행 때 적용됩니다.
-- `artifacty retention run`과 `POST /api/admin/retention/run`은 기본적으로 `dryRun: true`입니다. 저장소를 변경하지 않고 아카이브, 영구 삭제, 기록 정리 대상을 보고서로 반환합니다. `/admin/retention`도 같은 보고서를 표시하므로 관리자는 적용 전에 검토할 수 있습니다.
+- `artifacty retention run --dry-run`은 저장소를 변경하지 않고 아카이브, 영구 삭제, 기록 정리 대상을 보여줍니다. CLI에서 `--dry-run`을 생략하면 정책을 실제로 적용합니다. `POST /api/admin/retention/run`은 기본적으로 `dryRun: true`이며, 적용하려면 `dryRun: false`를 보내야 합니다. `/admin/retention`은 관리자가 정리를 실행하기 전에 미리보기를 표시합니다.
 - 아카이브는 콘텐츠를 삭제하지 않고 활성 목록에서 아티팩트를 제외합니다. `artifacty restore`로 되돌릴 수 있습니다. 접근 조건은 `archiveArtifact`에 이미 있는 소유자 또는 관리자 검사뿐입니다.
-- 영구 삭제는 되돌릴 수 없으며, 서버 환경에 `ARTIFACTY_RETENTION_ALLOW_PURGE=true`도 설정해야 합니다. 영구 삭제 후보가 있지만 이 허용 조건을 설정하지 않았으면 정리 결과에 `purgeSkipped: true`로 기록합니다. 아무 설명 없이 처리를 건너뛰거나 허용 조건 없이 삭제하지 않습니다. CLI의 `--allow-purge` 플래그와 브라우저의 "Allow purge" 체크박스는 모두 같은 환경 변수 검사를 사용하며, 별도의 우회 수단을 제공하지 않습니다.
+- 영구 삭제는 되돌릴 수 없으며, 서버 환경에 `ARTIFACTY_RETENTION_ALLOW_PURGE=true`도 설정해야 합니다. 영구 삭제 후보가 있지만 이 허용 조건을 설정하지 않았으면 정리 결과에 `purgeSkipped: true`로 기록합니다. 아무 설명 없이 처리를 건너뛰거나 허용 조건 없이 삭제하지 않습니다. CLI와 예약 정리 작업은 이 환경 변수가 설정되어 있으면 영구 삭제를 허용합니다. CLI의 `--allow-purge`는 추가 필수 조건이 아닙니다. 브라우저와 HTTP API에서는 "Allow purge" 선택 또는 `allowPurge: true`도 필요합니다. 어떤 옵션도 환경 변수 검사를 우회하지 않습니다.
 - 적용한 정리 작업마다 `retention-sweep` 감사 요약 행을 하나 기록합니다(`actor`는 `system:retention`). 영구 삭제할 아티팩트마다 삭제 전에 별도의 `retention-purge` 감사 행도 기록합니다. `retention-purge` 행은 `auditRetentionDays`에 따른 정리 대상에서 제외하므로, 삭제된 아티팩트가 오래전에 사라졌더라도 감사 로그에서 영구 삭제를 추적할 수 있습니다.
 - 영구 삭제는 외래 키를 통해 연쇄 삭제되는 종속 행(댓글, 관계, 임베딩)과 함께 해당 아티팩트의 `events` 행과 검색 인덱스 항목도 삭제합니다. 이벤트와 검색 인덱스에는 아티팩트를 참조하는 외래 키가 없으므로 `ON DELETE CASCADE`에 의존하지 않고 명시적으로 삭제합니다. 감사 로그 행만은 의도적으로 남겨두며, 이 행이 영구 삭제가 발생했다는 기록이 됩니다.
 

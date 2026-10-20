@@ -38,6 +38,17 @@ The example states the default, the responsible actor, and the setting location.
 
 Refer to the [official ASD-STE100 overview](https://www.asd-ste100.org/about.html) for the specification's purpose and structure.
 
+## Required documentation workflow
+
+1. Check commands, option names, defaults, permissions, limits, and response fields against the current implementation. Separate released behavior, repository changes awaiting release, and proposals. A historical design is not evidence of current behavior.
+2. Update the English and Korean guides together. Keep the documentation indexes and relevant sample manuals in sync. Changes to sample source do not replace manuals already installed in a user's store.
+3. For each documented browser feature, place an actual English UI screenshot beside its steps and explain what it demonstrates. A few overview screenshots do not replace feature-specific screens. Capture expanded controls or useful example states when needed. Use an isolated temporary store with fictional data. Never capture production artifacts, credentials, personal information, or real access tokens.
+4. Wait for fonts, diagrams, and other asynchronous content to finish rendering. Inspect each image for correct labels, readable text, clipping, loading errors, and sensitive content. State the account or access-mode context when it changes the available controls. Share screenshots between translations; translate their captions and alt text.
+5. Save screenshots under `docs/assets/screenshots/`. Verify relative links and npm inclusion. Do not alter screenshots to imply controls or behavior that the product does not have.
+6. Run `npm run docs:check` to check local Markdown links, section anchors, and packaged documentation/images. It does not validate external URLs or command behavior. Check changed commands separately in a disposable store and temporary client configuration paths. A shell syntax check alone does not prove a command works.
+7. Run the relevant behavior tests, `npm run lint`, and `npm test` before reporting completion. For a release, also run `npm run release:check`. Verify browser instructions in the running app. For destructive operations, external mail, or production deployment, use isolated fixtures or a safe preview; record any operation you did not execute.
+8. Report changed files, verified behavior, screenshot locations, test results, and remaining limits. Do not claim that all documentation is error-free based only on automated checks.
+
 ## 한국어 문서 작성 기준
 
 한국어에도 STE-100의 명료성 원칙과 fluent-korean 지침을 함께 적용합니다. 두 기준이 충돌하면 **기술적 의미의 정확성 → 자연스러운 한국어 → 문장 길이와 형식 규칙** 순으로 판단합니다. 영어 어순이나 단어 수 제한을 그대로 적용하지 않습니다.

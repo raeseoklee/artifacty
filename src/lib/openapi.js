@@ -369,7 +369,7 @@ export const routeTable = [
     path: "/api/admin/retention/run",
     auth: "admin",
     summary: "Run a retention sweep",
-    description: "Evaluates the retention policy against the store. With `{ dryRun: true }` (the default), returns a report and makes no changes. With `{ dryRun: false }`, archives and (if ARTIFACTY_RETENTION_ALLOW_PURGE=true or `allowPurge: true`) purges eligible artifacts, prunes audit and event rows, and writes a retention-sweep audit summary. Requires admin privileges and a local request origin.",
+    description: "Evaluates the retention policy against the store. With `{ dryRun: true }` (the default), returns a report and makes no changes. With `{ dryRun: false }`, archives and (only when ARTIFACTY_RETENTION_ALLOW_PURGE=true and `allowPurge: true`) purges eligible artifacts, prunes audit and event rows, and writes a retention-sweep audit summary. Requires admin privileges and a local request origin.",
     responseSchema: "RetentionReport"
   },
   {

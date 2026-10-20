@@ -84,7 +84,7 @@ Artifacty can write MCP configuration for supported local agents:
 
 ```bash
 node src/cli.js install claude
-node src/cli.js install codex --dry-run
+node src/cli.js install codex
 node src/cli.js install gemini
 node src/cli.js install copilot
 node src/cli.js install cursor
@@ -92,7 +92,9 @@ node src/cli.js install all
 node src/cli.js check
 ```
 
-Central team server setup:
+Choose the command for your agent, or use `install all` for all supported clients. Add `--dry-run` to preview changes without writing configuration files.
+
+Start the central team server in a server terminal:
 
 ```bash
 ARTIFACTY_BOOTSTRAP_TOKEN="$(node src/cli.js token --raw)"
@@ -101,7 +103,12 @@ node src/cli.js serve --foreground \
   --share-mode team \
   --api-token "$ARTIFACTY_BOOTSTRAP_TOKEN" \
   --mcp-http
-# Open http://10.0.0.50:8787/login, create the first admin, then create a personal token at /account.
+```
+
+Keep that terminal running. Open `http://10.0.0.50:8787/login`, create the first administrator, then issue a personal token at `/account`. On each client machine, open another terminal in its Artifacty checkout. Replace the placeholder below with that user's personal token before installing the MCP configuration:
+
+```bash
+ARTIFACTY_PERSONAL_TOKEN="paste-your-personal-token-here"
 node src/cli.js install all \
   --mcp-url http://10.0.0.50:8787/mcp \
   --api-token "$ARTIFACTY_PERSONAL_TOKEN"
@@ -121,8 +128,12 @@ artifacty users import --file users.csv
 ```
 
 If a row has no password, Artifacty generates a temporary password. It shows
-this password only in the import result. Imported users must change their
-password before they can open `/account` and issue MCP/API tokens.
+this password only in the import result and always requires a password change.
+Supplied passwords also require a change by default. For a supplied password,
+CSV `password_reset_required=false` disables that requirement; CLI
+`--no-password-reset` changes the default for rows without that CSV setting.
+Users whose reset is required must change their password before opening
+`/account` and issuing MCP/API tokens.
 
 - Claude: writes project `.mcp.json`. The parent `MCP_TIMEOUT` environment variable controls the startup timeout. The default is 30 seconds. Artifacty does not add a per-server `.mcp.json` `timeout` field.
 - Codex: writes or replaces `[mcp_servers.artifacty]` in `~/.codex/config.toml`. To use another file, pass `--config`. The generated block uses a 30-second startup timeout for slower Windows or cold-start environments.
@@ -418,9 +429,16 @@ node src/cli.js import-store --file ./artifacty-backup.json
 ```
 
 The default backup contains artifact metadata and immutable version contents
-in one JSON bundle. It excludes users, sessions, API token records, and audit
-logs. A store import replaces the target artifact records and removes
+in one JSON bundle. It excludes users, sessions, API token records, audit
+logs, comments, relations, and sharing grants. A store import replaces the target artifact records and removes
 unreferenced version files. Before importing, set `ARTIFACTY_HOME` to a new store or the store you intend to
-replace.
+replace. If the target has comments, relations, or sharing grants, an
+artifacts-only import refuses unless you pass `--confirm replace-all`. That
+confirmation allows deletion of those records; the default backup cannot
+restore them.
+
+For a fuller migration, export with `--full` and import with
+`--confirm replace-all`. If the target already has users, `--force-users` is
+also required to replace them. Review the [backup scopes and exclusions](../README.md#storage) before restoring.
 
 Upgrade snapshots protect schema migrations and optionally application updates. They preserve raw database security state and differ from JSON export backups. Stop all server and MCP processes before recovery. See [upgrade snapshots and recovery](upgrade-backups.md).

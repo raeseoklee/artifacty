@@ -143,7 +143,7 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 }
 ```
 
-`artifact`에는 연결된 아티팩트의 요약이 들어갑니다. 대상이 더 이상 없으면 `artifact`는 `null`, `missing`은 `true`가 됩니다. 응답에는 대상이 사라진 관계도 남겨 둡니다. Artifacty는 자기 자신을 가리키는 관계(`fromId === toId`)와 허용 목록에 없는 관계 이름을 거부합니다.
+`artifact`에는 연결된 아티팩트의 요약이 들어갑니다. 대상이 더 이상 없으면 `artifact`는 `null`, `missing`은 `true`가 됩니다. 응답에는 대상이 사라진 관계도 남겨 둡니다. 대상은 있지만 호출자에게 읽기 권한이 없으면 `artifactId`와 `artifact`는 `null`, `restricted`는 `true`, `missing`은 `false`가 됩니다. Artifacty는 자기 자신을 가리키는 관계(`fromId === toId`)와 허용 목록에 없는 관계 이름을 거부합니다.
 
 `GET /api/artifacts`와 `artifacty_list`는 `relatedTo=<id>`를 받으며, 선택적으로 `relation=<name>`도 받습니다. 이를 사용하면 지정한 아티팩트와 어느 방향으로든 연결된 아티팩트로 결과를 제한할 수 있습니다.
 
@@ -175,7 +175,7 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 - `anchor`는 선택 사항이며 형식에 따라 다릅니다. 텍스트 형식은 `{ "line": 42 }`, JSON/SARIF는 `{ "path": "$.runs[0].results[3]" }`, CSV는 `{ "row": 7 }`을 사용합니다. 렌더링을 위한 힌트일 뿐이며 실제 아티팩트 콘텐츠와 일치하는지 검증하지 않습니다.
 - 답글은 한 단계까지만 허용합니다. `parentId`를 지정한다면 자체 `parentId`가 없는 최상위 댓글을 가리켜야 합니다. 답글에 다시 답글을 달면 `code: "THREAD_TOO_DEEP"`를 반환합니다.
 - `status`는 `"open"` 또는 `"resolved"`입니다. 해결 처리를 통해 설정하며, 이때 `resolvedAt`/`resolvedBy`도 채웁니다.
-- 댓글을 삭제해도 실제 행은 지우지 않고 삭제 상태로 표시합니다. Artifacty는 `deletedAt`을 설정하고, 기본적으로 `listComments`와 `GET .../comments` 결과에서 해당 행을 숨깁니다. 삭제된 댓글까지 포함하려면 `includeDeleted: true`를 전달하세요. 댓글 행과 `comment-delete` 감사 기록은 보존합니다.
+- 댓글을 삭제해도 실제 행은 지우지 않고 삭제 상태로 표시합니다. Artifacty는 `deletedAt`을 설정하고, 기본적으로 `listComments`와 `GET .../comments` 결과에서 해당 행을 숨깁니다. 삭제된 댓글을 요청하려면 `includeDeleted: true`를 전달하세요. 인증된 접근에서는 관리자가 읽을 수 있는 아티팩트의 삭제된 댓글을 모두 볼 수 있습니다. 다른 사용자는 자신이 작성한 삭제된 댓글만 볼 수 있습니다. 로컬 단일 사용자 모드와 신뢰하는 코드의 저장소 직접 접근에는 이 작성자 제한을 적용하지 않습니다. 댓글 행과 `comment-delete` 감사 기록은 보존합니다.
 - 댓글을 읽으려면 해당 아티팩트에 접근할 수 있어야 합니다. 비공개 사이트 모드에서 댓글을 작성하려면 댓글·편집 권한이 있거나 소유자·관리자여야 합니다. 댓글 권한을 받은 사용자는 자신의 댓글을 해결 처리할 수 있습니다.
 - `author_label`은 호출자의 감사 컨텍스트에서 가져옵니다. 인증된 사용자의 표시 이름이나 이메일을 사용하고, 없으면 게시자 ID, `sourceAgent`, `"anonymous"` 순서로 대체합니다.
 
@@ -225,7 +225,7 @@ Gemini 멀티모달 payload도 같은 번들 유형을 사용하며, `parts`와 
 
 모든 쓰기 작업(`createArtifact`/`updateArtifact` 및 `convertAgentArtifact`를 통한 변환)에는 다음 규칙을 적용합니다.
 
-- 각 바이너리 파일 항목은 디코딩 후 32 MB로 제한합니다. 번들 아티팩트 전체는 일반 `MAX_ARTIFACT_BYTES` 한도 안에 들어가야 합니다. 텍스트 번들의 기본 한도는 16 MB입니다. base64 텍스트 자체도 아티팩트 크기에 포함되므로, 문서 자산이 있는 번들이 이 크기를 초과하려면 `MAX_ARTIFACT_BYTES`를 늘려야 합니다.
+- 각 바이너리 파일 항목은 디코딩 후 32 MiB로 제한합니다. 저장되는 번들 JSON 전체에는 고정된 16 MiB `MAX_ARTIFACT_BYTES` 한도도 적용합니다. 크기는 UTF-8 바이트로 계산하며, base64 텍스트도 포함합니다. 개별 파일 한도가 더 크더라도 전체 아티팩트 한도를 넘을 수 없습니다. 실행 시 설정으로 이 한도를 늘릴 수는 없습니다.
 - `path` 또는 `name`은 안전한 상대 경로여야 합니다. `..` 구간, 절대 경로, 드라이브 문자로 시작하는 경로, 제어 문자를 허용하지 않습니다.
 - 바이너리 항목의 `contentType`이 허용 목록에 없으면 거부합니다.
 - 바이너리 파일 콘텐츠와 바이너리 자산의 `data`는 텍스트가 아니므로 비밀정보 검사를 건너뜁니다. 다만 파일·자산 이름과 `files`/`assets`의 비바이너리 텍스트 콘텐츠는 계속 검사합니다.

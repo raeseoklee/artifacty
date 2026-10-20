@@ -217,7 +217,9 @@ updated. `getArtifact` responses include:
 
 `artifact` contains a summary of the linked artifact. If the target no longer
 exists, `artifact` is `null` and `missing` is `true`. The response keeps the
-dangling relation. Artifacty rejects self-links (`fromId === toId`) and relation
+dangling relation. If the target exists but the caller cannot read it,
+`artifactId` and `artifact` are `null`, `restricted` is `true`, and `missing`
+is `false`. Artifacty rejects self-links (`fromId === toId`) and relation
 names outside the closed set.
 
 `GET /api/artifacts` and `artifacty_list` accept `relatedTo=<id>` (and
@@ -264,8 +266,11 @@ Comments are lightweight, version-anchored notes stored in an
   (`resolvedAt`/`resolvedBy` are then populated).
 - Comment deletion is a soft delete. Artifacty sets `deletedAt` and hides the
   row from `listComments` and `GET .../comments` by default. Pass
-  `includeDeleted: true` to include it. Artifacty keeps the comment row and its
-  `comment-delete` audit entry.
+  `includeDeleted: true` to request deleted comments. With authenticated access,
+  administrators can see all deleted comments on an accessible artifact; other
+  users can see only their own deleted comments. Local single-user and trusted
+  direct storage access do not apply this author restriction. Artifacty keeps
+  the comment row and its `comment-delete` audit entry.
 - Comment reads require access to the artifact. In private site mode, new
   comments require comment or edit permission, or the owner or administrator
   role. Comment grants allow users to resolve their own comments.
@@ -337,11 +342,11 @@ types: `application/pdf`,
 Rules enforced on every write (`createArtifact`/`updateArtifact` and
 conversion via `convertAgentArtifact`):
 
-- Each binary file entry is capped at 32 MB decoded; the bundle artifact as a
-  whole must still fit under the general `MAX_ARTIFACT_BYTES` limit
-  (16 MB by default for text bundles; a bundle with document assets can
-  exceed that limit only if `MAX_ARTIFACT_BYTES` is raised, since the
-  base64 text itself counts toward the artifact size).
+- Each binary file entry is capped at 32 MiB decoded. The complete stored
+  bundle JSON must also fit within the fixed 16 MiB `MAX_ARTIFACT_BYTES` limit,
+  measured as UTF-8 bytes. Base64 text counts toward this limit. The per-file
+  cap does not override the smaller whole-artifact limit. There is no runtime
+  setting to increase it.
 - `path` (or `name`) must be a safe relative path: no `..` segments, no
   absolute or drive-letter paths, no control characters.
 - An unlisted `contentType` on a binary entry is rejected.

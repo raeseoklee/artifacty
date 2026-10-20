@@ -32,6 +32,8 @@ Artifacty는 AI가 만든 아티팩트를 로컬에 보관하고 에이전트끼
 
 ![릴리스 체크리스트의 추가·삭제 내용을 보여 주는 영어 버전 비교 화면](docs/assets/screenshots/version-diff.png)
 
+단계별 사용 방법과 확인 절차는 [브라우저 사용자 매뉴얼](docs/ko/user-guide.md)을 참고하세요.
+
 ## MCP를 사용하는 이유
 
 아티팩트는 세션에서 만든 결과물을 공유하고 버전을 관리할 수 있는 페이지입니다. Artifacty는 이 페이지를 로컬에 보관하고 여러 에이전트가 함께 사용하도록 합니다. 브라우저 서버는 사람이 볼 화면을 렌더링하고, MCP stdio 서버는 에이전트에 공통 도구 인터페이스를 제공합니다.
@@ -101,7 +103,7 @@ artifacty start --api-token "$(artifacty token --raw)"
 
 ```bash
 artifacty install claude
-artifacty install codex --dry-run
+artifacty install codex
 artifacty install gemini
 artifacty install copilot
 artifacty install cursor
@@ -109,12 +111,20 @@ artifacty install all
 artifacty check
 ```
 
+사용하는 에이전트의 명령을 선택하거나, `artifacty install all`로 지원하는 모든 설정을 설치하세요. 설정 파일을 변경하기 전에 내용을 확인하려면 `--dry-run`을 붙이세요.
+
 내부 중앙 서버를 사용한다면 서버에서 HTTP MCP 엔드포인트를 활성화하세요. 사용자는 계정 페이지에서 개인 MCP/API 토큰을 발급할 수 있습니다.
 
 ```bash
 ARTIFACTY_BOOTSTRAP_TOKEN="$(artifacty token --raw)"
 artifacty serve --host 10.0.0.50 --share-mode team --api-token "$ARTIFACTY_BOOTSTRAP_TOKEN" --mcp-http --foreground
-# Open http://10.0.0.50:8787/login, create the first admin, then create a personal token at /account.
+```
+
+`http://10.0.0.50:8787/login`에서 첫 관리자 계정을 만들고 `/account`에서 개인 토큰을 발급하세요. 서버 터미널은 실행 상태로 두세요. 각 클라이언트의 Bash 터미널에서 토큰을 화면에 표시하지 않고 입력한 뒤 설정을 설치하세요.
+
+```bash
+read -r -s -p "Personal API token: " ARTIFACTY_PERSONAL_TOKEN
+printf '\n'
 artifacty install all --mcp-url http://10.0.0.50:8787/mcp --api-token "$ARTIFACTY_PERSONAL_TOKEN"
 ```
 
@@ -198,10 +208,14 @@ npm start
 npm run release:check
 ```
 
+예시의 ID와 경로는 실제 값으로 바꾸세요. `<artifact-id>`처럼 꺾쇠로 표시한 값은 자리표시자이므로, 실행 전에 꺾쇠를 포함한 전체 값을 바꾸세요.
+
 CLI에서 게시하세요.
 
 ```bash
-artifacty publish --title "handoff note" --format markdown --source codex --content "# Next step\nReview the API plan."
+artifacty publish --title "handoff note" --format markdown --source codex --content "# Next step
+
+Review the API plan."
 ```
 
 다른 에이전트가 만든 아티팩트를 가져와 Artifacty 형식으로 변환하세요.
@@ -242,7 +256,7 @@ artifacty import --agent codex --tag handoff --content '{
 }'
 ```
 
-Claude나 Gemini가 자료를 찾아 같은 아티팩트에서 작업을 이어갑니다.
+Claude나 Gemini가 자료를 찾아 같은 아티팩트에서 작업을 이어갑니다. 아래 명령의 `release-handoff-abc12345`는 가져오기나 목록 조회 결과에 나온 실제 ID로 바꾸세요.
 
 ```bash
 artifacty list --tag handoff
@@ -251,7 +265,9 @@ artifacty update release-handoff-abc12345 \
   --format markdown \
   --source claude \
   --tag handoff \
-  --content "# Release Handoff\n\nReviewed README and prepared publish notes."
+  --content "# Release Handoff
+
+Reviewed README and prepared publish notes."
 ```
 
 아티팩트 목록을 조회하세요.
@@ -283,7 +299,7 @@ artifacty backup --full
 artifacty export --file ./artifacty-backup.json
 artifacty export --file ./artifacty-backup-full.json --full
 artifacty import-store --file ./artifacty-backup.json
-artifacty import-store --file ./artifacty-backup-full.json --confirm replace-all [--force-users]
+artifacty import-store --file ./artifacty-backup-full.json --confirm replace-all
 artifacty start
 artifacty status
 artifacty stop
@@ -308,7 +324,7 @@ Artifacty는 메타데이터를 `artifacty.sqlite`에 저장합니다. 일반적
 
 모든 아티팩트 레코드에는 `visibility`(`private`/`team`/`public`, 기본값 `team`)와 `ownerUserId`가 있습니다. 마이그레이션할 때는 `publisherUserId`로 소유자 정보를 채웁니다. 적용되는 접근 규칙은 아래 보안 모델 절을 참고하세요.
 
-관리자는 `/admin/backup`에서 백업을 내려받거나 복원할 수 있습니다. 기본 `artifacts` 범위에는 아티팩트 메타데이터와 버전 내용이 들어가며, 사용자·세션·API 토큰 레코드·감사 로그는 포함하지 않습니다. 이 범위의 번들을 복원하면 대상 서버의 아티팩트 레코드를 교체하고 어떤 레코드에서도 참조하지 않는 버전 파일을 정리합니다. 사용자, 토큰, 감사 이력은 그대로 둡니다.
+관리자는 `/admin/backup`에서 백업을 내려받거나 복원할 수 있습니다. 기본 `artifacts` 범위에는 아티팩트 메타데이터와 버전 내용이 들어가며, 사용자·세션·API 토큰 레코드·감사 로그·댓글·관계·공유 권한은 포함하지 않습니다. 이 범위의 번들을 복원하면 대상 서버의 아티팩트 레코드를 교체하고 어떤 레코드에서도 참조하지 않는 버전 파일을 정리합니다. 사용자, 토큰, 감사 이력은 그대로 둡니다. 대상 저장소에 댓글·관계·공유 권한이 있으면 `--confirm replace-all`(API: `confirm: "replace-all"`)을 지정해야 복원할 수 있습니다. 이 확인은 해당 기록을 복구 없이 삭제하는 데 동의하는 것입니다. 이 기록도 보존하려면 `full` 백업을 사용하세요.
 
 `full` 범위 백업은 사용자와 비밀번호 해시, API 토큰 해시(원문 토큰 제외), 감사 로그, 아티팩트 관계, Webhook도 포함합니다. `artifacty backup --full`, 다운로드의 `?scope=full`, 또는 `/admin/backup`의 범위 선택기로 지정합니다. Webhook 비밀키는 내보내지 않습니다. 복원된 Webhook은 비활성 상태이며 비밀키를 다시 발급해야 합니다. 세션도 내보내지 않습니다.
 
@@ -369,10 +385,10 @@ artifacty index rebuild --embeddings
 - 대상 아티팩트가 삭제되어도 관계를 생략하지 않고 `missing: true`로 표시합니다.
 
 ```bash
-artifacty link <from-id> derived-from <to-id>
-artifacty relations <artifact-id>
-artifacty show <artifact-id> --relations
-artifacty unlink <from-id> derived-from <to-id>
+artifacty link "<from-id>" derived-from "<to-id>"
+artifacty relations "<artifact-id>"
+artifacty show "<artifact-id>" --relations
+artifacty unlink "<from-id>" derived-from "<to-id>"
 ```
 
 ### 개인 설정 자동 적용
@@ -398,7 +414,7 @@ artifacty unlink <from-id> derived-from <to-id>
 
 - 댓글은 아티팩트와 같은 안전한 Markdown 렌더러를 사용하며, 댓글당 최대 16 KB입니다. 선택 사항인 `anchor`는 표시 위치의 힌트입니다. 텍스트에는 `{ line: 42 }`, JSON/SARIF에는 `{ path: "$.runs[0].results[3]" }`, CSV에는 `{ row: 7 }`을 사용할 수 있습니다. 힌트가 실제 내용과 일치하는지는 검증하지 않습니다.
 - 답글은 한 단계까지만 지원합니다. 새 댓글의 `parentId`는 자신의 `parentId`가 없는 최상위 댓글을 가리켜야 합니다.
-- 댓글 삭제는 소프트 삭제입니다. `artifacty comments`/`GET .../comments`에서는 사라지지만 감사 로그는 남습니다. 삭제된 댓글도 보려면 `--include-deleted`/`includeDeleted=true`를 지정하세요.
+- 댓글 삭제는 소프트 삭제입니다. `artifacty comments`/`GET .../comments`에서는 사라지지만 감사 로그는 남습니다. 삭제된 댓글도 보려면 `--include-deleted`/`includeDeleted=true`를 지정하세요. 인증된 일반 사용자는 삭제된 댓글 중 자신이 작성한 댓글만 볼 수 있습니다. 관리자와 신뢰된 로컬 호출은 해당 아티팩트의 삭제된 댓글을 모두 볼 수 있습니다.
 - 각 아티팩트의 `reviewStatus`는 `none`, `pending`, `changes-requested`, `approved` 중 하나입니다. 상태는 명시적으로 설정합니다. 승인된 아티팩트에 버전을 추가하면 자동으로 `pending`으로 돌아가며, 해당 수정의 감사 메타데이터에 기록합니다.
 - HTTP에서는 `GET`/`POST /api/artifacts/:id/comments`, `POST /api/artifacts/:id/comments/:commentId/resolve`, `DELETE /api/artifacts/:id/comments/:commentId`, `POST /api/artifacts/:id/review-status`로 댓글과 리뷰 상태를 관리합니다.
 - 대응하는 MCP 도구는 `artifacty_comment`, `artifacty_resolve_comment`, `artifacty_set_review_status`입니다. `artifacty_get`에 `includeComments: true`를 지정하면 요청한 버전의 미해결 댓글도 함께 반환합니다.
@@ -407,7 +423,7 @@ artifacty unlink <from-id> derived-from <to-id>
 ```bash
 artifacty comment release-handoff-abc12345 --body "Looks good, one nit" --line 42
 artifacty comments release-handoff-abc12345
-artifacty resolve-comment release-handoff-abc12345 <comment-id>
+artifacty resolve-comment release-handoff-abc12345 "<comment-id>"
 artifacty review-status release-handoff-abc12345 approved
 ```
 
@@ -427,7 +443,7 @@ artifacty diff release-handoff-abc12345 --from 1 --to 3 --json
 기본적으로 아티팩트, 감사 로그, 이벤트의 보관량을 제한하지 않습니다. 관리자는 `/admin/retention`이나 `artifacty retention set`으로 보존 정책을 설정할 수 있습니다. 정책은 `meta` 테이블에 저장합니다.
 
 - `archiveAfterDays`는 지정 기간 동안 수정하지 않은 아티팩트를 자동 아카이브합니다. 기본값과 아티팩트 유형별 예외를 설정할 수 있습니다. `keepTags`의 태그가 있거나 `reviewStatus: "approved"`이면 제외합니다.
-- `purgeArchivedAfterDays`는 아카이브 후 지정 기간이 지난 아티팩트를 영구 삭제합니다. 버전 파일, 외래 키로 연쇄 삭제되는 댓글·관계·임베딩, `events`와 검색 인덱스 레코드도 삭제합니다. 감사 로그는 삭제 사실을 기록하기 위해 남깁니다(아래 `auditRetentionDays` 참고). 아티팩트 내용을 영구 삭제하는 유일한 보존 작업이므로 서버 환경에 `ARTIFACTY_RETENTION_ALLOW_PURGE=true`가 없으면 거부합니다. `--allow-purge` 또는 요청의 `allowPurge`는 한 번의 실행만 허용하며, 환경 변수 자체를 설정하지 않습니다. 먼저 `artifacty retention run --dry-run`이나 `/admin/retention` 보고서로 삭제 대상을 확인하세요.
+- `purgeArchivedAfterDays`는 아카이브 후 지정 기간이 지난 아티팩트를 영구 삭제합니다. 버전 파일, 외래 키로 연쇄 삭제되는 댓글·관계·임베딩, `events`와 검색 인덱스 레코드도 삭제합니다. 감사 로그는 삭제 사실을 기록하기 위해 남깁니다(아래 `auditRetentionDays` 참고). 아티팩트 내용을 영구 삭제하는 유일한 보존 작업이므로 서버 환경에 `ARTIFACTY_RETENTION_ALLOW_PURGE=true`가 없으면 거부합니다. 환경 변수가 켜져 있으면 예약 정리와 CLI 실행은 `--allow-purge` 없이도 해당 아티팩트를 영구 삭제할 수 있습니다. 브라우저·HTTP API 실행에는 `allowPurge: true`도 필요합니다. CLI 플래그나 요청 필드는 환경 변수를 설정하지 않습니다. 먼저 `artifacty retention run --dry-run`이나 `/admin/retention` 보고서로 삭제 대상을 확인하세요.
 - `auditRetentionDays`는 오래된 감사 로그를 정리합니다. `version-repair`, `version-delete`, `retention-purge`, `retention-policy-update`, `owner-change`는 예외로 영구 보관합니다.
 - `eventRetentionRows`는 변경 알림용 `events` 테이블의 최대 행 수를 제한합니다.
 
@@ -465,7 +481,7 @@ ARTIFACTY_RETENTION_ALLOW_PURGE=true artifacty retention run --allow-purge
 artifacty list --type handoff --review-status pending --created-after 2025-01-01
 artifacty views save open-handoffs --type handoff --review-status pending --shared
 artifacty list --view open-handoffs --group-by sourceAgent
-artifacty views delete <view-id>
+artifacty views delete "<view-id>"
 ```
 
 ## 이벤트
@@ -573,7 +589,7 @@ curl -s "http://127.0.0.1:8787/api/artifacts?q=handoff&limit=20&offset=0" \
 모든 아티팩트 응답에는 `latestVersion`과 `etag`(`"<id>:<latestVersion>"`)가 있습니다. 두 에이전트가 같은 버전을 읽고 새 버전을 저장하면 두 번째 저장이 첫 번째 에이전트의 변경 사항을 반영하지 않은 채 최신 내용을 대체할 수 있습니다. 이를 막으려면 읽었던 버전을 수정 본문의 `expectedVersion`으로 보내거나 `If-Match` 헤더로 보내세요. 약한 ETag 접두사 `W/"..."`도 지원합니다.
 
 ```bash
-curl -s http://127.0.0.1:8787/api/artifacts/<id> \
+curl -s "http://127.0.0.1:8787/api/artifacts/<id>" \
   -H 'content-type: application/json' \
   -H "x-artifacty-token: $ARTIFACTY_API_TOKEN" \
   -H 'If-Match: "<id>:3"' \
@@ -692,7 +708,7 @@ artifacty samples remove
 - 사용자가 있으면 `/account`에서 발급한 개인 API 토큰으로도 HTTP API와 MCP 요청을 인증합니다. 생성한 아티팩트는 토큰 소유자의 이메일을 `publisherId`로, 감사 로그는 같은 신원을 `actor`로 기록합니다.
 - API 토큰은 타이밍 공격에 안전한 다이제스트 비교로 검사합니다.
 - 개인 API 토큰은 `read`, `write`, `admin` 권한 범위를 지원하며 기본값은 `read`+`write`입니다. `/account`에서 생성할 때 선택합니다. `admin`은 관리자 토큰에만 부여할 수 있습니다. 각 `/api/*` 경로에는 해당 토큰 범위가 필요합니다. 공용 `ARTIFACTY_API_TOKEN`과 브라우저 세션은 전체 범위를 가집니다.
-  범위 검사가 실패하면 `403`과 `code: "scope_denied"`를 반환하고 빈도를 제한한 `token-scope-denied` 감사 로그를 기록합니다. `write`가 없는 MCP 토큰의 `tools/list`에서는 쓰기 도구를 숨깁니다. 직접 호출해도 `structuredContent.code: "scope_denied"` 오류가 납니다.
+  범위 검사가 실패하면 `403`과 `code: "scope_denied"`를 반환하고 빈도를 제한한 `token-scope-denied` 감사 로그를 기록합니다. HTTP MCP나 브리지에서 `write`가 없는 토큰의 `tools/list`에서는 쓰기 도구를 숨깁니다. 직접 호출해도 `structuredContent.code: "scope_denied"` 오류가 납니다. 신뢰된 로컬 stdio는 토큰 범위를 검사하지 않지만, 식별된 사용자의 아티팩트 권한은 적용합니다.
 - 계정이 하나라도 있으면 아티팩트는 `visibility`(`public`, `team`, `private`, 기본값 `team`)와 `ownerUserId`를 사용합니다. 퍼블릭 서버 모드에서 `public`은 익명 읽기 전용 접근, `team`은 인증된 접근, `private`은 소유자·관리자 접근을 허용합니다. 쓰기와 소유자 관리 작업은 권한을 확인합니다. 프라이빗 모드에서는 명시적인 공유로 접근을 제어합니다. 제한된 조회에는 존재 여부를 숨기기 위해 404를 반환합니다. 계정이 없는 단일 사용자 모드는 별도의 로컬 동작입니다. 공개 범위·소유권 변경에는 `POST /api/artifacts/:id/visibility`, `POST /api/artifacts/:id/owner`, `artifacty visibility <id> private|team|public`, `artifacty_set_visibility`를 사용합니다.
 - HTTP와 HTTP MCP 요청은 `(token or user or remote address, bucket)` 조합(토큰·사용자·원격 주소 중 하나와 버킷)별로 고정된 1분 구간에서 횟수를 제한합니다. `write`는 변경 경로에 기본 분당 120회(`ARTIFACTY_RATE_WRITE_PER_MIN`), `auth`는 `/login`에 주소별 분당 10회(`ARTIFACTY_RATE_AUTH_PER_MIN`), `search`는 `GET /api/artifacts?q=`에 분당 300회(`ARTIFACTY_RATE_SEARCH_PER_MIN`)입니다. 루프백 바인딩에서는 `ARTIFACTY_RATE_LIMIT=always`가 없으면 비활성화하며, `ARTIFACTY_RATE_LIMIT=off`이면 항상 비활성화합니다. 한도를 넘으면 `429`, `Retry-After` 헤더, `code: "rate_limited"`를 반환하고 빈도를 제한한 `rate-limited` 감사 로그를 남깁니다.
 - localhost 외부에 바인딩하려면 `ARTIFACTY_SHARE_MODE=lan` 또는 `team`과 `ARTIFACTY_API_TOKEN`이 모두 필요합니다.

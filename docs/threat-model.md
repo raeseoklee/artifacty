@@ -339,18 +339,20 @@ address in the network policy.
 
 Risk: an incorrect retention policy can permanently delete artifacts and their
 version files. For example, an operator could set `purgeArchivedAfterDays` too
-low or apply it without reviewing the affected artifacts. Purge is the only
-irreversible action that retention settings can trigger.
+low or apply it without reviewing the affected artifacts. Purging permanently
+deletes artifact content. Audit and event pruning also permanently deletes
+history; the purge gate does not protect these records.
 
 Controls:
 
 - Changing `archiveAfterDays`, `purgeArchivedAfterDays`, `auditRetentionDays`,
   `eventRetentionRows`, or `keepTags` does not delete data. The new policy takes
   effect on the next sweep or explicit `artifacty retention run`.
-- `artifacty retention run` and `POST /api/admin/retention/run` default to
-  `dryRun: true`, returning a report of what would be archived/purged/pruned
-  without changing the store. `/admin/retention` renders that same report so
-  an admin can review it before applying anything.
+- `artifacty retention run --dry-run` previews archive, purge, and history
+  pruning candidates without changing the store. Without `--dry-run`, the CLI
+  applies the policy. `POST /api/admin/retention/run` defaults to `dryRun: true`;
+  send `dryRun: false` to apply it. `/admin/retention` displays a preview before
+  an administrator runs cleanup.
 - Archiving removes an artifact from active lists without deleting content.
   `artifacty restore` reverses it. The existing owner or administrator check
   on `archiveArtifact` is the only access requirement.
@@ -358,9 +360,11 @@ Controls:
   `ARTIFACTY_RETENTION_ALLOW_PURGE=true` in the server's environment. A
   policy with purge candidates but no allow-purge gate set records them as
   `purgeSkipped: true` in the sweep result instead of silently doing nothing or
-  deleting the candidates; the CLI's `--allow-purge` flag and the browser's "Allow
-  purge" checkbox both map to the same environment-variable check rather
-  than establishing an independent bypass.
+  deleting the candidates. The CLI and scheduled sweeps permit purging when
+  this environment variable is set; the CLI does not require `--allow-purge`
+  as a second gate. Browser and HTTP API runs additionally require the
+  "Allow purge" choice or `allowPurge: true`. None of these options bypasses
+  the environment-variable check.
 - Every applied sweep writes one `retention-sweep` audit summary row
   (actor `system:retention`), and every purged artifact gets its own
   `retention-purge` audit row before deletion. `retention-purge` rows are
