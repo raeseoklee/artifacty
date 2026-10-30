@@ -16,6 +16,8 @@ Artifacty ignores disabled language choices and the `Accept-Language` header. Se
 | --- | --- | --- |
 | Installation and feature reference | [README](../README.md) | [README](../README.ko.md) |
 | Browser user manual | [Guide](user-guide.md) | [사용 매뉴얼](ko/user-guide.md) |
+| Collections, categories, and author history | [Guide](organizing-artifacts.md) | [아티팩트 정리와 작성 이력](ko/organizing-artifacts.md) |
+| Local models and semantic search | [Guide](embeddings.md) | [로컬 모델과 의미 검색](ko/embeddings.md) |
 | Language packs | [Guide](language-packs.md) | [언어 팩](ko/language-packs.md) |
 | SMTP and password reset | [Guide](smtp.md) | [SMTP와 비밀번호 재설정](ko/smtp.md) |
 | Agent integrations | [Guide](integrations.md) | [연동 안내](ko/integrations.md) |

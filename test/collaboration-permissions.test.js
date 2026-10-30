@@ -97,7 +97,7 @@ test("v9 read grants migrate to v10 and old backup grants default to read", asyn
     } finally { db.close(); }
     assert.equal(await getArtifactPermission(store, artifact.id, { access: reader }), "read");
     const migrated = openDatabase(store);
-    try { assert.equal(migrated.prepare("SELECT value FROM meta WHERE key='store_version'").get().value, "10"); }
+    try { assert.equal(migrated.prepare("SELECT value FROM meta WHERE key='store_version'").get().value, "11"); }
     finally { migrated.close(); }
     const tables = await exportFullStoreTables(store);
     for (const grant of tables.artifactShares) delete grant.permission;

@@ -1,0 +1,8 @@
+# Upstream model data and runtime bundles are verified by their SHA-256 manifests.
+models/**/tokenizer.json -diff
+models/**/*.onnx.part* binary
+vendor/onnxruntime/*.mjs -diff
+vendor/onnxruntime/*.map -diff
+vendor/onnxruntime/*.wasm binary
+# Preserve the publisher's original CRLF license bytes.
+licenses/multilingual-e5-small-LICENSE.txt -text whitespace=cr-at-eol

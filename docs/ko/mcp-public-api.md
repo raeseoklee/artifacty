@@ -2,6 +2,7 @@
 
 <!-- 번역 기준: 9e73a9f -->
 <!-- 문장·의미 대조: 2026-10-20, 영문 동시 개정본 기준 -->
+<!-- 컬렉션·카테고리·작성 이력 문서 대조: 2026-10-30 영문 동시 개정본 -->
 
 # MCP 공개 API
 
@@ -36,7 +37,7 @@ Artifacty의 MCP 서버는 에이전트 간 연동을 위한 기본 인터페이
 - `artifacty_create`: 네이티브 Artifacty 아티팩트를 생성합니다. 선택적인 `relations` 배열(`[{ toId, relation }]`)로 같은 호출에서 새 아티팩트를 다른 아티팩트와 연결할 수 있습니다. 선택적인 `visibility`도 받습니다. 값은 `"private"`, `"team"`, `"public"` 중 하나이며, 기본값은 `"team"`입니다.
 - `artifacty_publish`: 이전 버전과의 호환성을 위한 `artifacty_create`의 별칭입니다.
 - `artifacty_import`: 외부 Claude, Codex, Gemini, Copilot, Cursor, Artifacty 또는 일반 payload를 변환합니다.
-- `artifacty_list`: `query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `mode`, `includeArchived`, `view`, `limit`, `offset`으로 아티팩트 목록을 조회합니다. `relatedTo`는 지정한 아티팩트 ID와 어느 방향으로든 관련된 아티팩트로 결과를 제한하며, `relation`은 지정한 관계 이름으로 추가 제한합니다. `publisher`는 `publisherId`, `publisherUserId`, `ownerUserId`와 일치하는 항목을 찾습니다. `createdAfter`/`createdBefore`는 ISO 날짜 또는 날짜·시간을 받습니다. 파싱할 수 없으면 `isError: true` 결과와 `structuredContent.code === "invalid_filter"`를 반환합니다. `view`는 ID 또는 이름으로 저장된 뷰를 지정합니다([영문 로드맵 8절](../roadmap-design.md#8-dashboard-filters-and-saved-views) 참조). 먼저 해당 뷰의 필터를 적용한 다음, `view`와 함께 전달된 다른 인수로 해당 필터만 덮어씁니다. `mode`는 `"keyword"`, `"semantic"`, `"hybrid"` 중 하나입니다([영문 로드맵 6절](../roadmap-design.md#6-semantic-search) 참조). 임베딩 제공자(`ARTIFACTY_EMBEDDINGS_URL` 또는 `ARTIFACTY_EMBEDDINGS_COMMAND`)를 설정하고 `query`를 지정하면 `hybrid`가 기본값입니다. 제공자가 없으면 `semantic`/`hybrid`는 별도 오류 없이 `keyword`로 대체되며, 응답의 `search.fallback`은 `true`가 됩니다. 응답에는 `search.mode`가 포함됩니다. `semantic`/`hybrid` 결과에는 아티팩트별 `searchScore`도 포함됩니다.
+- `artifacty_list`: `query`, `tag`, `sourceAgent`, `artifactType`, `publisher`, `createdAfter`, `createdBefore`, `reviewStatus`, `relatedTo`, `relation`, `mode`, `includeArchived`, `view`, `limit`, `offset`으로 아티팩트 목록을 조회합니다. `relatedTo`는 지정한 아티팩트 ID와 어느 방향으로든 관련된 아티팩트로 결과를 제한하며, `relation`은 지정한 관계 이름으로 추가 제한합니다. `publisher`는 `publisherId`, `publisherUserId`, `ownerUserId`와 일치하는 항목을 찾습니다. `createdAfter`/`createdBefore`는 ISO 날짜 또는 날짜·시간을 받습니다. 파싱할 수 없으면 `isError: true` 결과와 `structuredContent.code === "invalid_filter"`를 반환합니다. `view`는 ID 또는 이름으로 저장된 뷰를 지정합니다([영문 로드맵 8절](../roadmap-design.md#8-dashboard-filters-and-saved-views) 참조). 먼저 해당 뷰의 필터를 적용한 다음, `view`와 함께 전달된 다른 인수로 해당 필터만 덮어씁니다. `mode`는 `"keyword"`, `"semantic"`, `"hybrid"` 중 하나입니다([영문 로드맵 6절](../roadmap-design.md#6-semantic-search) 참조). `query`를 지정하면 `hybrid`가 기본값이며, 다른 제공자를 선택하지 않으면 기본 포함 ONNX 모델을 사용합니다([임베딩 안내](embeddings.md) 참조). 임베딩을 끄거나 사용할 수 없으면 `semantic`/`hybrid`는 별도 오류 없이 `keyword`로 대체되며, 응답의 `search.fallback`은 `true`가 됩니다. 응답에는 `search.mode`가 포함됩니다. `semantic`/`hybrid` 결과에는 아티팩트별 `searchScore`도 포함됩니다.
 - `artifacty_get`: `id`와 선택적인 `version`으로 아티팩트 하나를 읽습니다. 응답에는 `relations: { outgoing, incoming }`이 포함됩니다. 각 항목에는 관련 아티팩트의 요약이 들어가며, 대상이 더 이상 없으면 `missing: true`를 포함합니다. `includeComments: true`를 전달하면 요청한 버전의 열린 댓글, 즉 미해결 상태이면서 삭제되지 않은 댓글을 `comments`로 함께 반환합니다. 기본적으로 댓글은 포함하지 않습니다.
 - `artifacty_update`: 변경 불가능한 버전을 추가합니다. 선택적인 `expectedVersion`을 받으며, 여기에 `artifacty_get`이 반환한 `latestVersion`을 전달합니다. 그 사이 아티팩트가 다른 `latestVersion`으로 바뀌었다면 새 버전을 생성하지 않습니다. 대신 `isError: true` 도구 결과에 `structuredContent.code === "version_conflict"`와 `structuredContent.latestVersion`을 포함합니다. 이를 통해 동시에 이루어진 다른 변경 사항이 알림 없이 덮어써지는 일을 방지합니다. 에이전트는 수정할 때 마지막 `artifacty_get`의 `latestVersion`을 `expectedVersion`으로 전달하는 것이 좋습니다. `artifacty_create`와 같은 선택적 `relations` 배열도 받습니다.
 - `artifacty_archive` / `artifacty_restore`: 아카이브 상태를 전환합니다. 사용자 계정이 하나라도 있으면 아티팩트 소유자 또는 관리자여야 합니다.
@@ -54,6 +55,18 @@ Artifacty의 MCP 서버는 에이전트 간 연동을 위한 기본 인터페이
 도구 스키마는 Artifacty 스키마 v1의 형식과 아티팩트 유형을 사용합니다. 0.x 릴리스에서는 유지보수 담당자가 선택적 속성을 추가할 수 있습니다. 기존 속성의 이름은 마이그레이션을 문서화하지 않고 변경하지 않는 것이 좋습니다.
 
 저장소 검증 오류와 찾을 수 없음 오류에는 프로그램에서 처리할 수 있는 `code`가 포함됩니다. 관계와 댓글 오류도 여기에 해당합니다. `tools/call`은 JSON-RPC 프로토콜 오류 대신 `isError: true` 도구 결과와 `structuredContent.code`를 반환합니다. 오류 코드에는 `INVALID_RELATION`, `SELF_RELATION`, `ARTIFACT_NOT_FOUND`, `RELATION_NOT_FOUND`, `COMMENT_NOT_FOUND`, `THREAD_TOO_DEEP`, `COMMENT_TOO_LARGE`, `INVALID_REVIEW_STATUS` 등이 있습니다. 클라이언트는 오류 메시지 텍스트를 파싱하지 않고 코드를 사용할 수 있습니다.
+
+## 컬렉션과 작성 정보 — 다음 릴리스
+
+이 추가 기능은 배포된 0.16.1에는 포함되지 않습니다.
+
+- `artifacty_collection_create`: `title`, 선택적 `description`, `sections`로 컬렉션을 만듭니다. 각 섹션에는 `id`, `title`, `items`가 있습니다. 항목은 `artifactId`를 참조하며, `version`은 `"latest"` 또는 양의 버전 번호, `display`는 `"inline"` 또는 `"card"`입니다.
+- `artifacty_collection_update`: `id`, 전체 섹션 목록, 마지막으로 읽은 `expectedVersion`으로 컬렉션의 새 버전을 만듭니다. 버전이 오래되었으면 충돌을 반환합니다. 기존 참조를 사용할 수 없다면 접근 권한을 복구하거나 `dropUnavailableReferences: true`를 명시해 새 버전에서 제거하세요. 이전 버전은 유지됩니다.
+- `artifacty_get`과 아티팩트 리소스로 기존 인터페이스에서 컬렉션을 읽습니다. 컬렉션에 접근할 수 있어도 포함된 아티팩트의 권한까지 생기지 않습니다. 읽을 수 없는 참조는 반환된 컬렉션 콘텐츠에서 제외합니다.
+
+생성, 가져오기, 업데이트, 컬렉션 도구에는 `provenance: { tool, provider, model }`을 전달할 수 있습니다. 실제 값을 사용하고 모르는 필드는 생략하세요. 서버는 요청 컨텍스트에서 사용자 정보를 가져오므로, 클라이언트의 작성 정보로 다른 사용자를 지정할 수 없습니다. `createdBy`는 최초 작성자, `version.provenance`는 선택한 버전의 작성자입니다. 아티팩트 수준의 `provenance`는 최신 버전의 정보를 나타냅니다.
+
+stdio에서는 `initialize`에 선언한 클라이언트 이름으로 도구를 식별할 수 있습니다. 이 이름은 클라이언트의 선언이며 검증된 소프트웨어 신원은 아닙니다. 모델 식별자도 자체 신고한 값입니다. 상태를 유지하지 않는 HTTP와 브리지 요청에는 이전 초기화의 클라이언트 정보가 보존되지 않습니다. 전체 컬렉션 호출 예시와 작성 정보는 [아티팩트 정리와 작성 이력](organizing-artifacts.md)을 참고하세요.
 
 ## 리소스
 

@@ -258,7 +258,9 @@ test("artifacty_list mode and artifacty_info embeddings reflect a configured emb
   const store = createStore({ home });
   const handler = createMcpRequestHandler({ store, publicBaseUrl: "http://127.0.0.1:8787" });
   const previousCommand = process.env.ARTIFACTY_EMBEDDINGS_COMMAND;
+  const previousProvider = process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
   try {
+    process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = "disabled";
     const infoWithoutProvider = await handler({
       method: "tools/call",
       params: { name: "artifacty_info", arguments: {} }
@@ -277,6 +279,7 @@ test("artifacty_list mode and artifacty_info embeddings reflect a configured emb
     assert.equal(fallback.structuredContent.search.mode, "keyword");
     assert.equal(fallback.structuredContent.search.fallback, true);
 
+    process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = "command";
     process.env.ARTIFACTY_EMBEDDINGS_COMMAND = `${process.execPath} ${JSON.stringify(path.resolve("scripts/fixtures/embeddings-command.js"))}`;
     // Publishing above already scheduled background indexing without a
     // provider (a no-op); create a second artifact now that a provider is
@@ -299,6 +302,8 @@ test("artifacty_list mode and artifacty_info embeddings reflect a configured emb
     });
     assert.equal(semantic.structuredContent.search.mode, "semantic");
   } finally {
+    if (previousProvider === undefined) delete process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
+    else process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = previousProvider;
     if (previousCommand === undefined) {
       delete process.env.ARTIFACTY_EMBEDDINGS_COMMAND;
     } else {

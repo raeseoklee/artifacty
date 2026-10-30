@@ -4,6 +4,62 @@
 // surfaces describe the same shapes instead of drifting apart.
 import { ARTIFACT_FORMATS, ARTIFACT_TYPES, REVIEW_STATUSES, VISIBILITY_VALUES } from "./storage.js";
 
+export const provenanceInputSchema = {
+  type: "object",
+  description: "Self-reported authoring tool, model provider and exact model ID. Do not guess unknown values. User identity and provenance source are assigned by the server.",
+  additionalProperties: false,
+  properties: {
+    tool: { type: "string", maxLength: 200, examples: ["claude-code", "codex", "cursor"] },
+    provider: { type: "string", maxLength: 200 },
+    model: { type: "string", maxLength: 200 }
+  }
+};
+
+export const provenanceSchema = {
+  type: "object",
+  properties: {
+    tool: { type: ["string", "null"] },
+    provider: { type: ["string", "null"] },
+    model: { type: ["string", "null"] },
+    userId: { type: ["string", "null"] },
+    source: { type: "string", enum: ["legacy", "mcp-client", "self-reported", "unknown"] },
+    rawSourceAgent: { type: ["string", "null"] },
+    toolSource: { type: "string" },
+    modelSource: { type: "string" }
+  }
+};
+
+export const collectionSchema = {
+  type: "object",
+  properties: {
+    description: { type: "string", maxLength: 50000, description: "Markdown introduction." },
+    sections: {
+      type: "array", maxItems: 50,
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,80}$" },
+          title: { type: "string", minLength: 1, maxLength: 200 },
+          items: {
+            type: "array", maxItems: 200,
+            items: {
+              type: "object",
+              properties: {
+                artifactId: { type: "string" },
+                version: { oneOf: [{ const: "latest" }, { type: "integer", minimum: 1 }], default: "latest" },
+                display: { type: "string", enum: ["inline", "card"], default: "card" }
+              },
+              required: ["artifactId"]
+            }
+          }
+        },
+        required: ["id", "title", "items"]
+      }
+    }
+  },
+  required: ["sections"]
+};
+
 export const artifactVersionSchema = {
   type: "object",
   description: "One immutable, append-only artifact version.",
@@ -15,7 +71,8 @@ export const artifactVersionSchema = {
     path: { type: "string", description: "Storage-relative path of the version file." },
     sizeBytes: { type: "number" },
     sha256: { type: "string" },
-    metadata: { type: "object" }
+    metadata: { type: "object" },
+    provenance: provenanceSchema
   },
   required: ["version", "createdAt", "format", "sizeBytes"]
 };
@@ -29,6 +86,8 @@ export const artifactSummarySchema = {
     artifactType: { type: "string", enum: ARTIFACT_TYPES },
     schemaVersion: { type: "number" },
     sourceAgent: { type: "string" },
+    createdBy: provenanceSchema,
+    provenance: provenanceSchema,
     publisherId: { type: ["string", "null"] },
     publisherName: { type: ["string", "null"] },
     publisherUserId: { type: ["string", "null"] },
@@ -407,7 +466,27 @@ export const savedViewListSchema = {
   required: ["views"]
 };
 
+export const categorySchema = {
+  type: "object",
+  properties: {
+    id: { type: "string" }, name: { type: "string" },
+    scope: { type: "string", enum: ["personal", "team"] },
+    ownerUserId: { type: ["string", "null"] }, teamId: { type: ["string", "null"] }, teamName: { type: ["string", "null"] },
+    createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+    artifactCount: { type: "integer", description: "Count of artifacts readable by the requesting user." },
+    containsArtifact: { type: "boolean", description: "Present when artifactId is supplied." }
+  },
+  required: ["id", "name", "scope", "artifactCount"]
+};
+
 export const schemas = {
+  Category: categorySchema,
+  CategoryList: { type: "object", properties: { categories: { type: "array", items: categorySchema } }, required: ["categories"] },
+  CategoryTeams: { type: "object", properties: { teams: { type: "array", items: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } }, required: ["id", "name"] } } }, required: ["teams"] },
+
+  Provenance: provenanceSchema,
+  ProvenanceInput: provenanceInputSchema,
+  Collection: collectionSchema,
   ArtifactVersion: artifactVersionSchema,
   ArtifactSummary: artifactSummarySchema,
   ArtifactWithContent: artifactWithContentSchema,

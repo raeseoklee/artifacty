@@ -51,8 +51,10 @@ function fakeProvider({ name = "fake", model = "fake-model" } = {}) {
 async function withTempStore(prefix, fn) {
   const home = await mkdtemp(path.join(tmpdir(), prefix));
   try {
+    setEmbeddingProvider(null);
     await fn(createStore({ home }));
   } finally {
+    await awaitEmbeddingIndexing();
     resetEmbeddingProvider();
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
@@ -68,7 +70,7 @@ async function waitForBackgroundIndexing() {
 
 test("listArtifactsPage without a provider is unaffected by mode=semantic (falls back to keyword)", async () => {
   await withTempStore("artifacty-embed-fallback-", async (store) => {
-    resetEmbeddingProvider();
+    setEmbeddingProvider(null);
     await createArtifact(store, { title: "Deploy failure", content: "deploy database migration failed", format: "text", sourceAgent: "test" });
 
     const page = await listArtifactsPage(store, { query: "deploy", mode: "semantic" });
@@ -297,7 +299,7 @@ test("a no-op update (skipNoop) does not schedule redundant re-embedding", async
 
 test("rebuildEmbeddingIndex without a provider reports configured: false", async () => {
   await withTempStore("artifacty-embed-rebuild-none-", async (store) => {
-    resetEmbeddingProvider();
+    setEmbeddingProvider(null);
     await createArtifact(store, { title: "Doc", content: "hello", format: "text", sourceAgent: "test" });
     const result = await rebuildEmbeddingIndex(store);
     assert.equal(result.ok, false);
@@ -307,7 +309,7 @@ test("rebuildEmbeddingIndex without a provider reports configured: false", async
 
 test("rebuildEmbeddingIndex re-embeds every latest version in batches", async () => {
   await withTempStore("artifacty-embed-rebuild-", async (store) => {
-    resetEmbeddingProvider();
+    setEmbeddingProvider(null);
     const artifacts = [];
     for (let i = 0; i < 20; i += 1) {
       artifacts.push(await createArtifact(store, { title: `Doc ${i}`, content: `deploy notes ${i}`, format: "text", sourceAgent: "test" }));
@@ -351,7 +353,7 @@ test("rebuildEmbeddingIndex skips binary formats' content but still embeds metad
   });
 });
 
-test("setEmbeddingProvider/resetEmbeddingProvider control the module-level default", async () => {
+test("setEmbeddingProvider can explicitly disable the module-level provider", async () => {
   await withTempStore("artifacty-embed-setter-", async (store) => {
     const provider = fakeProvider();
     setEmbeddingProvider(provider);
@@ -359,10 +361,124 @@ test("setEmbeddingProvider/resetEmbeddingProvider control the module-level defau
     await waitForBackgroundIndexing();
     assert.ok(provider.calls.length > 0);
 
-    resetEmbeddingProvider();
+    setEmbeddingProvider(null);
     const page = await listArtifactsPage(store, { query: "deploy", mode: "semantic" });
     // With no provider configured, semantic falls back to keyword.
     assert.equal(page.search.mode, "keyword");
     assert.equal(page.search.fallback, true);
+  });
+});
+
+test("hybrid search retains keyword matches without vectors and their visibility restrictions", async () => {
+  await withTempStore("artifacty-embed-partial-", async (store) => {
+    const owner = await createUser(store, { email: "partial-owner@example.com", name: "Owner", role: "user", password: "password-123" });
+    const other = await createUser(store, { email: "partial-other@example.com", name: "Other", role: "user", password: "password-123" });
+    const visible = await createArtifact(store, { title: "Deploy existing report", content: "deploy notes", format: "text", sourceAgent: "test", visibility: "private", audit: { userId: other.id, actor: other.email } });
+    await createArtifact(store, { title: "Deploy private secrets", content: "deploy secret", format: "text", sourceAgent: "test", visibility: "private", audit: { userId: owner.id, actor: owner.email } });
+    const provider = fakeProvider();
+    const page = await listArtifactsPage(store, { query: "deploy", mode: "hybrid", embeddingProvider: provider, access: { userId: other.id, role: "user" } });
+    assert.equal(page.search.mode, "hybrid");
+    assert.equal(page.total, 1);
+    assert.deepEqual(page.artifacts.map((artifact) => artifact.id), [visible.id]);
+    assert.equal(provider.calls.length, 0, "an unindexed store does not need query inference");
+    setEmbeddingProvider(provider);
+    const indexed = await createArtifact(store, { title: "Deploy indexed report", content: "deploy database", format: "text", sourceAgent: "test", visibility: "private", audit: { userId: other.id, actor: other.email } });
+    await waitForBackgroundIndexing();
+    const mixed = await listArtifactsPage(store, { query: "deploy", mode: "hybrid", access: { userId: other.id, role: "user" } });
+    assert.equal(mixed.total, 2);
+    assert.deepEqual(new Set(mixed.artifacts.map((artifact) => artifact.id)), new Set([visible.id, indexed.id]));
+  });
+});
+
+test("failed query inference falls back to keyword search without exposing private artifacts", async () => {
+  await withTempStore("artifacty-embed-runtime-failure-", async (store) => {
+    const provider = fakeProvider();
+    setEmbeddingProvider(provider);
+    const owner = await createUser(store, { email: "failure-owner@example.com", name: "Owner", role: "user", password: "password-123" });
+    const other = await createUser(store, { email: "failure-other@example.com", name: "Other", role: "user", password: "password-123" });
+    const visible = await createArtifact(store, { title: "Deploy report", content: "deploy notes", format: "text", sourceAgent: "test", visibility: "private", audit: { userId: other.id, actor: other.email } });
+    await createArtifact(store, { title: "Deploy private report", content: "deploy secrets", format: "text", sourceAgent: "test", visibility: "private", audit: { userId: owner.id, actor: owner.email } });
+    await waitForBackgroundIndexing();
+    provider.embed = async () => { throw new Error("runtime unavailable"); };
+    for (const mode of [undefined, "hybrid", "semantic"]) {
+      const page = await listArtifactsPage(store, { query: "deploy", mode, access: { userId: other.id, role: "user" } });
+      assert.equal(page.search.mode, "keyword");
+      assert.equal(page.search.fallback, true);
+      assert.deepEqual(page.artifacts.map((artifact) => artifact.id), [visible.id]);
+    }
+  });
+});
+
+test("embedding calls identify document and query purposes", async () => {
+  await withTempStore("artifacty-embed-purpose-", async (store) => {
+    const provider = fakeProvider();
+    const embed = provider.embed.bind(provider);
+    const purposes = [];
+    provider.embed = async (texts, options) => {
+      purposes.push(options.purpose);
+      return embed(texts);
+    };
+    setEmbeddingProvider(provider);
+    await createArtifact(store, { title: "Deploy report", content: "deploy notes", format: "text", sourceAgent: "test" });
+    await waitForBackgroundIndexing();
+    await listArtifactsPage(store, { query: "deploy", mode: "semantic" });
+    await rebuildEmbeddingIndex(store);
+    assert.deepEqual(purposes, ["document", "query", "document"]);
+  });
+});
+
+test("rebuilding a different model preserves the previous model when the new provider fails", async () => {
+  await withTempStore("artifacty-embed-model-switch-", async (store) => {
+    const previous = fakeProvider({ model: "previous-model" });
+    setEmbeddingProvider(previous);
+    await createArtifact(store, { title: "Deploy report", content: "deploy notes", format: "text", sourceAgent: "test" });
+    await waitForBackgroundIndexing();
+    const original = await listArtifactEmbeddings(store, { provider: previous.name, model: previous.model });
+    const next = fakeProvider({ model: "new-model" });
+    next.embed = async () => { throw new Error("new model cannot load"); };
+    await assert.rejects(rebuildEmbeddingIndex(store, { embeddingProvider: next }), /new model cannot load/);
+    assert.deepEqual(await listArtifactEmbeddings(store, { provider: previous.name, model: previous.model }), original);
+    assert.equal((await listArtifactsPage(store, { query: "deploy", mode: "semantic" })).artifacts.length, 1);
+    const replacement = fakeProvider({ model: "new-model" });
+    assert.equal((await rebuildEmbeddingIndex(store, { embeddingProvider: replacement })).ok, true);
+    assert.deepEqual(await listArtifactEmbeddings(store, { provider: previous.name, model: previous.model }), original);
+  });
+});
+
+test("search ignores vectors from an older artifact version while keeping current keyword matches", async () => {
+  await withTempStore("artifacty-embed-stale-", async (store) => {
+    const provider = fakeProvider();
+    setEmbeddingProvider(provider);
+    const artifact = await createArtifact(store, { title: "Notes", content: "deploy notes", format: "text", sourceAgent: "test" });
+    await waitForBackgroundIndexing();
+    setEmbeddingProvider(null);
+    await updateArtifact(store, artifact.id, { content: "recipe notes", sourceAgent: "test" });
+    const semantic = await listArtifactsPage(store, { query: "deploy", mode: "semantic", embeddingProvider: provider });
+    assert.equal(semantic.total, 0, "the old deploy vector must not score the new recipe document");
+    const hybrid = await listArtifactsPage(store, { query: "recipe", mode: "hybrid", embeddingProvider: provider });
+    assert.deepEqual(hybrid.artifacts.map((item) => item.id), [artifact.id]);
+  });
+});
+
+test("invalid local model configuration does not fail artifact writes or keyword fallback", async () => {
+  await withTempStore("artifacty-embed-invalid-local-", async (store) => {
+    const previousProvider = process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
+    const previousPath = process.env.ARTIFACTY_EMBEDDINGS_LOCAL_PATH;
+    try {
+      process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = "local";
+      process.env.ARTIFACTY_EMBEDDINGS_LOCAL_PATH = path.join(store.home, "missing-model");
+      resetEmbeddingProvider();
+      const artifact = await createArtifact(store, { title: "Deploy notes", content: "deploy failed", format: "text", sourceAgent: "test" });
+      await updateArtifact(store, artifact.id, { content: "deploy retry", sourceAgent: "test" });
+      const page = await listArtifactsPage(store, { query: "deploy" });
+      assert.equal(page.search.mode, "keyword");
+      assert.equal(page.search.fallback, true);
+      assert.deepEqual(page.artifacts.map((item) => item.id), [artifact.id]);
+    } finally {
+      if (previousProvider === undefined) delete process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
+      else process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = previousProvider;
+      if (previousPath === undefined) delete process.env.ARTIFACTY_EMBEDDINGS_LOCAL_PATH;
+      else process.env.ARTIFACTY_EMBEDDINGS_LOCAL_PATH = previousPath;
+    }
   });
 });

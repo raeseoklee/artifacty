@@ -33,6 +33,27 @@ async function main() {
     return;
   }
 
+  if (command === "embeddings") {
+    const action = options._[0] || "info";
+    if (!["info", "check"].includes(action) || options._.length > 1) throw new Error("Usage: artifacty embeddings info|check");
+    const { createEmbeddingProvider } = await import("./lib/embeddings.js");
+    const provider = createEmbeddingProvider(process.env);
+    const info = provider ? { enabled: true, provider: provider.name, model: provider.model, dimensions: provider.dimensions, ...(provider.local ? { local: provider.local } : {}) } : { enabled: false };
+    if (action === "check" && provider) {
+      const started = performance.now();
+      const [vector] = await provider.embed(["Artifact search / 아티팩트 검색"], { purpose: "query" });
+      info.ok = Boolean(vector?.length && Array.from(vector).every(Number.isFinite));
+      info.dimensions = vector?.length || 0;
+      info.elapsedMs = Math.round(performance.now() - started);
+      if (!info.ok) process.exitCode = 1;
+    } else if (action === "check") {
+      info.ok = false;
+      process.exitCode = 1;
+    }
+    printJson(info);
+    return;
+  }
+
   // Application updates must not initialize or migrate the live store first.
   // Keep `update <id>` as the existing artifact-content command.
   if ((command === "update" && options._.length === 0) || command === "upgrade") {
@@ -212,6 +233,7 @@ async function main() {
       artifactType: options.artifactType,
       schemaVersion: options.schemaVersion,
       sourceAgent: options.source || "cli",
+      provenance: { tool: options.tool, provider: options.provider, model: options.model },
       tags: options.tag || [],
       metadata: options.metadata ? JSON.parse(options.metadata) : {},
       allowSecrets: options.allowSecrets,
@@ -241,6 +263,7 @@ async function main() {
     });
     const artifact = await createArtifact(store, {
       ...converted,
+      provenance: { tool: options.tool, provider: options.provider, model: options.model },
       allowSecrets: options.allowSecrets,
       auditAction: "import",
       audit: cliAuditContext()
@@ -301,6 +324,7 @@ async function main() {
         artifactType: options.artifactType,
         schemaVersion: options.schemaVersion,
         sourceAgent: options.source || "cli",
+        provenance: { tool: options.tool, provider: options.provider, model: options.model },
         tags: options.tag || [],
         metadata: options.metadata ? JSON.parse(options.metadata) : {},
         allowSecrets: options.allowSecrets,
@@ -1018,6 +1042,7 @@ Usage:
   artifacty restore <id>
   artifacty visibility <id> private|team|public
   artifacty audit [--artifact <id>] [--limit 100]
+  artifacty embeddings info|check
   artifacty index rebuild [--embeddings]
   artifacty integrity
   artifacty retention show
@@ -1031,6 +1056,7 @@ Usage:
   artifacty import-store --file <path> [--confirm replace-all] [--force-users]
   artifacty users import --file <path.csv> [--no-password-reset]
   artifacty service plist|unit|task|install|uninstall [--platform macos|linux|windows] [--dry-run] [--path <path>] [--mcp-http]
+  Attribution for publish/import/update: [--tool codex] [--provider OpenAI] [--model exact-model-id]
   artifacty list [--query text] [--tag tag] [--source agent] [--type <artifactType>] [--publisher <id>] [--created-after <iso-date>] [--created-before <iso-date>] [--review-status none|pending|changes-requested|approved] [--related-to <id>] [--relation derived-from|supersedes|reviews|references|part-of] [--mode keyword|semantic|hybrid] [--view <name|id>] [--group-by artifactType|sourceAgent|day] [--limit 50] [--offset 0] [--include-archived]
   artifacty views
   artifacty views save <name> [--shared] [--query text] [--tag tag] [--source agent] [--type <artifactType>] [--publisher <id>] [--created-after <iso-date>] [--created-before <iso-date>] [--review-status none|pending|changes-requested|approved] [--related-to <id>] [--relation derived-from|supersedes|reviews|references|part-of] [--include-archived]
@@ -1066,7 +1092,9 @@ Environment:
   ARTIFACTY_MCP_TIMEOUT_MS  Bridge-mode MCP HTTP request timeout in ms. Defaults to 30000
   ARTIFACTY_API_TOKEN      Required token for HTTP API and LAN mode
   ARTIFACTY_LOCALE         Default UI locale (e.g. en, ko) when a request does not specify one
-  ARTIFACTY_EMBEDDINGS_URL      openai-compatible embeddings endpoint base URL, enables semantic/hybrid search
+  ARTIFACTY_EMBEDDINGS_PROVIDER local (default), openai-compatible, command, or disabled
+  ARTIFACTY_EMBEDDINGS_LOCAL_PATH  Local model directory with embedding-model.json; defaults to bundled multilingual-e5-small
+  ARTIFACTY_EMBEDDINGS_URL      OpenAI-compatible embeddings endpoint base URL; selects API when PROVIDER is unset
   ARTIFACTY_EMBEDDINGS_MODEL    Embeddings model name (defaults per provider)
   ARTIFACTY_EMBEDDINGS_API_KEY  API key for the openai-compatible provider, never logged or stored
   ARTIFACTY_EMBEDDINGS_COMMAND  Local command that reads JSON lines on stdin and writes vectors on stdout

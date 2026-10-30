@@ -2,6 +2,7 @@
 
 [English](README.md) | 한국어
 
+<!-- 컬렉션·카테고리·작성 이력 문서 대조: 2026-10-30 영문 동시 개정본 -->
 [문서 안내](docs/ko/README.md)
 
 <!-- 번역 기준: 영문 README.md, commit 9e73a9f -->
@@ -34,13 +35,15 @@ Artifacty는 AI가 만든 아티팩트를 로컬에 보관하고 에이전트끼
 
 단계별 사용 방법과 확인 절차는 [브라우저 사용자 매뉴얼](docs/ko/user-guide.md)을 참고하세요.
 
+다음 릴리스에는 목차가 있는 컬렉션 페이지, 개인·팀 카테고리, 버전별 작성 도구와 모델 기록이 추가됩니다. 저장소에 반영된 이 변경 사항은 배포된 0.16.1에는 포함되지 않습니다. [아티팩트 정리와 작성 이력](docs/ko/organizing-artifacts.md)을 참고하세요.
+
 ## MCP를 사용하는 이유
 
 아티팩트는 세션에서 만든 결과물을 공유하고 버전을 관리할 수 있는 페이지입니다. Artifacty는 이 페이지를 로컬에 보관하고 여러 에이전트가 함께 사용하도록 합니다. 브라우저 서버는 사람이 볼 화면을 렌더링하고, MCP stdio 서버는 에이전트에 공통 도구 인터페이스를 제공합니다.
 
 ## 설치
 
-Artifacty를 실행하려면 Node.js 22.12.0 이상이 필요합니다.
+Artifacty를 실행하려면 Node.js 22.12.0 이상이 필요하며 Node 24를 권장합니다. Node 22.12에서는 `NODE_OPTIONS=--experimental-sqlite`로 실험적 SQLite 지원을 활성화해야 합니다.
 
 선택적으로 활성화할 수 있는 React 렌더러는 Babel 8을 사용합니다. 지원하는 Node.js 버전은 `^22.18.0 || >=24.11.0`입니다. 이 렌더러를 활성화한다면 호환되는 버전을 사용하세요.
 
@@ -349,30 +352,25 @@ Artifacty는 기존 저장소의 스키마를 마이그레이션하기 전에 �
 
 ### 의미 검색
 
-`GET /api/artifacts`의 `?mode=keyword|semantic|hybrid`, 대시보드, `artifacty list --mode`, MCP의 `artifacty_list`에서 FTS5에 더해 자연어 검색을 선택적으로 사용할 수 있습니다. 이 기능은 모델을 번들에 포함하지 않으며 별도의 필수 의존성도 추가하지 않습니다.
+기본 포함 ONNX 모델과 `artifacty embeddings` 명령은 다음 릴리스용 변경 사항이며, npm `0.16.1`에는 아직 포함되지 않았습니다.
 
-- `keyword`는 기존 FTS5/메타데이터 검색을 사용합니다.
-- `semantic`은 질의를 임베딩하고 저장된 벡터와의 코사인 유사도로 순위를 정합니다.
-- `hybrid`는 reciprocal rank fusion으로 키워드와 의미 검색 순위를 결합합니다. 제공자를 설정하고 `q`/`query`를 지정하면 기본으로 사용합니다.
+Artifacty는 로컬 의미 검색을 위해 양자화된 ONNX `multilingual-e5-small` 모델을 포함합니다. 서버의 Node.js 워커에서 CPU WebAssembly로 실행하므로 API 키나 추론 시 모델 다운로드가 필요하지 않습니다. 로컬 제공자를 사용하면 문서 내용과 검색어를 외부로 보내지 않습니다. 설치 용량에는 약 118 MB의 가중치와 토크나이저·실행 라이브러리가 추가됩니다.
 
-임베딩 제공자를 설정하지 않으면 `semantic`/`hybrid` 요청은 `keyword`로 대체하고 응답의 `search.fallback`을 `true`로 표시합니다. 환경 변수로 제공자 하나를 설정하세요.
+- `keyword`는 FTS5 또는 메타데이터로 검색합니다.
+- `semantic`은 검색어와 색인된 아티팩트의 의미를 비교합니다.
+- `hybrid`는 키워드 검색과 의미 검색 순위를 합치며, 검색어가 있으면 기본으로 사용합니다.
 
-```bash
-# openai-compatible: POSTs { model, input } to <url>/embeddings
-export ARTIFACTY_EMBEDDINGS_URL=https://api.openai.com/v1
-export ARTIFACTY_EMBEDDINGS_MODEL=text-embedding-3-small
-export ARTIFACTY_EMBEDDINGS_API_KEY=sk-...
-
-# or: command, a local executable reading/writing JSON lines on stdin/stdout
-# (wire in Ollama or any local model without an Artifacty dependency)
-export ARTIFACTY_EMBEDDINGS_COMMAND="python3 embed.py"
-```
-
-Artifacty는 API 키를 환경 변수에서만 읽으며 로그, 오류 응답, 저장소에는 남기지 않습니다. `artifacty doctor`는 키를 가린 상태로 제공자와 모델을 표시합니다. 생성·수정 후에는 백그라운드에서 임베딩을 생성합니다. 기존 아티팩트의 임베딩을 16개씩 생성하거나 갱신하려면 다음을 실행하세요.
+`GET /api/artifacts`의 `?mode=keyword|semantic|hybrid`, `artifacty list --mode`, MCP의 `artifacty_list`에서 검색 방식을 선택할 수 있습니다. 모든 방식에 기존 접근 권한과 필터가 적용됩니다. 제공자 실행에 실패하거나 임베딩을 끄면 의미·하이브리드 검색은 키워드 검색으로 전환하며, 응답에 `search.fallback: true`를 표시합니다.
 
 ```bash
+artifacty embeddings info
+artifacty embeddings check
 artifacty index rebuild --embeddings
 ```
+
+`check`는 선택한 제공자로 실제 추론을 실행합니다. `rebuild`는 기존 아티팩트를 색인하며, 새로 생성하거나 수정한 아티팩트는 백그라운드에서 색인합니다. 모델을 바꾸면 서버와 같은 환경 설정·저장소에서 임베딩 색인을 다시 만드세요.
+
+키워드 검색만 사용하려면 `ARTIFACTY_EMBEDDINGS_PROVIDER=disabled`를 설정하세요. 다른 값은 `local`, `command`, `openai-compatible`입니다. 제공자를 명시하지 않으면 기존 명령 설정, 기존 URL 설정 순으로 우선 적용하고, 둘 다 없으면 기본 모델을 사용합니다. 다른 로컬 모델은 `ARTIFACTY_EMBEDDINGS_LOCAL_PATH`로 지정합니다. 모델 선택, 개인정보 처리, 라이선스와 검증 절차는 [로컬 모델과 의미 검색](docs/ko/embeddings.md)을 참고하세요.
 
 ### 관계
 
@@ -637,7 +635,7 @@ UI 조작 요소는 Bootstrap 5.3.8의 폼, 버튼, 버튼 그룹만 선택해 �
 - bundle 아티팩트는 여러 파일이나 base64 자산을 이동 가능한 JSON으로 저장합니다. `files` 항목에는 PDF, DOCX, XLSX, ZIP 같은 바이너리 문서도 넣을 수 있습니다. 파일당 최대 32 MB이며 base64로 인코딩합니다. `GET /artifacts/:id/raw?file=<path>`로 제공하고, PDF는 샌드박스 iframe에서 미리보기하며 다른 문서는 다운로드 링크를 표시합니다.
 - 지원 형식은 `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, `notebook`입니다.
 - 생성·가져오기 시 형식을 명시하지 않으면 HTML 문서나 조각에서 `html`을 추론합니다.
-- 저장 전에 `sourceAgent`를 정규화합니다. `claude-code`, `Claude Code`, `github-copilot`, `gemini-cli` 같은 별칭은 `claude`, `copilot`, `gemini`로 저장합니다. 기존 `unknown` 레코드는 버전 메타데이터, 감사 데이터, 에이전트 태그에서 알려진 에이전트를 확인할 수 있을 때만 보완합니다.
+- 다음 릴리스부터 작성 도구와 제공사·모델을 구분합니다. `Claude Code`, `codex-cli`처럼 도구가 명확한 별칭은 `claude-code`, `codex`로 통일합니다. `Claude`, `GPT`, `OpenAI`처럼 뜻이 불분명한 값으로 도구를 추정하지 않습니다. 버전마다 작성 정보를 기록하고, `createdBy`에는 최초 작성자를 보존합니다. 이전 릴리스에서 이름을 합치는 과정에 사라진 정보는 복구할 수 없습니다. [작성 이력 확인](docs/ko/organizing-artifacts.md#작성-이력-확인)을 참고하세요.
 - 다이어그램, 컴포넌트, 코드 조각, 분석 보고서, 표, 미디어 자산은 각각 `diagram`, `component`, `snippet`, `analysis-report`, `table`, `asset` 유형을 사용합니다.
 - Copilot/Cursor 예시에는 PR 리뷰, 스크린샷, 데모 녹화, 시각적 증거 번들이 있습니다.
 - [아티팩트 스키마 v1](docs/ko/artifact-schema-v1.md)을 참고하세요.
@@ -751,8 +749,10 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | `ARTIFACTY_MCP_TIMEOUT_MS` | 브리지 모드 MCP HTTP 요청 시간 제한 | `30000` |
 | `ARTIFACTY_API_TOKEN` | HTTP API와 LAN/팀 공유에 필요한 공용 토큰 | — |
 | `ARTIFACTY_LOCALE` | 관리자 언어 설정을 저장하기 전의 초기 UI 기본값(`en` 또는 `ko`) | `en` |
-| `ARTIFACTY_EMBEDDINGS_URL` | OpenAI 호환 임베딩 엔드포인트의 기본 URL. 의미·하이브리드 검색 활성화 | — |
-| `ARTIFACTY_EMBEDDINGS_MODEL` | 임베딩 모델 이름 | 제공자 기본값 |
+| `ARTIFACTY_EMBEDDINGS_PROVIDER` | `local`, `command`, `openai-compatible`, `disabled`; 명시하지 않으면 명령 → URL → 기본 로컬 모델 순 | 자동 선택 |
+| `ARTIFACTY_EMBEDDINGS_LOCAL_PATH` | 사용자 ONNX 모델의 `embedding-model.json`이 있는 디렉터리 | 기본 포함 모델 |
+| `ARTIFACTY_EMBEDDINGS_URL` | 외부 OpenAI 호환 임베딩 API의 기본 URL | — |
+| `ARTIFACTY_EMBEDDINGS_MODEL` | 외부 API·명령 제공자의 모델 이름 | 제공자 기본값 |
 | `ARTIFACTY_EMBEDDINGS_API_KEY` | OpenAI 호환 제공자의 API 키. 로그나 저장소에 남기지 않음 | — |
 | `ARTIFACTY_EMBEDDINGS_COMMAND` | stdin으로 JSON 줄을 읽고 stdout으로 벡터를 쓰는 로컬 명령 | — |
 | `ARTIFACTY_EMBEDDINGS_MAX_CHARS` | 아티팩트당 임베딩할 최대 문자 수 | `8000` |

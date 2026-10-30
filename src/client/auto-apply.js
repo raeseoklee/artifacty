@@ -3,7 +3,7 @@ export function enhanceAutoApply(document) {
   for (const form of document.querySelectorAll('form[data-auto-apply]')) {
     if (form.method.toLowerCase() !== 'get' || typeof form.requestSubmit !== 'function') continue;
     const controls = form.dataset.autoApply === 'filters'
-      ? form.querySelectorAll('.dashboard-advanced select, .dashboard-advanced input')
+      ? form.querySelectorAll('.dashboard-advanced select, .dashboard-advanced input, .category-filter select')
       : form.querySelectorAll('select');
     for (const control of controls) {
       control.addEventListener('change', () => {

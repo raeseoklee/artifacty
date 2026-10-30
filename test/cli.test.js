@@ -707,14 +707,15 @@ test("rebuilds the search index from the CLI when FTS5 is available", async () =
 
 test("list --mode falls back to keyword without a provider and reports search.mode", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-cli-mode-"));
+  const disabledEnv = { ...process.env, ARTIFACTY_EMBEDDINGS_PROVIDER: "disabled" };
   try {
     await execFileAsync(process.execPath, [
       "src/cli.js", "publish", "--home", home, "--title", "Deploy", "--format", "text", "--content", "deploy failed"
-    ]);
+    ], { env: disabledEnv });
 
     const { stdout } = await execFileAsync(process.execPath, [
       "src/cli.js", "list", "--home", home, "--query", "deploy", "--mode", "semantic"
-    ]);
+    ], { env: disabledEnv });
     const result = JSON.parse(stdout);
     assert.equal(result.search.mode, "keyword");
     assert.equal(result.search.fallback, true);
@@ -728,6 +729,7 @@ test("list --mode uses a configured embedding provider for semantic ranking", as
   const commandPath = path.resolve("scripts/fixtures/embeddings-command.js");
   const env = {
     ...process.env,
+    ARTIFACTY_EMBEDDINGS_PROVIDER: "command",
     ARTIFACTY_EMBEDDINGS_COMMAND: `${process.execPath} ${JSON.stringify(commandPath)}`,
     // Publishing schedules background embedding indexing; force it to run
     // synchronously so the artifact is searchable as soon as the publish
@@ -752,19 +754,21 @@ test("list --mode uses a configured embedding provider for semantic ranking", as
 
 test("index rebuild --embeddings re-embeds artifacts and reports configured: false without a provider", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "artifacty-cli-rebuild-embeddings-"));
+  const disabledEnv = { ...process.env, ARTIFACTY_EMBEDDINGS_PROVIDER: "disabled" };
   try {
     await execFileAsync(process.execPath, [
       "src/cli.js", "publish", "--home", home, "--title", "Doc", "--format", "text", "--content", "hello"
-    ]);
+    ], { env: disabledEnv });
 
     const withoutProvider = JSON.parse((await execFileAsync(process.execPath, [
       "src/cli.js", "index", "rebuild", "--embeddings", "--home", home
-    ])).stdout);
+    ], { env: disabledEnv })).stdout);
     assert.equal(withoutProvider.embeddings.configured, false);
 
     const commandPath = path.resolve("scripts/fixtures/embeddings-command.js");
     const env = {
       ...process.env,
+      ARTIFACTY_EMBEDDINGS_PROVIDER: "command",
       ARTIFACTY_EMBEDDINGS_COMMAND: `${process.execPath} ${JSON.stringify(commandPath)}`
     };
     const withProvider = JSON.parse((await execFileAsync(process.execPath, [

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createArtifact, createStore, createUser, getArtifact, updateArtifact } from "../src/lib/storage.js";
+import { ARTIFACT_FORMATS, STORE_VERSION, createArtifact, createStore, createUser, getArtifact, updateArtifact } from "../src/lib/storage.js";
 import { installSamples, removeSamples } from "../src/lib/samples.js";
 
 const catalog = [{ key: "intro", title: "Introduction", format: "markdown", content: "# Original", tags: ["sample"] }];
@@ -58,7 +58,9 @@ test("the final manual catalog installs all four real samples safely", async (t)
   for (const artifact of artifacts) assert.ok(artifact.content.length > 500);
   assert.doesNotMatch(artifacts[1].content, /<script\b/i);
   assert.match(artifacts[1].content, /120 seconds/);
-  assert.match(artifacts[1].content, /13 formats/);
+  assert.match(artifacts[1].content, new RegExp(`${ARTIFACT_FORMATS.length} formats`));
+  assert.match(artifacts[1].content, new RegExp(`store schema is ${STORE_VERSION}`));
+  assert.match(artifacts[1].content, /Collections, categories, and author history/);
   assert.equal((await installSamples(store)).skipped, 4);
   assert.equal((await removeSamples(store)).archived, 4);
   assert.equal((await installSamples(store)).restored, 4);

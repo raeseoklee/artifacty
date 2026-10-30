@@ -12,6 +12,13 @@ import { createI18n, availableLanguages, defaultLocale } from "./i18n.js";
 const OPENAPI_VERSION = "3.1.0";
 
 export const routeTable = [
+  { method: "GET", path: "/api/categories", auth: "read", summary: "List personal and team categories", description: "Requires an active personal account. Counts include only readable artifacts. Team categories require membership or administrator role.", parameters: [{ name: "artifactId", in: "query", schema: { type: "string" } }], responseSchema: "CategoryList" },
+  { method: "POST", path: "/api/categories", auth: "write", summary: "Create a personal or team category", description: "Categories organize references without changing artifact visibility. Team scope requires teamId and current team membership or administrator role.", responseSchema: "Category", responseStatus: 201 },
+  { method: "PATCH", path: "/api/categories/{id}", auth: "write", summary: "Rename a category", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }], responseSchema: "Category" },
+  { method: "DELETE", path: "/api/categories/{id}", auth: "write", summary: "Delete a category without deleting its artifacts", parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }] },
+  ...["PUT", "DELETE"].map((method) => ({ method, path: "/api/categories/{id}/artifacts/{artifactId}", auth: "write", summary: method === "PUT" ? "Add an artifact to a category" : "Remove an artifact from a category", description: "Requires category access and permission to read the artifact. Does not grant artifact access to other category members.", parameters: ["id", "artifactId"].map((name) => ({ name, in: "path", required: true, schema: { type: "string" } })) })),
+  { method: "GET", path: "/api/category-teams", auth: "read", summary: "List teams available for shared categories", description: "Returns the account's teams, or all teams for an administrator. Requires an active personal account.", responseSchema: "CategoryTeams" },
+
   {
     method: "GET",
     path: "/api/artifacts",
@@ -20,6 +27,7 @@ export const routeTable = [
     description: "List artifacts with optional query, tag, sourceAgent, artifactType, publisher, date range, reviewStatus, relation, mode, and archive filters, paginated with limit/offset. `?view=<name|id>` expands a saved view's filters first; any other query param passed alongside it overrides that filter.",
     parameters: [
       { name: "q", in: "query", schema: { type: "string" }, description: "Search query." },
+      { name: "categoryId", in: "query", schema: { type: "string" }, description: "Filter by an accessible personal or team category before pagination." },
       { name: "tag", in: "query", schema: { type: "string" } },
       { name: "sourceAgent", in: "query", schema: { type: "string" } },
       { name: "artifactType", in: "query", schema: { type: "string" } },
@@ -42,7 +50,7 @@ export const routeTable = [
     path: "/api/artifacts",
     auth: "write",
     summary: "Create an artifact",
-    description: "Create a new Artifacty-native artifact and its first version.",
+    description: "Create a new Artifacty-native artifact and its first version. Optional provenance {tool, provider, model} records self-reported tool and model details; user identity is assigned by the server. For a collection page, use format and artifactType collection, with content containing a serialized Collection document. References never grant access to their targets.",
     requestSchema: "ArtifactWithContent",
     responseSchema: "ArtifactWithContent",
     responseStatus: 201
@@ -394,6 +402,8 @@ export const routeTable = [
 
 // Request examples describe accepted inputs, independently of response records.
 const requestExamples = {
+  "POST /api/categories": { name: "Research", scope: "personal" },
+  "PATCH /api/categories/{id}": { name: "Research notes" },
   "POST /api/artifacts": { title: "Release notes", content: "# Release notes\nFirst release.", format: "markdown", tags: ["release"], visibility: "private" },
   "POST /api/import": { agent: "generic", title: "Imported notes", content: "# Notes", format: "markdown" },
   "POST /api/artifacts/{id}": { content: "# Release notes\nUpdated release.", format: "markdown", expectedVersion: 1 },

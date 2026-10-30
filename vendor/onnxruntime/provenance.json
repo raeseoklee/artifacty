@@ -1,0 +1,30 @@
+{
+  "package": "onnxruntime-web",
+  "version": "1.30.0",
+  "license": "MIT",
+  "source": "https://github.com/microsoft/onnxruntime/tree/v1.30.0",
+  "tarball": "https://registry.npmjs.org/onnxruntime-web/-/onnxruntime-web-1.30.0.tgz",
+  "integrity": "sha512-q0y+JrrtukXSzsBWEMccVfqX25LRmosXHF+CaRJmg8pZClzcV7svNc4rKY3jL02Vb7QmRMDs1SigqR4CXAfKYQ==",
+  "files": [
+    {
+      "path": "ort.wasm.min.mjs",
+      "size": 50126,
+      "sha256": "219e6a1fc8a9938268d18efca3c91d310bd2f4a59bbd13744df5b2b7fc6cee3b"
+    },
+    {
+      "path": "ort.wasm.min.mjs.map",
+      "size": 322681,
+      "sha256": "d6f24b0142879373054ceabcbc42de512b7cf6c6f7d571066be33126ee5835c4"
+    },
+    {
+      "path": "ort-wasm-simd-threaded.mjs",
+      "size": 24381,
+      "sha256": "e13f7f94fc51b4ca72b12faeb1ee95f4ace6dfbc8939bc718aabdc0a27c4299b"
+    },
+    {
+      "path": "ort-wasm-simd-threaded.wasm",
+      "size": 14239897,
+      "sha256": "3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "intfloat/multilingual-e5-small",
+  "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "license": "MIT",
+  "source": "https://huggingface.co/intfloat/multilingual-e5-small/tree/614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "dimensions": 384,
+  "maxTokens": 512,
+  "pooling": "mean",
+  "normalize": true,
+  "queryPrefix": "query: ",
+  "documentPrefix": "passage: ",
+  "model": {
+    "parts": [
+      {
+        "path": "model.onnx.part1",
+        "sha256": "2058c599afc9a724ab95d64955932e6317660a9edbd017c0120f5b8e1a0f6165",
+        "size": 33554432
+      },
+      {
+        "path": "model.onnx.part2",
+        "sha256": "9b3851cb7277f00c32bfa00adbcff00ce51a2e83d07d2e7a64179d5f128af350",
+        "size": 33554432
+      },
+      {
+        "path": "model.onnx.part3",
+        "sha256": "a2488a1bd4a63e43981e7f58714a895fda11da25aa20bc19f593b46c330845d4",
+        "size": 33554432
+      },
+      {
+        "path": "model.onnx.part4",
+        "sha256": "499f6547c3f23ca1124a13a5fdd2d455239aeda35fffcc64e18eba202b5d4b72",
+        "size": 17683528
+      }
+    ],
+    "sha256": "dd476dd0c2514e9b9be83aeb3853fac0763e0bdf4a71645407587d77c48a2d88",
+    "size": 118346824,
+    "sourceFile": "model_qint8_avx512_vnni.onnx"
+  },
+  "files": [
+    {
+      "path": "config.json",
+      "sha256": "bbb7c1333fc4b3e27fbc9cd5d2070aabcc1d4dfb99917c3633e772f97545a6b6",
+      "size": 653
+    },
+    {
+      "path": "tokenizer.json",
+      "sha256": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+      "size": 17082730
+    },
+    {
+      "path": "tokenizer_config.json",
+      "sha256": "a1d6bc8734a6f635dc158508bef000f8e2e5a759c7d92f984b2c86e5ff53425b",
+      "size": 443
+    },
+    {
+      "path": "special_tokens_map.json",
+      "sha256": "d05497f1da52c5e09554c0cd874037a083e1dc1b9cfd48034d1c717f1afc07a7",
+      "size": 167
+    }
+  ]
+}

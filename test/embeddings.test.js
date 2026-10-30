@@ -20,8 +20,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // glob.
 const COMMAND_FIXTURE = path.join(__dirname, "..", "scripts", "fixtures", "embeddings-command.js");
 
-test("createEmbeddingProvider returns null when unconfigured", () => {
-  assert.equal(createEmbeddingProvider({}), null);
+test("createEmbeddingProvider uses bundled ONNX by default and supports explicit disabling", () => {
+  assert.equal(createEmbeddingProvider({}).name, "local-onnx");
+  assert.equal(createEmbeddingProvider({ ARTIFACTY_EMBEDDINGS_PROVIDER: "disabled" }), null);
 });
 
 test("createEmbeddingProvider prefers command over openai-compatible when both are set", () => {

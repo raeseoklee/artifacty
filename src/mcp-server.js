@@ -36,7 +36,8 @@ import { convertAgentArtifact } from "./lib/converters.js";
 import { createStructuredDiff, diffFormatFor, renderUnifiedDiffText, resolveDiffView } from "./lib/diff.js";
 import { createEmbeddingProvider } from "./lib/embeddings.js";
 import { EVENT_TYPES, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
-import { inlineSchema } from "./lib/schemas.js";
+import { parseCollection, resolveCollection, collectionContentForReader } from "./lib/collections.js";
+import { inlineSchema, provenanceInputSchema, collectionSchema } from "./lib/schemas.js";
 import { effectiveScopes, requireScope } from "./lib/security.js";
 import { resolvePublicBaseUrl } from "./lib/server-state.js";
 
@@ -83,7 +84,8 @@ const nativeArtifactInputSchema = {
       type: "number",
       enum: [1]
     },
-    sourceAgent: { type: "string", description: "Agent or tool that produced the artifact." },
+    sourceAgent: { type: "string", description: "Legacy source label. Prefer structured provenance for tool/model attribution." },
+    provenance: provenanceInputSchema,
     tags: {
       type: "array",
       items: { type: "string" },
@@ -114,6 +116,23 @@ const mutatingArtifactAnnotations = {
 };
 
 const tools = [
+  ...["create", "update"].map((action) => ({
+    name: `artifacty_collection_${action}`,
+    title: action === "create" ? "Create Collection Page" : "Update Collection Page",
+    description: "Organize existing artifacts into ordered sections with a Markdown introduction and table of contents. References never grant access to another artifact. Updates replace the collection document and require expectedVersion.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        ...nativeArtifactInputSchema.properties,
+        ...collectionSchema.properties,
+        dropUnavailableReferences: { type: "boolean", description: "Explicitly allow removal of hidden or missing references when updating a collection. Earlier versions remain unchanged." },
+        ...(action === "update" ? { id: { type: "string" }, expectedVersion: { type: "integer", minimum: 1 } } : {})
+      },
+      required: action === "create" ? ["title", "sections"] : ["id", "expectedVersion", "sections"]
+    },
+    outputSchema: inlineSchema("ArtifactWithContent"),
+    annotations: mutatingArtifactAnnotations
+  })),
   {
     name: "artifacty_create",
     title: "Create Artifact",
@@ -137,6 +156,7 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
+        categoryId: { type: "string", description: "Personal or team category ID accessible to this account." },
         query: { type: "string" },
         tag: { type: "string" },
         sourceAgent: { type: "string" },
@@ -147,7 +167,7 @@ const tools = [
         reviewStatus: { type: "string", description: "Filter by artifact-level review status (none, pending, changes-requested, approved)." },
         relatedTo: { type: "string", description: "Restrict to artifacts related (in either direction) to this artifact ID." },
         relation: { type: "string", enum: RELATION_TYPES, description: "Restrict relatedTo matches to this relation name." },
-        mode: { type: "string", enum: ["keyword", "semantic", "hybrid"], description: "Search mode. `hybrid` (default when an embedding provider is configured and `query` is set) combines keyword and semantic ranking; falls back to `keyword` with `search.fallback: true` when no provider is configured." },
+        mode: { type: "string", enum: ["keyword", "semantic", "hybrid"], description: "Search mode. `hybrid` (default with a query; bundled local ONNX unless overridden) combines keyword and semantic ranking; falls back to `keyword` with `search.fallback: true` when disabled or inference fails." },
         includeArchived: { type: "boolean" },
         view: { type: "string", description: "Name or id of a saved view whose filters should be expanded and merged in." },
         limit: { type: "number" },
@@ -167,6 +187,7 @@ const tools = [
     inputSchema: {
       type: "object",
       properties: {
+        provenance: provenanceInputSchema,
         agent: {
           type: "string",
           enum: ["auto", "claude", "codex", "gemini", "copilot", "cursor", "artifacty", "generic"],
@@ -247,6 +268,7 @@ const tools = [
           type: "number",
           enum: [1]
         },
+        provenance: provenanceInputSchema,
         sourceAgent: { type: "string" },
         tags: {
           type: "array",
@@ -257,6 +279,7 @@ const tools = [
           type: "boolean",
           description: "Set true only when intentionally storing content that matches secret patterns."
         },
+        dropUnavailableReferences: { type: "boolean", description: "Allow replacement of a collection whose references are no longer accessible. Earlier versions remain unchanged." },
         expectedVersion: {
           type: "number",
           description: "The latestVersion this update was based on. If the artifact's current latestVersion differs, the update is rejected with a version_conflict error instead of creating a version that discards a concurrent change."
@@ -743,6 +766,11 @@ async function handleNotification(message) {
 
 export async function handleMcpRequest(context, message) {
   if (message.method === "initialize") {
+    // clientInfo is a declaration by this connection, not a verified identity.
+    // Stateless HTTP handlers do not retain this across requests.
+    const name = message.params?.clientInfo?.name;
+    context.agentContext = typeof name === "string" && name.trim()
+      ? { tool: name.trim().slice(0, 200), source: "mcp-client" } : undefined;
     return {
       protocolVersion: negotiateProtocolVersion(message.params?.protocolVersion),
       capabilities: {
@@ -865,6 +893,17 @@ export async function handleMcpRequest(context, message) {
 }
 
 async function callTool(context, name, args) {
+  if (name === "artifacty_collection_create" || name === "artifacty_collection_update") {
+    const content = JSON.stringify(parseCollection({ description: args.description, sections: args.sections }));
+    const input = { ...args, content, format: "collection", artifactType: "collection" };
+    if (name === "artifacty_collection_create") return toolResult(await withUrls(context, await createNativeArtifact(context, input)));
+    if (!Number.isSafeInteger(args.expectedVersion) || args.expectedVersion < 1) throw Object.assign(new Error("expectedVersion must be a positive integer"), { code: "INVALID_COLLECTION", statusCode: 400 });
+    const access = await mcpAccessContext(context);
+    const current = await getArtifact(context.store, requireArg(args, "id"), { access });
+    if (current.version.format !== "collection") throw Object.assign(new Error("Artifact is not a collection"), { code: "INVALID_COLLECTION", statusCode: 400 });
+    return callTool(context, "artifacty_update", input);
+  }
+
   if (name === "artifacty_create" || name === "artifacty_publish") {
     return toolResult(await withUrls(context, await createNativeArtifact(context, args)));
   }
@@ -895,6 +934,8 @@ async function callTool(context, name, args) {
     const converted = convertAgentArtifact(args);
     const artifact = await createArtifact(context.store, {
       ...converted,
+      provenance: args.provenance,
+      agentContext: context.agentContext,
       allowSecrets: args.allowSecrets,
       auditAction: "import",
       access: await mcpAccessContext(context),
@@ -927,6 +968,12 @@ async function callTool(context, name, args) {
   }
 
   if (name === "artifacty_update") {
+    const access = await mcpAccessContext(context);
+    const current = await getArtifact(context.store, requireArg(args, "id"), { access });
+    if (current.version.format === "collection") {
+      const resolved = await resolveCollection(current.content, { readArtifact: (id, version) => getArtifact(context.store, id, { version, access }) });
+      if (resolved.unavailableCount && args.dropUnavailableReferences !== true) throw Object.assign(new Error("Restore access to unavailable references before editing this collection"), { code: "COLLECTION_REFERENCES_UNAVAILABLE", statusCode: 409 });
+    }
     const artifact = await updateArtifact(context.store, requireArg(args, "id"), {
       title: args.title,
       content: args.content,
@@ -934,6 +981,8 @@ async function callTool(context, name, args) {
       artifactType: args.artifactType,
       schemaVersion: args.schemaVersion,
       sourceAgent: args.sourceAgent || "mcp",
+      provenance: args.provenance,
+      agentContext: context.agentContext,
       tags: args.tags || [],
       metadata: args.metadata || {},
       allowSecrets: args.allowSecrets,
@@ -1029,8 +1078,8 @@ async function callTool(context, name, args) {
     const defaultFrom = Math.max(1, latest.latestVersion - 1);
     const fromNumber = Number(args.from ?? defaultFrom);
     const toNumber = Number(args.to ?? latest.latestVersion);
-    const from = await getArtifact(context.store, id, { version: fromNumber, access: diffAccess, audit: mcpAuditContext(context) });
-    const to = await getArtifact(context.store, id, { version: toNumber, access: diffAccess, audit: mcpAuditContext(context) });
+    const from = await sanitizeCollectionForMcp(context, await getArtifact(context.store, id, { version: fromNumber, access: diffAccess, audit: mcpAuditContext(context) }));
+    const to = await sanitizeCollectionForMcp(context, await getArtifact(context.store, id, { version: toNumber, access: diffAccess, audit: mcpAuditContext(context) }));
     const diffFormat = diffFormatFor(latest.artifactType, to.version.format);
     const view = resolveDiffView({ artifactType: latest.artifactType, format: to.version.format, requestedView: args.view });
     const structuredDiff = createStructuredDiff(from.content, to.content, {
@@ -1183,13 +1232,14 @@ async function readResource(context, uri) {
       access: await mcpAccessContext(context),
       audit: mcpAuditContext(context)
     });
+    const readable = await sanitizeCollectionForMcp(context, artifact);
     if (parsed.raw) {
       return {
         contents: [
           {
             uri,
             mimeType: artifact.version.contentType || "text/plain",
-            text: artifact.content
+            text: readable.content
           }
         ]
       };
@@ -1292,6 +1342,8 @@ async function createNativeArtifact(context, args) {
     artifactType: args.artifactType,
     schemaVersion: args.schemaVersion,
     sourceAgent: args.sourceAgent || "mcp",
+    provenance: args.provenance,
+    agentContext: context.agentContext,
     tags: args.tags || [],
     metadata: args.metadata || {},
     allowSecrets: args.allowSecrets,
@@ -1347,7 +1399,17 @@ async function expandSavedViewArgs(context, args = {}, access) {
   return { ...savedView.filters, ...explicit };
 }
 
+async function sanitizeCollectionForMcp(context, artifact) {
+  if (artifact.version?.format !== "collection" || typeof artifact.content !== "string") return artifact;
+  const access = await mcpAccessContext(context);
+  const resolved = await resolveCollection(artifact.content, {
+    readArtifact: (id, version) => getArtifact(context.store, id, { version, access })
+  });
+  return { ...artifact, content: collectionContentForReader(resolved) };
+}
+
 async function withUrls(context, artifact) {
+  artifact = await sanitizeCollectionForMcp(context, artifact);
   const publicBaseUrl = await context.resolvePublicBaseUrl();
   return {
     ...artifact,

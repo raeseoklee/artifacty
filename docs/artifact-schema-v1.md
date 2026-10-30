@@ -31,6 +31,7 @@ converters, and SQLite storage.
 
 Allowed `artifactType` values:
 
+- `collection` (next release)
 - `document`
 - `html-page`
 - `handoff`
@@ -52,17 +53,19 @@ Converters should map unknown legacy or external types to `unknown`. They should
 not reject those types. Native create and update operations reject unsupported
 explicit types.
 
-`sourceAgent` identifies the tool or model surface that produced the artifact,
-such as `codex` or `claude`. `publisherId` identifies who published it to the
-Artifacty store. On an authenticated central server, this is the personal token
-owner's email. If the server maps the request to a local user record, it also
-includes `publisherName` and `publisherUserId`. For legacy artifacts, the server
-tries to fill these fields from the first `create` or `import` audit actor.
-Known source-agent aliases are canonicalized before storage. For example,
-`claude-code`, `Claude Code`, and `anthropic` become `claude`;
-`github-copilot` becomes `copilot`; and `gemini-cli` becomes `gemini`.
-Existing `unknown` rows are upgraded only when version metadata, audit data, or
-source-agent tags provide one of the known agent identities.
+`sourceAgent` remains a compatibility label for the declared source. `publisherId`,
+`publisherName`, and `publisherUserId` describe publication identity when known.
+The next release adds `createdBy` for the initial author and `provenance` for the
+latest version. Each version also has its own provenance. These additions are
+not included in published version 0.16.1.
+
+Provenance separates `tool`, `provider`, `model`, and `userId`, and records
+`source`, `toolSource`, `modelSource`, and `rawSourceAgent`. Unknown values remain
+`null` instead of being guessed. Exact aliases such as `Claude Code` become
+`claude-code`; provider or ambiguous model labels such as `OpenAI`, `GPT`, and
+`Claude` do not identify a tool. Existing data already collapsed by older
+normalization cannot be reconstructed. See [author history](organizing-artifacts.md#read-author-history)
+for source meanings and the limits of client declarations.
 
 `visibility` is `"private"`, `"team"`, or `"public"` (default `"team"`).
 `ownerUserId` identifies the owner. In public site mode with user accounts,
@@ -117,11 +120,22 @@ accidental or sensitive content. These exceptional maintenance operations write
 ```
 
 Allowed `format` values are `html`, `markdown`, `text`, `json`, `code`, `svg`,
-`mermaid`, `react`, `sarif`, `csv`, `image`, `video`, and `notebook`.
+`mermaid`, `react`, `sarif`, `csv`, `image`, `video`, and `notebook`. The next
+release also adds `collection`.
 
 Common `artifactType` values include `document`, `handoff`, `code-review`,
 `test-report`, `dashboard`, `bundle`, `diagram`, `component`, `snippet`,
 `analysis-report`, and `table`.
+
+## Collection content
+
+The next release adds `format: "collection"`. Its content is a JSON string with
+`description` and an ordered `sections` array. Each section has `id`, `title`,
+and `items`. Each item has `artifactId`, `version` (`"latest"` or a positive
+integer), and `display` (`"inline"` or `"card"`). A collection is a separate
+artifact with its own history and access policy. It does not inherit permission
+to its referenced items; read responses omit references the caller cannot read.
+See [organizing artifacts](organizing-artifacts.md) for examples.
 
 ## Renderer Policy
 

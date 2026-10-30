@@ -1,43 +1,32 @@
-// Pluggable embedding providers for semantic search (roadmap section 6).
-//
-// No provider is bundled or required: createEmbeddingProvider() returns null
-// when no provider is configured through the environment, and every caller
-// in this codebase treats a null provider as "fall back to keyword search."
-//
-// Two providers are supported in v1:
-//   - "openai-compatible": POSTs { model, input: texts } to
-//     `${ARTIFACTY_EMBEDDINGS_URL}/embeddings` and reads `data[].embedding`,
-//     the shape used by OpenAI and most self-hosted OpenAI-compatible
-//     embedding servers.
-//   - "command": spawns ARTIFACTY_EMBEDDINGS_COMMAND, writes one JSON line
-//     per text (`{ "text": "..." }`) to its stdin, and reads one JSON line
-//     per vector (`{ "embedding": [...] }`) from its stdout. This lets users
-//     wire in Ollama or any local model without Artifacty depending on it.
-//
-// The API key (ARTIFACTY_EMBEDDINGS_API_KEY) is read from the environment
-// only. It is never logged, never included in error messages, and never
-// persisted to the store.
+// Embedding providers share the existing semantic-search storage interface.
+// Local ONNX inference is the default. Explicit external configuration retains
+// precedence unless ARTIFACTY_EMBEDDINGS_PROVIDER selects a provider or disables it.
 
+import { createLocalEmbeddingProvider } from "./local-embeddings.js";
 import { spawn } from "node:child_process";
 import { metadataSearchText } from "./storage.js";
 
 const DEFAULT_OPENAI_MODEL = "text-embedding-3-small";
 const DEFAULT_COMMAND_MODEL = "command";
 
-// Returns a provider object, or null when no embedding provider is
-// configured. `config` defaults to process.env but accepts a plain object so
+// Returns the selected provider, or null when explicitly disabled. `config` defaults to process.env but accepts a plain object so
 // callers (and tests) can configure a provider without mutating the real
 // environment.
 export function createEmbeddingProvider(config = process.env) {
+  const selected = normalizeString(config.ARTIFACTY_EMBEDDINGS_PROVIDER).toLowerCase();
+  if (selected === "disabled") return null;
+  if (selected && !["local", "command", "openai-compatible"].includes(selected)) throw new Error("Invalid ARTIFACTY_EMBEDDINGS_PROVIDER");
   const command = normalizeString(config.ARTIFACTY_EMBEDDINGS_COMMAND);
-  if (command) {
+  const url = normalizeString(config.ARTIFACTY_EMBEDDINGS_URL);
+  if (selected === "command" || (!selected && command)) {
+    if (!command) throw new Error("ARTIFACTY_EMBEDDINGS_COMMAND is required for the command provider");
     return createCommandProvider(command, config);
   }
-  const url = normalizeString(config.ARTIFACTY_EMBEDDINGS_URL);
-  if (url) {
+  if (selected === "openai-compatible" || (!selected && url)) {
+    if (!url) throw new Error("ARTIFACTY_EMBEDDINGS_URL is required for the API provider");
     return createOpenAiCompatibleProvider(url, config);
   }
-  return null;
+  return createLocalEmbeddingProvider(config);
 }
 
 function normalizeString(value) {

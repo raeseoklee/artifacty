@@ -157,7 +157,7 @@ test("version 8 stores migrate to access-policy schema 10 without changing publi
     assert.equal((await getArtifact(store, artifact.id, { access: anonymous })).id, artifact.id);
     assert.deepEqual(await listTeams(store), []);
     const migrated = new DatabaseSync(store.dbPath);
-    try { assert.equal(migrated.prepare("SELECT value FROM meta WHERE key = 'store_version'").get().value, "10"); }
+    try { assert.equal(migrated.prepare("SELECT value FROM meta WHERE key = 'store_version'").get().value, "11"); }
     finally { migrated.close(); }
   });
 });

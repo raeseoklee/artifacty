@@ -1,32 +1,31 @@
 export const KNOWN_SOURCE_AGENTS = new Set([
   "artifacty",
   "claude",
+  "claude-code",
   "codex",
   "copilot",
   "cursor",
   "gemini",
+  "gemini-cli",
   "generic",
   "mcp",
   "unknown"
 ]);
 
 const SOURCE_AGENT_ALIASES = new Map([
-  ["anthropic", "claude"],
   ["claude-ai", "claude"],
-  ["claude-code", "claude"],
-  ["claude-code-cli", "claude"],
-  ["claude_cli", "claude"],
+  ["claude-code", "claude-code"],
+  ["claude-code-cli", "claude-code"],
+  ["claude_cli", "claude-code"],
   ["github-copilot", "copilot"],
   ["copilot-chat", "copilot"],
   ["vscode-copilot", "copilot"],
   ["vs-code-copilot", "copilot"],
   ["cursor-ai", "cursor"],
-  ["gemini-cli", "gemini"],
-  ["google", "gemini"],
-  ["openai", "codex"],
+  ["gemini-cli", "gemini-cli"],
   ["openai-codex", "codex"],
   ["codex-cli", "codex"],
-  ["chatgpt", "codex"]
+  ["chatgpt", "chatgpt"]
 ]);
 
 export function normalizeSourceAgent(value, options = {}) {

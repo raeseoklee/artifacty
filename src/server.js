@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { createCategory, updateCategory, deleteCategory, listCategories, listCategoryTeams, setCategoryArtifact } from "./lib/categories.js";
+import { parseCollection, resolveCollection, collectionContentForReader } from "./lib/collections.js";
 import http from "node:http";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -25,7 +27,7 @@ import {
   deleteSavedView,
   deleteWebhook,
   ensureStore,
-  getArtifact,
+  getArtifact as getStoredArtifact,
   getAccessMode,
   canReadArtifactEvent,
   setAccessMode,
@@ -46,6 +48,7 @@ import {
   insertSecurityAudit,
   insertWebhookFailureAudit,
   listApiTokens,
+  listArtifacts,
   listArtifactsPage,
   listAuditEvents,
   listComments,
@@ -114,7 +117,9 @@ import { createMcpJsonRpcHandler } from "./mcp-server.js";
 import {
   renderArtifactFormPage,
   renderArtifactPage,
+  renderCollectionFormPage,
   renderAccountPage,
+  renderCategoriesPage,
   renderAdminBackupPage,
   renderAdminAccessPage,
   renderAccessModePreviewPage,
@@ -366,6 +371,12 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   const headOnly = request.method === "HEAD";
   const method = headOnly ? "GET" : request.method;
 
+  if (method === "GET" && pathname === "/assets/categories.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "categories.js"), headOnly, request);
+  }
+  if (method === "GET" && pathname === "/assets/collections.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "collections.js"), headOnly, request);
+  }
   if (method === "GET" && pathname === "/assets/update.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "update.js"), headOnly, request);
   }
@@ -392,6 +403,14 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     const shared = networkSharedArtifact || await resolveShareLink(store, publicShareMatch[1]);
     response.setHeader("referrer-policy", "no-referrer");
     response.setHeader("cache-control", "no-store");
+    const shareReader = networkSharedArtifact ? null : await sessionUserFromRequest(store, request);
+    const collection = shared.version.format === "collection" ? await resolveCollection(shared.content, {
+      readArtifact: (id, version) => networkSharedArtifact ? null : getArtifact(store, id, { version, access: accessContext(request, shareReader) })
+    }) : null;
+    if (collection) {
+      shared.content = collectionContentForReader(collection);
+      shared.artifact = { ...shared.artifact, content: shared.content };
+    }
     if (publicShareMatch[2]) {
       const fileName = url.searchParams.get("file");
       const bundleFile = fileName ? readBundleFile(shared.artifact, shared.content, fileName) : null;
@@ -411,7 +430,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     return sendHtml(response, renderSharedArtifactPage({
       artifact: { title: shared.artifact.title, artifactType: shared.artifact.artifactType },
       version: { version: shared.version.version, format: shared.version.format, contentType: shared.version.contentType },
-      content: shared.content, baseUrl, locale,
+      content: shared.content, baseUrl, locale, collection,
       sharePath: `/s/${encodeURIComponent(publicShareMatch[1])}`
     }), 200, headOnly);
   }
@@ -448,7 +467,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   const userCount = await countUsers(store);
-  const currentUser = userCount > 0 ? await sessionUserFromRequest(store, request) : null;
+  let currentUser = userCount > 0 ? await sessionUserFromRequest(store, request) : null;
   if (currentUser?.passwordResetRequired && !["/account/password", "/logout"].includes(pathname)) {
     return sendRedirect(response, "/account/password?required=1");
   }
@@ -820,14 +839,29 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       }
       if (!createdShareLink) return sendRedirect(response, localizedHref(`/artifacts/${encodeURIComponent(sharingMatch[1])}/sharing`, localeFromBodyOrUrl(body, url)));
     }
+    const report = await getArtifactAccessReport(store, sharingMatch[1], { access });
+    const users = await listUsers(store);
+    let collectionPreview = null;
+    if (artifact.version.format === "collection") {
+      const previewId = url.searchParams.get("previewUser") || "";
+      const recipient = previewId ? users.find(user => user.id === previewId && user.active) : null;
+      if (previewId && !recipient) throw Object.assign(new Error("Preview recipient not found"), { statusCode: 404 });
+      const previewAccess = recipient ? { userId: recipient.id, role: recipient.role } : { anonymous: true };
+      // This owner/admin-only page reports counts, never another user's child
+      // titles, IDs, bodies or URLs. Actual child grants are checked separately.
+      const original = await getStoredArtifact(store, artifact.id, { access });
+      const preview = await resolveCollection(original.content, { readArtifact: (id, version) => getStoredArtifact(store, id, { version, access: previewAccess }) });
+      const visible = preview.sections.reduce((sum, section) => sum + section.items.length, 0);
+      collectionPreview = { userId: previewId, visible, total: visible + preview.unavailableCount, parentReadable: recipient ? report.users.find(user => user.id === previewId)?.permission !== "none" : report.anonymousRead };
+    }
     return sendHtml(response, renderArtifactSharingPage({
-      baseUrl, user: currentUser, artifact,
+      baseUrl, user: currentUser, artifact, collectionPreview,
       sharing: await getArtifactSharing(store, sharingMatch[1], { access, includePermissions: true }),
-      accessReport: await getArtifactAccessReport(store, sharingMatch[1], { access }),
+      accessReport: report,
       networkPolicy: await getNetworkPolicy(store),
       shareLinks: await listShareLinks(store, sharingMatch[1], { access }),
       createdShareLink, shareLinkPolicy: await getShareLinkPolicy(store), mode: await getAccessMode(store),
-      users: await listUsers(store), teams: await listTeams(store), locale, currentPath
+      users, teams: await listTeams(store), locale, currentPath
     }), 200, headOnly);
   }
 
@@ -1071,6 +1105,8 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     const versionNumber = Number(adminVersionActionMatch[2]);
     const action = adminVersionActionMatch[3];
     if (action === "repair") {
+      await assertCollectionEditableReferences(store, artifactId, accessContext(request, currentUser), versionNumber, body.dropUnavailableReferences === "true");
+      if (body.format === "collection" && body.dropUnavailableReferences === "true") body.content = await dropUnavailableCollectionReferences(store, body.content, accessContext(request, currentUser));
       await replaceArtifactVersion(store, artifactId, versionNumber, {
         content: body.content,
         format: body.format,
@@ -1202,7 +1238,47 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (pathname.startsWith("/api/")) {
-    request.artifactyAuth = await requireRequestAuth({ store, request, url, config: security });
+    // The category UI uses session-authenticated JSON requests. An explicitly
+    // supplied token still takes precedence and retains its own scope limits.
+    const categoryApi = pathname === "/api/category-teams" || pathname === "/api/categories" || pathname.startsWith("/api/categories/");
+    request.artifactyAuth = categoryApi && currentUser && !requestToken({ request, url, body: {} })
+      ? await requireBrowserWriteAuth({ store, request, url, body: {}, config: security, currentUser })
+      : await requireRequestAuth({ store, request, url, config: security });
+    // API permission checks and attribution follow the checked credential,
+    // never a different account's browser cookie.
+    currentUser = request.artifactyAuth.user || null;
+  }
+
+  if (method === "GET" && pathname === "/categories") {
+    if (!currentUser) return sendRedirect(response, localizedHref("/login", locale));
+    const access = accessContext(request, currentUser);
+    const artifactId = url.searchParams.get("artifactId") || undefined;
+    const artifact = artifactId ? await getArtifact(store, artifactId, { access }) : null;
+    return sendHtml(response, renderCategoriesPage({ categories: await listCategories(store, { access, artifactId }), teams: await listCategoryTeams(store, { access }), artifact, user: currentUser, locale, currentPath }), 200, headOnly);
+  }
+
+  if (method === "GET" && pathname === "/api/category-teams") {
+    await requireApiScope(store, request, "read");
+    return sendJson(response, { teams: await listCategoryTeams(store, { access: accessContext(request, null) }) }, 200, headOnly);
+  }
+  if (pathname === "/api/categories" && method === "GET") {
+    await requireApiScope(store, request, "read");
+    return sendJson(response, { categories: await listCategories(store, { access: accessContext(request, null), artifactId: url.searchParams.get("artifactId") || undefined }) }, 200, headOnly);
+  }
+  const categoryMatch = /^\/api\/categories\/([^/]+)$/.exec(pathname);
+  const categoryArtifactMatch = /^\/api\/categories\/([^/]+)\/artifacts\/([^/]+)$/.exec(pathname);
+  if ((pathname === "/api/categories" && method === "POST") ||
+      (categoryMatch && ["PATCH", "DELETE"].includes(method)) ||
+      (categoryArtifactMatch && ["PUT", "DELETE"].includes(method))) {
+    assertBrowserFormOrigin(request);
+    await requireApiScope(store, request, "write");
+    await enforceRateLimit({ store, host, request, bucket: "write" });
+    const options = { access: accessContext(request, null), audit: auditContext(request, "http-api") };
+    if (categoryArtifactMatch) return sendJson(response, await setCategoryArtifact(store, categoryArtifactMatch[1], categoryArtifactMatch[2], method === "PUT", options));
+    if (method === "DELETE") return sendJson(response, await deleteCategory(store, categoryMatch[1], options));
+    const body = await readJsonBody(request);
+    if (method === "PATCH") return sendJson(response, await updateCategory(store, categoryMatch[1], { name: body.name }, options));
+    return sendJson(response, await createCategory(store, { name: body.name, scope: body.scope, teamId: body.teamId }, options), 201);
   }
 
   if (method === "GET" && pathname === "/health") {
@@ -1210,7 +1286,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (!currentUser && await getAccessMode(store) === "private" &&
-      (["/", "/new", "/import"].includes(pathname) || pathname.startsWith("/artifacts/"))) {
+      (["/", "/new", "/collections/new", "/import"].includes(pathname) || pathname.startsWith("/artifacts/"))) {
     return sendRedirect(response, localizedHref("/login", locale));
   }
 
@@ -1224,6 +1300,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       offset: url.searchParams.get("offset") || undefined
     };
     const page = await listArtifactsPage(store, {
+      categoryId: filters.categoryId || undefined,
       query: filters.query || undefined,
       tag: filters.tag || undefined,
       sourceAgent: filters.sourceAgent || undefined,
@@ -1250,7 +1327,8 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       currentPath,
       user: currentUser,
       savedViews,
-      embeddingsAvailable: Boolean(createEmbeddingProvider(process.env))
+      categories: currentUser ? await listCategories(store, { access }) : [],
+      embeddingsAvailable: embeddingsAvailable()
     }), 200, headOnly);
   }
 
@@ -1284,6 +1362,11 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     return sendRedirect(response, localizedHref("/", bodyLocale));
   }
 
+  if (method === "GET" && pathname === "/collections/new") {
+    const candidates = await listArtifacts(store, { access: accessContext(request, currentUser), limit: 200 });
+    return sendHtml(response, renderCollectionFormPage({ baseUrl, authToken, user: currentUser, candidates, locale, currentPath }), 200, headOnly);
+  }
+
   if (method === "GET" && pathname === "/new") {
     return sendHtml(response, renderNewArtifactPage({ baseUrl, authToken, user: currentUser, locale, currentPath }), 200, headOnly);
   }
@@ -1301,6 +1384,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       format: body.format,
       artifactType: body.artifactType,
       sourceAgent: body.sourceAgent || "artifacty",
+      provenance: { tool: "artifacty" },
       tags: splitTags(body.tags),
       visibility: body.visibility || undefined,
       metadata: {
@@ -1350,6 +1434,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       await enforceRateLimit({ store, host, request, bucket: "search" });
     }
     const page = await listArtifactsPage(store, {
+      categoryId: resolved.categoryId || undefined,
       query: searchQuery || undefined,
       tag: resolved.tag || undefined,
       sourceAgent: resolved.sourceAgent || undefined,
@@ -1551,7 +1636,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       ...pickCreateArtifactInput(body),
       audit: auditContext(request, "http-api")
     });
-    return sendJson(response, decorateArtifactUrls(artifact, baseUrl), 201);
+    return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl), 201);
   }
 
   if (method === "POST" && pathname === "/api/import") {
@@ -1563,11 +1648,12 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     const artifact = await createArtifact(store, {
       access: accessContext(request, currentUser),
       ...pickCreateArtifactInput(converted),
+      provenance: body.provenance,
       auditAction: "import",
       audit: auditContext(request, "http-api")
     });
     return sendJson(response, {
-      ...decorateArtifactUrls(artifact, baseUrl),
+      ...decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl),
       converted
     }, 201);
   }
@@ -1578,6 +1664,10 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       version: url.searchParams.get("version") || undefined,
       access: accessContext(request, currentUser)
     });
+    if (artifact.version.format === "collection") {
+      const candidates = await listArtifacts(store, { access: accessContext(request, currentUser), limit: 200 });
+      return sendHtml(response, renderCollectionFormPage({ user: currentUser, baseUrl, artifact, content: artifact.content, candidates, unavailableCount: artifact.resolvedCollection?.unavailableCount || 0, authToken, locale, currentPath }), 200, headOnly);
+    }
     return sendHtml(response, renderArtifactFormPage({
       user: currentUser,
       mode: "edit",
@@ -1599,12 +1689,15 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     await enforceRateLimit({ store, host, request, bucket: "write" });
     const expectedVersion = expectedVersionFromBody(body);
     try {
+      await assertCollectionEditableReferences(store, editMatch[1], accessContext(request, currentUser), undefined, body.dropUnavailableReferences === "true");
+      if (body.format === "collection" && body.dropUnavailableReferences === "true") body.content = await dropUnavailableCollectionReferences(store, body.content, accessContext(request, currentUser));
       const artifact = await updateArtifact(store, editMatch[1], {
         title: body.title,
         content: body.content,
         format: body.format,
         artifactType: body.artifactType,
         sourceAgent: body.sourceAgent || "artifacty",
+      provenance: { tool: "artifacty" },
         tags: splitTags(body.tags),
         metadata: {
           updatedVia: "artifacty-web"
@@ -1625,6 +1718,10 @@ async function handleScopedRequest({ request, response, store, host, port, secur
           artifactType: body.artifactType || current.artifactType,
           tags: splitTags(body.tags)
         };
+        if (body.format === "collection") {
+          const candidates = await listArtifacts(store, { access: accessContext(request, currentUser), limit: 200 });
+          return sendHtml(response, renderCollectionFormPage({ user: currentUser, baseUrl, artifact: unsavedArtifact, content: body.content, candidates, unavailableCount: current.resolvedCollection?.unavailableCount || 0, expectedVersion: error.latestVersion, conflict: { latestVersion: error.latestVersion }, authToken, locale: bodyLocale, currentPath }), 409, headOnly);
+        }
         return sendHtml(response, renderArtifactFormPage({
           user: currentUser,
           mode: "edit",
@@ -1734,6 +1831,11 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       version: url.searchParams.get("version") || undefined,
       access: accessContext(request, currentUser)
     });
+    if (artifact.version.format === "collection") {
+      const resolved = await resolveCollection(artifact.content, { readArtifact: (id, version) => getArtifact(store, id, { version, access: accessContext(request, currentUser) }) });
+      artifact.content = collectionContentForReader(resolved);
+      return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl), 200, headOnly, { "cache-control": "no-store" });
+    }
     const etag = `"${artifactEtag(artifact)}"`;
     const ifNoneMatch = request.headers["if-none-match"];
     if (ifNoneMatch && matchesEtag(ifNoneMatch, etag)) {
@@ -1741,7 +1843,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       response.end();
       return;
     }
-    return sendJson(response, decorateArtifactUrls(artifact, baseUrl), 200, headOnly, { etag });
+    return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl), 200, headOnly, { etag });
   }
 
   if (apiMatch && method === "POST") {
@@ -1750,13 +1852,15 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     await enforceRateLimit({ store, host, request, bucket: "write" });
     const body = await readJsonBody(request);
     const expectedVersion = expectedVersionFromRequest(request, body);
+    await assertCollectionEditableReferences(store, apiMatch[1], accessContext(request, currentUser), undefined, body.dropUnavailableReferences === true);
+    if (body.format === "collection" && body.dropUnavailableReferences === true) body.content = await dropUnavailableCollectionReferences(store, body.content, accessContext(request, currentUser));
     const artifact = await updateArtifact(store, apiMatch[1], {
       ...pickUpdateArtifactInput(body),
       expectedVersion,
       access: accessContext(request, currentUser),
       audit: auditContext(request, "http-api")
     });
-    return sendJson(response, decorateArtifactUrls(artifact, baseUrl));
+    return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl));
   }
 
   const apiArchiveMatch = /^\/api\/artifacts\/([^/]+)\/(archive|restore)$/.exec(pathname);
@@ -1767,7 +1871,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     const artifact = apiArchiveMatch[2] === "archive"
       ? await archiveArtifact(store, apiArchiveMatch[1], { access: accessContext(request, currentUser), audit: auditContext(request, "http-api") })
       : await restoreArtifact(store, apiArchiveMatch[1], { access: accessContext(request, currentUser), audit: auditContext(request, "http-api") });
-    return sendJson(response, decorateArtifactUrls(artifact, baseUrl));
+    return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl));
   }
 
   const apiVisibilityMatch = /^\/api\/artifacts\/([^/]+)\/visibility$/.exec(pathname);
@@ -1780,7 +1884,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       access: accessContext(request, currentUser),
       audit: auditContext(request, "http-api")
     });
-    return sendJson(response, decorateArtifactUrls(artifact, baseUrl));
+    return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl));
   }
 
   const apiOwnerMatch = /^\/api\/artifacts\/([^/]+)\/owner$/.exec(pathname);
@@ -1793,7 +1897,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       access: accessContext(request, currentUser),
       audit: auditContext(request, "http-api")
     });
-    return sendJson(response, decorateArtifactUrls(artifact, baseUrl));
+    return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl));
   }
 
   const apiRelationsMatch = /^\/api\/artifacts\/([^/]+)\/relations$/.exec(pathname);
@@ -1898,7 +2002,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       access: accessContext(request, currentUser),
       audit: auditContext(request, "http-api")
     });
-    return sendJson(response, decorateArtifactUrls(artifact, baseUrl));
+    return sendJson(response, decorateArtifactUrls(await redactCollectionArtifact(store, artifact, accessContext(request, currentUser)), baseUrl));
   }
 
   const commentResolveFormMatch = /^\/artifacts\/([^/]+)\/comments\/([^/]+)\/resolve$/.exec(pathname);
@@ -1997,6 +2101,11 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       audit: auditContext(request, "browser")
     });
 
+    const collection = artifact.resolvedCollection || (artifact.version.format === "collection" ? await resolveCollection(artifact.content, {
+      readArtifact: (id, version) => getArtifact(store, id, { version, access: accessContext(request, currentUser) })
+    }) : null);
+    if (collection) artifact.content = collectionContentForReader(collection);
+
     if (pathname.endsWith("/raw")) {
       const bundleFileName = url.searchParams.get("file");
       if (bundleFileName) {
@@ -2038,6 +2147,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       artifact,
       version: artifact.version,
       content: artifact.content,
+      collection,
       comments,
       permission: await getArtifactPermission(store, artifactMatch[1], { access: accessContext(request, currentUser) }),
       baseUrl,
@@ -2049,6 +2159,34 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   sendJson(response, { error: "Not found" }, 404);
+}
+
+// Every HTTP representation (including diff/export/edit) uses the reader's
+// permissions for references. A collection never transfers its own grant.
+async function getArtifact(store, id, options = {}) {
+  const artifact = await getStoredArtifact(store, id, options);
+  return redactCollectionArtifact(store, artifact, options.access);
+}
+
+async function redactCollectionArtifact(store, artifact, access) {
+  if (artifact.version.format === "collection" && access && !artifact.resolvedCollection) {
+    const resolved = await resolveCollection(artifact.content, {
+      readArtifact: (childId, version) => getStoredArtifact(store, childId, { version, access })
+    });
+    artifact.content = collectionContentForReader(resolved);
+    Object.defineProperty(artifact, "resolvedCollection", { value: resolved });
+  }
+  return artifact;
+}
+
+async function dropUnavailableCollectionReferences(store, content, access) {
+  const resolved = await resolveCollection(content, { readArtifact: (id, version) => getStoredArtifact(store, id, { version, access }) });
+  return collectionContentForReader(resolved);
+}
+
+async function assertCollectionEditableReferences(store, id, access, version, allowDrop = false) {
+  const current = await getArtifact(store, id, { access, version });
+  if (current.resolvedCollection?.unavailableCount && allowDrop !== true) throw Object.assign(new Error("Restore access or explicitly confirm dropping unavailable references before saving this collection"), { statusCode: 409, code: "COLLECTION_REFERENCES_UNAVAILABLE" });
 }
 
 export function decorateArtifactUrls(artifact, baseUrl) {
@@ -2157,6 +2295,11 @@ export async function readBody(request, limitBytes) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+function embeddingsAvailable() {
+  try { return Boolean(createEmbeddingProvider(process.env)); }
+  catch { return false; }
 }
 
 // Non-browser clients may omit Origin; browser forms must match the full origin.
@@ -2578,6 +2721,7 @@ async function resolveListFilters(store, url, access) {
   }
 
   const explicit = {};
+  if (url.searchParams.has("categoryId")) explicit.categoryId = url.searchParams.get("categoryId");
   for (const [filterKey, paramKey] of Object.entries(LIST_FILTER_QUERY_KEYS)) {
     if (url.searchParams.has(paramKey)) {
       explicit[filterKey] = url.searchParams.get(paramKey);
@@ -2879,6 +3023,7 @@ const CREATE_ARTIFACT_FIELDS = [
   "artifactType",
   "schemaVersion",
   "sourceAgent",
+  "provenance",
   "tags",
   "metadata",
   "allowSecrets",
@@ -2894,6 +3039,7 @@ const UPDATE_ARTIFACT_FIELDS = [
   "artifactType",
   "schemaVersion",
   "sourceAgent",
+  "provenance",
   "tags",
   "metadata",
   "allowSecrets",

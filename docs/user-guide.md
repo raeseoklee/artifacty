@@ -25,6 +25,12 @@ At the bottom of the list, use **Previous** and **Next** to change pages. **Per 
 
 Use **Saved views** to name and save a set of filters for reuse. Saving a view is an explicit action; changing filters does not overwrite an existing view. A filter changes the displayed results, not the underlying artifacts.
 
+The bundled local ONNX model adds semantic matching to the default hybrid search. For setup, model selection, indexing existing artifacts, and a search example screenshot, see [local models and semantic search](embeddings.md).
+
+## Organize artifacts and inspect authors
+
+The next release adds collection pages, personal and team categories, and per-version author records. These features are not included in published version 0.16.1. Follow [organizing artifacts and author history](organizing-artifacts.md) for the browser steps, screenshots, permission rules, and MCP examples.
+
 ## Create or edit an artifact
 
 ![English artifact creation form](assets/screenshots/create.png)

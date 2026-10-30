@@ -5,6 +5,9 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { openProtectedDatabase } from "./upgrade-backup.js";
 import { isUnknownSourceAgent, normalizeSourceAgent } from "./agents.js";
+import { normalizeProvenance } from "./provenance.js";
+import { parseCollection } from "./collections.js";
+import { initializeCategorySchema, categoryArtifactPredicate } from "./category-schema.js";
 import { assertNoSecrets, normalizeTokenScopes, securityConfig } from "./security.js";
 import { EVENT_TYPES, eventFromAudit, eventHistoryLimit, eventVisibleTo, matchesFilter, publish as publishEvent } from "./events.js";
 import { assertPublicWebhookUrl } from "./webhooks.js";
@@ -17,7 +20,7 @@ import {
   vectorToBlob
 } from "./embeddings.js";
 
-export const STORE_VERSION = 10;
+export const STORE_VERSION = 11;
 // Not exported: no caller outside this file reads the constant itself, only
 // the numeric schemaVersion field it seeds on artifacts.
 const ARTIFACT_SCHEMA_VERSION = 1;
@@ -62,9 +65,11 @@ export const ARTIFACT_FORMATS = [
   "csv",
   "image",
   "video",
-  "notebook"
+  "notebook",
+  "collection"
 ];
 export const ARTIFACT_TYPES = [
+  "collection",
   "document",
   "html-page",
   "handoff",
@@ -123,6 +128,7 @@ export function inverseRelation(name) {
 }
 
 const FORMAT_TO_EXTENSION = {
+  collection: "json",
   html: "html",
   markdown: "md",
   text: "txt",
@@ -139,6 +145,7 @@ const FORMAT_TO_EXTENSION = {
 };
 
 const FORMAT_TO_CONTENT_TYPE = {
+  collection: "application/json; charset=utf-8",
   html: "text/html; charset=utf-8",
   markdown: "text/markdown; charset=utf-8",
   text: "text/plain; charset=utf-8",
@@ -585,6 +592,7 @@ export async function writeIndex(store, index) {
           insertVersionRecord(db, artifact.id, version);
         }
       }
+      backfillProvenance(db);
       normalizeStoredSourceAgents(db, store, {
         force: true,
         inTransaction: true,
@@ -631,6 +639,8 @@ export async function createArtifact(store = createStore(), input = {}) {
         artifactType: normalized.artifactType,
         schemaVersion: normalized.schemaVersion,
         sourceAgent: normalized.sourceAgent,
+        createdBy: normalized.provenance,
+        provenance: normalized.provenance,
         publisherId: publisher.publisherId,
         publisherName: publisher.publisherName,
         publisherUserId: publisher.publisherUserId,
@@ -733,6 +743,7 @@ export async function updateArtifact(store = createStore(), id, input = {}) {
       artifact.updatedAt = now;
       artifact.latestVersion = nextVersion;
       artifact.versions.push(version);
+      artifact.provenance = version.provenance;
 
       // A new version invalidates a prior approval (roadmap section 5): an
       // approved artifact automatically drops back to "pending" review so
@@ -870,6 +881,7 @@ export async function replaceArtifactVersion(store = createStore(), id, versionN
 
         replacement = writeVersionFile(store, artifact.id, targetVersion, {
           ...normalized,
+          provenance: existing.provenance,
           metadata: repairedMetadata
         }, existing.createdAt);
         fileWritten = true;
@@ -1196,12 +1208,14 @@ export async function listArtifactsPage(store = createStore(), filters = {}) {
   const visibility = filters.visibility ? normalizeVisibility(filters.visibility) : undefined;
   const ownerUserId = normalizeOptionalString(filters.ownerUserId) || undefined;
   const requestedMode = normalizeSearchMode(filters.mode);
+  const categoryId = normalizeOptionalString(filters.categoryId);
   // Filter validation above runs before the handle is opened so a rejected
   // filter never leaks an open connection.
   const db = openDatabase(store);
   const bypassVisibility = !access || isSingleUserMode(db);
 
   const baseFilters = {
+    categoryId,
     tag,
     sourceAgent,
     relatedTo,
@@ -1221,6 +1235,10 @@ export async function listArtifactsPage(store = createStore(), filters = {}) {
   };
 
   try {
+    if (categoryId) {
+      baseFilters.access = categoryArtifactPredicate(db, categoryId, access).access;
+      baseFilters.bypassVisibility = isSingleUserMode(db);
+    }
     const keywordPage = (overrides = {}) =>
       listArtifactsPageKeyword(db, { ...baseFilters, rawQuery: query, query: normalizedQuery, ...overrides });
 
@@ -1230,7 +1248,14 @@ export async function listArtifactsPage(store = createStore(), filters = {}) {
       return page;
     }
 
-    const provider = resolveEmbeddingProvider(filters.embeddingProvider);
+    let provider;
+    try {
+      provider = resolveEmbeddingProvider(filters.embeddingProvider);
+    } catch {
+      const page = keywordPage();
+      page.search = { ...page.search, mode: "keyword", fallback: true };
+      return page;
+    }
     if (!provider) {
       const page = keywordPage();
       page.search = { ...page.search, mode: "keyword", ...(requestedMode ? { fallback: true } : {}) };
@@ -1238,15 +1263,19 @@ export async function listArtifactsPage(store = createStore(), filters = {}) {
     }
 
     const effectiveMode = requestedMode || "hybrid";
-    if (effectiveMode === "semantic") {
-      const page = await listArtifactsPageSemantic(db, { ...baseFilters, query }, provider);
-      page.search = { ...page.search, mode: "semantic" };
+    try {
+      const page = effectiveMode === "semantic"
+        ? await listArtifactsPageSemantic(db, { ...baseFilters, query }, provider)
+        : await listArtifactsPageHybrid(db, { ...baseFilters, query }, provider);
+      page.search = { ...page.search, mode: effectiveMode };
+      return page;
+    } catch {
+      // A missing local runtime/model or an unavailable remote provider must
+      // not prevent users from finding their documents with keyword search.
+      const page = keywordPage();
+      page.search = { ...page.search, mode: "keyword", fallback: true };
       return page;
     }
-
-    const page = await listArtifactsPageHybrid(db, { ...baseFilters, query }, provider);
-    page.search = { ...page.search, mode: "hybrid" };
-    return page;
   } finally {
     db.close();
   }
@@ -1289,7 +1318,7 @@ function embeddingsMaxCandidates() {
 // embeddingsMaxCandidates() rows.
 function candidateEmbeddingRows(db, filters, provider, maxCandidates) {
   const { clauses, params } = artifactWhereClauses(filters, "a");
-  const allClauses = [...clauses, "e.provider = ?", "e.model = ?"];
+  const allClauses = [...clauses, "e.provider = ?", "e.model = ?", "e.version = a.latest_version"];
   const allParams = [...params, provider.name, provider.model, maxCandidates];
   return db.prepare(`
     SELECT ${artifactColumns("a.")}, e.vector
@@ -1305,7 +1334,9 @@ async function semanticRanking(db, filters, provider) {
   const rows = candidateEmbeddingRows(db, filters, provider, maxCandidates);
   const candidatesTruncated = rows.length >= maxCandidates;
   const rowById = new Map();
-  const [queryVector] = await provider.embed([filters.query]);
+  if (!rows.length) return { rowById, scored: [], candidatesTruncated };
+  const [queryVector] = await provider.embed([filters.query], { purpose: "query" });
+  if (!queryVector?.length) throw new Error("Embedding provider returned no query vector");
   const scored = [];
   // Iterate once: decode each vector only as it's scored, and stash the row
   // (for the eventual summary) without pre-building a full separate map of
@@ -1334,23 +1365,21 @@ async function listArtifactsPageHybrid(db, filters, provider) {
   const { rowById, scored, candidatesTruncated } = await semanticRanking(db, filters, provider);
   const semanticIds = scored.map((entry) => entry.id);
 
-  // rowById is scoped to the semantic candidate set (built from the same
-  // non-text filters); keyword results that satisfy those same filters are
-  // guaranteed to already be present in it.
+  // Existing stores and partially rebuilt models can have keyword matches
+  // without vectors. Keep these already permission-filtered summaries too.
+  const keywordById = new Map(keywordPage.artifacts.map((artifact) => [artifact.id, artifact]));
   const fused = reciprocalRankFusion([keywordIds, semanticIds]);
-  return pageFromScored(db, fused, rowById, filters.limit, filters.offset, "hybrid", candidatesTruncated);
+  return pageFromScored(db, fused, rowById, filters.limit, filters.offset, "hybrid", candidatesTruncated, keywordById);
 }
 
-function pageFromScored(db, scored, rowById, limit, offset, backend, candidatesTruncated = false) {
+function pageFromScored(db, scored, rowById, limit, offset, backend, candidatesTruncated = false, summaries = new Map()) {
   const total = scored.length;
   const paged = scored.slice(offset, offset + limit);
   const artifacts = paged
     .map(({ id, score }) => {
       const row = rowById.get(id);
-      if (!row) {
-        return null;
-      }
-      return { ...toArtifactSummary(artifactFromRow(db, row)), searchScore: score };
+      const summary = summaries.get(id) || (row && toArtifactSummary(artifactFromRow(db, row)));
+      return summary ? { ...summary, searchScore: score } : null;
     })
     .filter(Boolean);
   return pagedResult({ artifacts, total, limit, offset, searchBackend: backend, candidatesTruncated });
@@ -1394,8 +1423,8 @@ export async function rebuildSearchIndex(store = createStore()) {
 
 // Embeddings provider configuration (roadmap section 6). `undefined` means
 // "not configured explicitly, auto-detect from the environment on every
-// call"; `null` (set via setEmbeddingProvider(null) or resetEmbeddingProvider)
-// means "no provider" without re-checking the environment.
+// call"; `null` (set via setEmbeddingProvider(null)) means "no provider"
+// without re-checking the environment. Reset restores environment defaults.
 let configuredEmbeddingProvider;
 
 // Lets server/CLI/MCP entry points configure (or disable) the embedding
@@ -1446,7 +1475,13 @@ export async function awaitEmbeddingIndexing() {
 }
 
 function scheduleEmbeddingIndexing(store, artifact, version, content) {
-  const provider = resolveEmbeddingProvider();
+  let provider;
+  try {
+    provider = resolveEmbeddingProvider();
+  } catch {
+    process.stderr.write("[artifacty] embedding provider configuration is invalid; indexing skipped\n");
+    return;
+  }
   if (!provider || !artifact || !version) {
     return;
   }
@@ -1487,13 +1522,13 @@ function scheduleEmbeddingIndexing(store, artifact, version, content) {
 async function indexArtifactEmbedding(store, artifact, version, content, provider) {
   const text = embeddingTextForArtifact(
     { title: artifact.title, tags: artifact.tags, metadata: version.metadata, format: version.format },
-    content,
+    indexableContent(version, content),
     embeddingMaxChars()
   );
   if (!text) {
     return;
   }
-  const [vector] = await provider.embed([text]);
+  const [vector] = await provider.embed([text], { purpose: "document" });
   if (!vector || !vector.length) {
     return;
   }
@@ -1584,7 +1619,7 @@ export async function rebuildEmbeddingIndex(store = createStore(), options = {})
       configured: false,
       indexed: 0,
       skipped: [],
-      message: "No embedding provider is configured (set ARTIFACTY_EMBEDDINGS_URL or ARTIFACTY_EMBEDDINGS_COMMAND)."
+      message: "Embedding indexing is disabled. Enable a local model or configure an embedding provider."
     };
   }
   const db = openDatabase(store);
@@ -1611,7 +1646,7 @@ export async function rebuildEmbeddingIndex(store = createStore(), options = {})
       const content = isBinary ? "" : readFileSync(absolutePath, "utf8");
       const text = embeddingTextForArtifact(
         { title: artifact.title, tags: artifact.tags, metadata: latest.metadata, format: latest.format },
-        content,
+        indexableContent(latest, content),
         maxChars
       );
       if (!text) {
@@ -1624,7 +1659,7 @@ export async function rebuildEmbeddingIndex(store = createStore(), options = {})
     let indexed = 0;
     for (let start = 0; start < jobs.length; start += batchSize) {
       const batch = jobs.slice(start, start + batchSize);
-      const vectors = await provider.embed(batch.map((job) => job.text));
+      const vectors = await provider.embed(batch.map((job) => job.text), { purpose: "document" });
       batch.forEach((job, index) => {
         const vector = vectors[index];
         if (!vector || !vector.length) {
@@ -1834,6 +1869,11 @@ function artifactWhereClauses(filters, alias = "") {
   const clauses = [];
   const params = [];
 
+  if (filters.categoryId) {
+    const outerId = alias ? `${alias}.id` : "artifacts.id";
+    clauses.push(`EXISTS (SELECT 1 FROM category_artifacts ca WHERE ca.category_id = ? AND ca.artifact_id = ${outerId})`);
+    params.push(filters.categoryId);
+  }
   if (!filters.includeArchived) {
     clauses.push(`${prefix}archived_at IS NULL`);
   }
@@ -1925,7 +1965,7 @@ const ARTIFACT_COLUMN_NAMES = [
   "id", "title", "artifact_type", "schema_version", "source_agent",
   "publisher_id", "publisher_name", "publisher_user_id", "visibility",
   "owner_user_id", "tags_json", "created_at", "updated_at",
-  "latest_version", "archived_at", "review_status"
+  "latest_version", "archived_at", "review_status", "created_by_json"
 ];
 
 function artifactColumns(prefix = "") {
@@ -1933,7 +1973,10 @@ function artifactColumns(prefix = "") {
 }
 
 function artifactFromRow(db, row) {
+  const versions = loadVersions(db, row.id);
   return {
+    createdBy: parseJson(row.created_by_json, null) || versions[0]?.provenance || null,
+    provenance: versions.find((version) => version.version === row.latest_version)?.provenance || null,
     id: row.id,
     title: row.title,
     artifactType: row.artifact_type,
@@ -1950,7 +1993,7 @@ function artifactFromRow(db, row) {
     updatedAt: row.updated_at,
     archivedAt: row.archived_at,
     latestVersion: row.latest_version,
-    versions: loadVersions(db, row.id)
+    versions
   };
 }
 
@@ -2463,6 +2506,12 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
     const limit = clampInteger(filters.limit, 1, 500, 100);
     const visibleAudit = (row) => {
       const event = auditFromRow(row);
+      // Global artifact audit is not a category membership surface. Keep
+      // personal/team category identifiers private even for administrators.
+      if (event.action.startsWith("category-")) {
+        event.metadata = { restricted: true };
+        return event;
+      }
       if (!filters.access || filters.access.role === "admin") return event;
       if ((event.action === "relation-add" || event.action === "relation-remove") && event.metadata.toId) {
         const target = db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(event.metadata.toId);
@@ -3335,7 +3384,9 @@ const FULL_BACKUP_CORE_TABLES = {
   teams: "teams",
   teamMembers: "team_members",
   artifactShares: "artifact_shares",
-  notifications: "notifications"
+  notifications: "notifications",
+  categories: "categories",
+  categoryArtifacts: "category_artifacts"
 };
 
 export async function exportFullStoreTables(store = createStore()) {
@@ -3453,7 +3504,7 @@ export async function importFullStoreTables(store = createStore(), tables = {}, 
       if (Array.isArray(tables.embeddings)) {
         counts.embeddings = replaceEmbeddingRows(db, tables.embeddings);
       }
-      for (const [key, table] of [["teams", "teams"], ["teamMembers", "team_members"], ["artifactShares", "artifact_shares"], ["notifications", "notifications"]]) {
+      for (const [key, table] of [["teams", "teams"], ["teamMembers", "team_members"], ["artifactShares", "artifact_shares"], ["notifications", "notifications"], ["categories", "categories"], ["categoryArtifacts", "category_artifacts"]]) {
         if (Array.isArray(tables[key])) counts[key] = replaceTableRows(db, table, tables[key]);
       }
       counts.meta = replaceMetaRows(db, tables.meta);
@@ -3609,6 +3660,8 @@ export function toArtifactSummary(artifact) {
     artifactType: artifact.artifactType,
     schemaVersion: artifact.schemaVersion,
     sourceAgent: artifact.sourceAgent,
+    createdBy: artifact.createdBy || null,
+    provenance: latest?.provenance || artifact.provenance || null,
     publisherId: artifact.publisherId || null,
     publisherName: artifact.publisherName || null,
     publisherUserId: artifact.publisherUserId || null,
@@ -3692,6 +3745,7 @@ export function openDatabase(store) {
     `);
     initializeSchema(db);
     migrateJsonIndex(db, store);
+    backfillProvenance(db);
     normalizeStoredSourceAgents(db, store);
     syncSearchIndexIfEmpty(db, store);
   });
@@ -3913,6 +3967,8 @@ function initializeSchema(db) {
     }
   }
   ensureColumn(db, "artifact_shares", "permission", "TEXT NOT NULL DEFAULT 'read'");
+  ensureColumn(db, "artifacts", "created_by_json", "TEXT");
+  ensureColumn(db, "artifact_versions", "provenance_json", "TEXT");
   ensureColumn(db, "artifacts", "artifact_type", "TEXT NOT NULL DEFAULT 'document'");
   ensureColumn(db, "artifacts", "schema_version", "INTEGER NOT NULL DEFAULT 1");
   ensureColumn(db, "artifacts", "archived_at", "TEXT");
@@ -3930,6 +3986,7 @@ function initializeSchema(db) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_publisher_id ON artifacts(publisher_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_visibility ON artifacts(visibility)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_owner_user_id ON artifacts(owner_user_id)");
+  initializeCategorySchema(db);
   backfillArtifactOwnersAndPublishers(db);
   db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('store_version', ?)").run(String(STORE_VERSION));
   ensureSearchTable(db);
@@ -4147,7 +4204,29 @@ function metaValue(db, key) {
   return db.prepare("SELECT value FROM meta WHERE key = ?").get(key)?.value || "";
 }
 
-const INFERABLE_SOURCE_AGENTS = new Set(["claude", "codex", "copilot", "cursor", "gemini"]);
+function backfillProvenance(db) {
+  const artifacts = db.prepare("SELECT id, source_agent, latest_version, created_by_json FROM artifacts WHERE created_by_json IS NULL OR EXISTS (SELECT 1 FROM artifact_versions v WHERE v.artifact_id = artifacts.id AND v.provenance_json IS NULL)").all();
+  const updateVersion = db.prepare("UPDATE artifact_versions SET provenance_json = ? WHERE artifact_id = ? AND version = ? AND provenance_json IS NULL");
+  for (const artifact of artifacts) {
+    const versions = db.prepare("SELECT version, metadata_json, provenance_json FROM artifact_versions WHERE artifact_id = ? ORDER BY version").all(artifact.id);
+    for (const version of versions) {
+      if (version.provenance_json) continue;
+      const metadata = parseJson(version.metadata_json, {});
+      const audit = db.prepare("SELECT source_agent FROM audit_log WHERE artifact_id = ? AND version = ? AND action IN ('create', 'import', 'update') ORDER BY created_at LIMIT 1").get(artifact.id, version.version);
+      const candidates = [metadata.sourceAgent, metadata.source_agent, metadata.agent, metadata.artifactyImport?.sourceAgent, metadata.artifactyImport?.originalAgent, audit?.source_agent,
+        artifact.latest_version === 1 ? artifact.source_agent : null];
+      const original = candidates.find((value) => typeof value === "string" && value.trim() && !isUnknownSourceAgent(value)) || candidates.find((value) => typeof value === "string" && value.trim());
+      const provenance = normalizeProvenance({ sourceAgent: original }, { legacy: true });
+      updateVersion.run(JSON.stringify(provenance), artifact.id, version.version);
+    }
+    if (!artifact.created_by_json) {
+      const first = db.prepare("SELECT provenance_json FROM artifact_versions WHERE artifact_id = ? ORDER BY version LIMIT 1").get(artifact.id);
+      if (first) db.prepare("UPDATE artifacts SET created_by_json = ? WHERE id = ?").run(first.provenance_json, artifact.id);
+    }
+  }
+}
+
+const INFERABLE_SOURCE_AGENTS = new Set(["claude", "claude-code", "codex", "copilot", "cursor", "gemini", "gemini-cli"]);
 
 function normalizeStoredSourceAgents(db, store, options = {}) {
   if (!options.force && metaValue(db, "source_agent_normalized_version") === SOURCE_AGENT_NORMALIZATION_VERSION) {
@@ -4206,11 +4285,6 @@ function normalizeStoredSourceAgentsInDb(db, store, options = {}) {
 }
 
 function inferStoredSourceAgent(db, artifactRow) {
-  const tagCandidate = firstInferableSourceAgent(parseJson(artifactRow.tags_json, []));
-  if (tagCandidate) {
-    return tagCandidate;
-  }
-
   const versionRows = db.prepare(`
     SELECT metadata_json
     FROM artifact_versions
@@ -4371,6 +4445,14 @@ function rebuildSearchIndexInDb(db, store) {
   };
 }
 
+// References may point to private artifacts. Never put their IDs into a
+// globally searchable parent document or search snippet.
+function indexableContent(version, content) {
+  if (version.format !== "collection") return content;
+  const collection = parseCollection(content);
+  return [collection.description, ...collection.sections.map((section) => section.title)].join("\n");
+}
+
 function upsertSearchIndex(db, artifact, version, content) {
   if (!searchIndexAvailable(db)) {
     return;
@@ -4395,7 +4477,7 @@ function upsertSearchIndex(db, artifact, version, content) {
       publisherId: artifact.publisherId || undefined,
       publisherName: artifact.publisherName || undefined
     }),
-    content
+    indexableContent(version, content)
   );
 }
 
@@ -4443,7 +4525,7 @@ function loadArtifacts(db) {
 
 function loadVersions(db, artifactId) {
   return db.prepare(`
-    SELECT version, created_at, format, content_type, path, size_bytes, sha256, metadata_json
+    SELECT version, created_at, format, content_type, path, size_bytes, sha256, metadata_json, provenance_json
     FROM artifact_versions
     WHERE artifact_id = ?
     ORDER BY version ASC
@@ -4614,15 +4696,15 @@ function insertArtifactRecord(db, artifact) {
   const reviewStatus = artifact.reviewStatus || artifact.review_status;
   db.prepare(`
     INSERT INTO artifacts (
-      id, title, artifact_type, schema_version, source_agent, publisher_id, publisher_name, publisher_user_id, visibility, owner_user_id, tags_json, created_at, updated_at, latest_version, archived_at, review_status
+      id, title, artifact_type, schema_version, source_agent, publisher_id, publisher_name, publisher_user_id, visibility, owner_user_id, tags_json, created_at, updated_at, latest_version, archived_at, review_status, created_by_json
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     artifact.id,
     artifact.title,
     normalizeArtifactType(artifact.artifactType || artifact.artifact_type || "document"),
     normalizeSchemaVersion(artifact.schemaVersion || artifact.schema_version),
-    normalizeSourceAgent(artifact.sourceAgent || artifact.source_agent, { defaultValue: "unknown" }),
+    artifact.createdBy ? normalizeSourceAgent(artifact.sourceAgent || artifact.source_agent, { defaultValue: "unknown" }) : (artifact.sourceAgent || artifact.source_agent || "unknown"),
     normalizeOptionalString(artifact.publisherId || artifact.publisher_id) || null,
     normalizeOptionalString(artifact.publisherName || artifact.publisher_name) || null,
     normalizeOptionalString(artifact.publisherUserId || artifact.publisher_user_id) || null,
@@ -4633,16 +4715,17 @@ function insertArtifactRecord(db, artifact) {
     artifact.updatedAt || artifact.updated_at,
     artifact.latestVersion || artifact.latest_version || 1,
     artifact.archivedAt || artifact.archived_at || null,
-    REVIEW_STATUSES.includes(reviewStatus) ? reviewStatus : "none"
+    REVIEW_STATUSES.includes(reviewStatus) ? reviewStatus : "none",
+    artifact.createdBy ? JSON.stringify(artifact.createdBy) : null
   );
 }
 
 function insertVersionRecord(db, artifactId, version) {
   db.prepare(`
     INSERT INTO artifact_versions (
-      artifact_id, version, created_at, format, content_type, path, size_bytes, sha256, metadata_json
+      artifact_id, version, created_at, format, content_type, path, size_bytes, sha256, metadata_json, provenance_json
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     artifactId,
     version.version,
@@ -4652,7 +4735,8 @@ function insertVersionRecord(db, artifactId, version) {
     version.path,
     version.sizeBytes || version.size_bytes || 0,
     version.sha256,
-    JSON.stringify(version.metadata || {})
+    JSON.stringify(version.metadata || {}),
+    version.provenance ? JSON.stringify(version.provenance) : null
   );
 }
 
@@ -4856,6 +4940,7 @@ function apiTokenFromRow(row) {
 
 function versionFromRow(row) {
   return {
+    provenance: parseJson(row.provenance_json, null),
     version: row.version,
     createdAt: row.created_at,
     format: row.format,
@@ -4932,7 +5017,8 @@ function writeVersionFile(store, id, versionNumber, input, createdAt) {
     path: relativePath,
     sizeBytes: contentBuffer.byteLength,
     sha256: createHash("sha256").update(contentBuffer).digest("hex"),
-    metadata: input.metadata
+    metadata: input.metadata,
+    provenance: input.provenance
   };
 }
 
@@ -5140,14 +5226,18 @@ function normalizeArtifactInput(input, options) {
     });
   }
 
+  const format = normalizeFormat(input.format || inferFormat(input.contentType, content));
+  if (format === "collection") parseCollection(content);
+  const provenance = normalizeProvenance(input);
   return {
     title,
     content,
-    format: normalizeFormat(input.format || inferFormat(input.contentType, content)),
+    format,
+    provenance,
     contentType: normalizeOptionalString(input.contentType),
     artifactType: normalizeArtifactType(input.artifactType || input.artifact_type || inferArtifactType(input)),
     schemaVersion: normalizeSchemaVersion(input.schemaVersion || input.schema_version),
-    sourceAgent: normalizeSourceAgent(input.sourceAgent || input.source_agent || input.agent, {
+    sourceAgent: normalizeSourceAgent(provenance.tool || input.sourceAgent || input.source_agent || input.agent, {
       defaultValue: options.defaultSourceAgent ?? "unknown"
     }),
     tags: normalizeTags(input.tags),
@@ -5180,6 +5270,7 @@ function normalizeSchemaVersion(value) {
 }
 
 function inferArtifactType(input) {
+  if (input.format === "collection") return "collection";
   let format;
   try {
     format = normalizeFormat(input.format || inferFormat(input.contentType, input.content));

@@ -443,7 +443,9 @@ results if it uses different words. For example, a user might search for
 
 ### Design principles
 
-- Do not require an additional dependency or bundle a model. Use a
+This section records the original provider-only design. It is superseded by the bundled local ONNX default; see [local models and semantic search](embeddings.md) for current configuration.
+
+- Original constraint: do not require an additional dependency or bundle a model. Use a
   configurable provider to supply embeddings.
 - If semantic search is disabled or unavailable, keep the existing search
   behavior.

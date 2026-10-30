@@ -1837,6 +1837,8 @@ test("filters /api/artifacts by artifactType, publisher, date range, and reviewS
 
 test("/api/artifacts supports mode=keyword|semantic|hybrid and falls back without a provider", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-mode-"));
+  const previousProvider = process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
+  process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = "disabled";
   const app = await startServer({ port: 0, home });
 
   try {
@@ -1856,6 +1858,8 @@ test("/api/artifacts supports mode=keyword|semantic|hybrid and falls back withou
     const invalidMode = await fetch(`${app.url}/api/artifacts?q=deploy&mode=nonsense`);
     assert.equal(invalidMode.status, 400);
   } finally {
+    if (previousProvider === undefined) delete process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
+    else process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = previousProvider;
     await app.close();
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
@@ -1864,6 +1868,8 @@ test("/api/artifacts supports mode=keyword|semantic|hybrid and falls back withou
 test("/api/artifacts mode=semantic and mode=hybrid use a configured embedding provider", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "artifacty-server-mode-provider-"));
   const previousCommand = process.env.ARTIFACTY_EMBEDDINGS_COMMAND;
+  const previousProvider = process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
+  process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = "command";
   process.env.ARTIFACTY_EMBEDDINGS_COMMAND = `node ${JSON.stringify(path.resolve("scripts/fixtures/embeddings-command.js"))}`;
   const app = await startServer({ port: 0, home });
 
@@ -1889,6 +1895,8 @@ test("/api/artifacts mode=semantic and mode=hybrid use a configured embedding pr
   } finally {
     await app.close();
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    if (previousProvider === undefined) delete process.env.ARTIFACTY_EMBEDDINGS_PROVIDER;
+    else process.env.ARTIFACTY_EMBEDDINGS_PROVIDER = previousProvider;
     if (previousCommand === undefined) {
       delete process.env.ARTIFACTY_EMBEDDINGS_COMMAND;
     } else {

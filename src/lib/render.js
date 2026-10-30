@@ -1,3 +1,5 @@
+import { renderCategoryFilter, renderCategoriesBody } from "./category-ui.js";
+import { parseCollection } from "./collections.js";
 import { uiIcon } from "./ui-icons.js";
 import { readFileSync } from "node:fs";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
@@ -16,7 +18,42 @@ import { GROUP_BY_VALUES, groupKeyFor } from "./listing.js";
 
 const APP_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 
-export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/", user = null, savedViews = [], embeddingsAvailable = false }) {
+export function renderCategoriesPage({ categories, teams, artifact, user, locale = DEFAULT_LOCALE, currentPath = "/categories" }) {
+  const view = viewContext(locale, currentPath);
+  return pageShell({ title: view.raw("category.title"), locale: view.locale,
+    body: workspaceHeader(user, view) + renderCategoriesBody({ categories, teams, artifact, view, user }),
+    head: `<style>
+      [data-category-manager] .category-teams{display:flex;align-items:center;gap:.6rem 1rem;flex-wrap:wrap;margin:.75rem 0 1rem;font-size:13px}
+      [data-category-manager] .category-teams strong{font-weight:600}
+      [data-category-manager] .category-artifact-summary{padding:16px 20px}
+      [data-category-manager] .category-artifact-summary h2{margin:0;font-size:16px}
+      [data-category-manager] .category-artifact-summary p{margin:.5rem 0 0}
+      [data-category-manager] .category-create{padding:16px 20px}
+      [data-category-manager] .category-create>summary{cursor:pointer;font-weight:600}
+      [data-category-manager] .category-create form{margin-top:1rem;display:grid;grid-template-columns:minmax(160px,1fr) minmax(120px,180px) minmax(120px,180px);gap:1rem;align-items:end}
+      [data-category-manager] .category-create form>div{grid-column:1/-1}
+      [data-category-manager] .category-list>.meta-card{padding:16px 20px}
+      [data-category-manager] .category-row{display:grid;grid-template-columns:minmax(160px,1fr) minmax(120px,190px) 88px 140px;gap:1rem;align-items:end}
+      [data-category-manager] .category-row-membership{grid-template-columns:90px minmax(160px,1fr) minmax(120px,190px) 88px 140px}
+      [data-category-manager] .category-row>.muted,[data-category-manager] .category-row>[data-category-count],[data-category-manager] .category-row>.checkbox-field{align-self:center;margin:1.4rem 0 0;overflow-wrap:anywhere}
+      [data-category-manager] .category-name{min-width:0}
+      [data-category-manager] .category-name input{width:100%;min-width:0}
+      [data-category-manager] [data-category-membership]{width:16px;height:16px;min-width:16px;min-height:16px;padding:0;flex:0 0 16px;margin:0;vertical-align:middle}
+      [data-category-manager] .checkbox-field{display:flex;gap:8px;align-items:center}
+      [data-category-manager] [data-category-status]:empty{display:none}
+      [data-category-team-field][hidden]{display:none}
+      @media(max-width:1000px){
+        [data-category-manager] .category-row,[data-category-manager] .category-row-membership{grid-template-columns:minmax(0,1fr) minmax(120px,160px);align-items:center}
+        [data-category-manager] .category-name{grid-column:1/-1;grid-row:1}
+        [data-category-manager] .category-row>.muted,[data-category-manager] .category-row>[data-category-count],[data-category-manager] .category-row>.checkbox-field{margin:0}
+        [data-category-manager] .category-create form{grid-template-columns:1fr}
+      }
+      @media(max-width:480px){[data-category-manager] .category-row,[data-category-manager] .category-row-membership{grid-template-columns:minmax(0,1fr);gap:.8rem}[data-category-manager] .category-row button{justify-self:start}}
+    </style>`,
+    afterBody: '<script src="/assets/categories.js" defer></script>' });
+}
+
+export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/", user = null, savedViews = [], categories = [], embeddingsAvailable = false }) {
   const view = viewContext(locale, currentPath);
   const total = pagination?.total ?? artifacts.length;
   const start = artifacts.length ? (pagination?.offset ?? 0) + 1 : 0;
@@ -24,7 +61,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
   const pager = renderDashboardPager({ pagination: pagination || { total, limit: Number(filters.limit) || 50, offset: 0 }, filters, view });
   const rowsHtml = renderArtifactRows(artifacts, filters.groupBy, view);
   const activeFilters = [
-    ["tag", "filter.tag"], ["sourceAgent", "filter.source"], ["artifactType", "filter.artifactType"],
+    ["categoryId", "category.filter"], ["tag", "filter.tag"], ["sourceAgent", "filter.source"], ["artifactType", "filter.artifactType"],
     ["publisher", "filter.publisher"], ["createdAfter", "filter.createdAfter"], ["createdBefore", "filter.createdBefore"],
     ["reviewStatus", "filter.reviewStatus"], ["mode", "filter.mode"], ["groupBy", "filter.groupBy"],
     ["relatedTo", "filter.relatedTo"], ["relation", "filter.relation"], ["includeArchived", "filter.archived"]
@@ -45,6 +82,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
             ${!embeddingsAvailable && filters.mode ? `<input type="hidden" name="mode" value="${escapeAttribute(filters.mode)}">` : ""}
             <div class="dashboard-search-row">
               <label class="dashboard-search"><span class="dashboard-sr-only">${view.text("filter.search")}</span><input type="search" name="q" value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("dashboard.searchPlaceholder")}" class="form-control"></label>
+              ${user ? renderCategoryFilter({ categories, selected: filters.categoryId, view }) : ""}
               <button type="submit" class="btn btn-outline-secondary">${view.text("filter.search")}</button>
               <a class="dashboard-clear" href="${view.href("/")}">${view.text("filter.clear")}</a>
             </div>
@@ -63,7 +101,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
                 <div class="dashboard-filter-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("filter.submit")}</button></div>
               </div>
             </details>
-            ${activeFilters.length ? `<p class="dashboard-active-filters">${activeFilters.map(([key, label]) => `<span>${view.text(label)}${key === "includeArchived" ? "" : `: ${escapeHtml(filters[key])}`}</span>`).join("")}</p>` : ""}
+            ${activeFilters.length ? `<p class="dashboard-active-filters">${activeFilters.map(([key, label]) => `<span>${view.text(label)}${key === "includeArchived" ? "" : `: ${escapeHtml(key === "categoryId" ? categories.find((category) => category.id === filters[key])?.name || filters[key] : filters[key])}`}</span>`).join("")}</p>` : ""}
           </form>
           ${renderSavedViewsSidebar({ savedViews, filters, view })}
           <section class="toolbar dashboard-results">
@@ -93,7 +131,7 @@ function renderArtifactRow(artifact, view, readOnly = false) {
         <span class="dashboard-sr-only">${escapeHtml(artifact.id)}</span>
         ${snippet}
       </span>
-      <span class="row-agent"><span>${escapeHtml(artifact.sourceAgent)}</span>${artifact.publisherId || artifact.publisherName ? `<span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>` : ""}</span>
+      <span class="row-agent"><span>${escapeHtml(provenanceLabel(artifact.provenance, artifact.sourceAgent, view))}</span>${artifact.publisherId || artifact.publisherName ? `<span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>` : ""}</span>
       <span class="row-formats">${typeBadge(artifact.artifactType || "document")}${formatBadge(artifact.format || "text")}<span>v${artifact.latestVersion}</span></span>
       <span class="tags">${status}${visibility}${tags}</span>
     </${readOnly ? "div" : "a"}>
@@ -285,6 +323,64 @@ function dashboardPageHref(filters, offset) {
   return query ? `/?${query}` : "/";
 }
 
+export function renderCollectionFormPage({ user, baseUrl, artifact, content, candidates = [], authToken = "", locale = DEFAULT_LOCALE, currentPath = "/collections/new", expectedVersion, conflict = null, unavailableCount = 0 }) {
+  const view = viewContext(locale, currentPath);
+  const collection = parseCollection(content || JSON.stringify({ description: "", sections: [] }));
+  const edit = Boolean(artifact);
+  const labels = Object.fromEntries(["sectionTitle", "up", "down", "removeSection", "artifact", "version", "display", "card", "inline", "remove", "addArtifact", "chooseArtifact", "artifactId"].map(key => [key, view.raw(`collection.${key}`)]));
+  return pageShell({ title: view.raw(edit ? "collection.edit" : "collection.new"), locale: view.locale,
+    body: `${workspaceHeader(user, view)}<header class="topbar"><div><h1>${view.text(edit ? "collection.edit" : "collection.new")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
+      <main id="main-content" class="artifact-editor">${conflict ? `<p class="conflict-banner" role="alert">${view.text("form.conflict", { latestVersion: conflict.latestVersion })}</p>` : ""}
+      <form class="editor-form" method="post" action="${edit ? `/artifacts/${encodeURIComponent(artifact.id)}/edit` : "/new"}" data-collection-editor data-collection-labels="${escapeAttribute(JSON.stringify(labels))}">
+        ${hiddenToken(authToken)}${localeInput(view.locale)}<input type="hidden" name="format" value="collection"><input type="hidden" name="artifactType" value="collection"><input type="hidden" name="sourceAgent" value="artifacty">
+        ${edit ? `<input type="hidden" name="expectedVersion" value="${Number(expectedVersion ?? artifact.latestVersion)}">` : ""}
+        <textarea name="content" hidden>${escapeHtml(JSON.stringify(collection))}</textarea>
+        <script type="application/json" data-collection-candidates>${JSON.stringify(candidates.map(({ id, title }) => ({ id, title }))).replace(/</g, "\\u003c")}</script>
+        <section class="editor-fields"><label class="field"><span>${view.text("form.title")}</span><input class="form-control" name="title" value="${escapeAttribute(artifact?.title || "")}" required></label>
+        <label class="field"><span>${view.text("form.tags")}</span><input class="form-control" name="tags" value="${escapeAttribute(artifact?.tags?.join(", ") || "")}"></label>
+        ${edit ? "" : `<label class="field"><span>${view.text("artifact.visibility.label")}</span>${visibilitySelect("team", view)}</label>`}</section>
+        <label class="field"><span>${view.text("collection.description")}</span><textarea class="form-control" data-collection-description rows="4">${escapeHtml(collection.description)}</textarea></label>
+        <p class="muted">${view.text("collection.help")}</p><p class="muted">${view.text("collection.versionHelp")}</p>
+        ${unavailableCount ? `<div class="conflict-banner" role="alert"><p>${view.text("collection.recoveryHelp")}</p><label class="checkbox-field"><input type="checkbox" name="dropUnavailableReferences" value="true" required class="form-check-input">${view.text("collection.confirmDrop")}</label></div>` : ""}
+        <div data-collection-sections></div><button type="button" class="btn btn-outline-secondary" data-add-section>${view.text("collection.addSection")}</button>
+        <noscript>${view.text("collection.requiresJavaScript")}</noscript>
+        <footer class="editor-actions"><a href="${view.href(edit ? `/artifacts/${encodeURIComponent(artifact.id)}` : "/")}">${view.text("nav.cancel")}</a><button class="btn btn-primary" type="submit">${view.text(edit ? "form.saveVersion" : "form.create")}</button></footer>
+      </form></main>`, afterBody: '<script type="module" src="/assets/collections.js"></script>' });
+}
+
+function renderCollection(collection, view, { shared = false } = {}) {
+  if (!collection) return `<p>${view.text("collection.unavailable")}</p>`;
+  const sections = collection.sections.map(section => {
+    const items = section.items.map(item => {
+      const child = item.artifact;
+      const childUrl = view.href(`/artifacts/${encodeURIComponent(child.id)}?version=${child.version.version}`);
+      // Nested collections are links, not recursively rendered trees. Share-token
+      // readers see only separately authorized children and no token is forwarded.
+      const inline = item.display === "inline" && child.version.format !== "collection";
+      const body = inline ? renderContent(child.version.format, child.content, child.version.metadata || {}, {
+        view, artifactType: child.artifactType,
+        rawUrl: view.href(`/artifacts/${encodeURIComponent(child.id)}/raw?version=${child.version.version}`),
+        bundleFileUrl: name => view.href(`/artifacts/${encodeURIComponent(child.id)}/raw?version=${child.version.version}&file=${encodeURIComponent(name)}`)
+      }) : "";
+      return `<article class="collection-item"><header><h3><a href="${childUrl}">${escapeHtml(child.title)}</a></h3><p class="muted">${escapeHtml(child.version.format)} · v${Number(child.version.version)} · ${view.text(item.version === "latest" ? "collection.latest" : "collection.pinned")} · ${escapeHtml(provenanceLabel(child.version.provenance || child.provenance, child.sourceAgent, view))}</p></header>${body}</article>`;
+    }).join("");
+    return `<section id="collection-${escapeAttribute(section.id)}" class="collection-section"><h2>${escapeHtml(section.title)}</h2>${items || `<p class="muted">${view.text("collection.empty")}</p>`}</section>`;
+  }).join("");
+  return `<div class="collection-page"><details class="collection-toc" open data-collection-toc><summary>${view.text("collection.contents")}</summary><nav aria-label="${view.text("collection.contents")}">${collection.sections.map(section => `<a href="#collection-${escapeAttribute(section.id)}">${escapeHtml(section.title)}</a>`).join("")}</nav></details><div class="collection-body"><div class="artifact-markdown">${markdownToHtml(collection.description)}</div>${collection.unavailableCount ? `<p class="muted">${view.text("collection.unavailable")}</p>` : ""}${sections}</div></div>`;
+}
+
+function provenanceLabel(provenance, fallback, view) {
+  const names = { "claude-code": "Claude Code", "codex": "Codex", "cursor": "Cursor", "copilot": "GitHub Copilot", "gemini-cli": "Gemini CLI", "artifacty": "Artifacty" };
+  const tool = provenance?.tool;
+  return [tool ? names[tool] || tool : (provenance ? provenance.rawSourceAgent : fallback) || view.raw("provenance.unknown"), provenance?.model].filter(Boolean).join(" · ");
+}
+function renderProvenance(artifact, version, view) {
+  const author = version.provenance || artifact.provenance;
+  return `<details class="artifact-details provenance-details"><summary>${view.text("provenance.title")}: ${escapeHtml(provenanceLabel(author, artifact.sourceAgent, view))}</summary><dl>
+    <dt>${view.text("provenance.creator")}</dt><dd>${escapeHtml(provenanceLabel(artifact.createdBy, "", view))}</dd>
+    ${["tool", "provider", "model", "userId", "source", "rawSourceAgent"].map(key => `<dt>${view.text(`provenance.${key}`)}</dt><dd>${escapeHtml(author?.[key] || view.raw("provenance.unknown"))}</dd>`).join("")}</dl></details>`;
+}
+
 export function renderArtifactFormPage({ user, mode, baseUrl, artifact, version, content, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", expectedVersion, conflict = null }) {
   const view = viewContext(locale, currentPath);
   const isEdit = mode === "edit";
@@ -427,6 +523,7 @@ export function renderAdminArtifactVersionsPage({ artifact, selectedVersion, con
               <span>${view.text("form.format")}</span>
               ${formatSelect(selectedVersion.format)}
             </label>
+            ${selectedVersion.format === "collection" ? `<label class="checkbox-field"><input type="checkbox" name="dropUnavailableReferences" value="true" class="form-check-input">${view.text("collection.confirmDropRepair")}</label>` : ""}
             <label class="field">
               <span>${view.text("ui.reason")}</span>
               <input name="reason" value="" autocomplete="off" class="form-control">
@@ -922,7 +1019,7 @@ export function renderAdminAccessPage({ baseUrl, user, mode, teams = [], users =
   });
 }
 
-export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = { userIds: [], teamIds: [] }, users = [], teams = [], accessReport = null, shareLinks = [], createdShareLink = null, networkPolicy = { allowedCidrs: [] }, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = { userIds: [], teamIds: [] }, users = [], teams = [], accessReport = null, collectionPreview = null, shareLinks = [], createdShareLink = null, networkPolicy = { allowedCidrs: [] }, locale = DEFAULT_LOCALE, currentPath = "/" }) {
   const view = viewContext(locale, currentPath);
   return pageShell({
     title: view.text("sharing.title"),
@@ -940,6 +1037,12 @@ export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = {
       </section>
       ${accessReport && (user?.role === "admin" || user?.id === artifact.ownerUserId) ? `<section class="meta-card"><h2>${view.text("sharing.effective")}</h2><p>${view.text("sharing.networkCondition")}: ${escapeHtml(networkPolicy.allowedCidrs?.length ? networkPolicy.allowedCidrs.join(", ") : view.text("sharing.unrestricted"))}</p><p>${view.text("sharing.anonymous")}: ${view.text(accessReport.anonymousRead ? "sharing.allowed" : "sharing.denied")}</p>
         <table><thead><tr><th>${view.text("sharing.users")}</th><th>${view.text("sharing.permission")}</th><th>${view.text("sharing.reason")}</th></tr></thead><tbody>${accessReport.users.map((item) => `<tr><td>${escapeHtml(item.name || item.email || item.id)}</td><td>${view.text(`sharing.permission.${item.permission}`)}</td><td>${escapeHtml(item.reasons.join(", "))}</td></tr>`).join("")}</tbody></table></section>` : ""}
+      ${collectionPreview ? `<section class="meta-card"><h2>${view.text("collection.audience")}</h2><p>${view.text("collection.audienceHelp")}</p>
+        <form class="editor-form" method="get" action="/artifacts/${encodeURIComponent(artifact.id)}/sharing">${localeInput(view.locale)}
+          <label class="field"><span>${view.text("collection.recipient")}</span><select class="form-select" name="previewUser"><option value="">${view.text("sharing.anonymous")}</option>${(accessReport?.users || []).filter(item => item.active).map(item => `<option value="${escapeAttribute(item.id)}"${collectionPreview.userId === item.id ? " selected" : ""}>${escapeHtml(item.name || item.email || item.id)}</option>`).join("")}</select></label>
+          <button class="btn btn-outline-secondary" type="submit">${view.text("collection.preview")}</button></form>
+        <p>${view.text("collection.readableCount", { visible: collectionPreview.visible, total: collectionPreview.total })}</p>
+        <p class="muted">${view.text(collectionPreview.parentReadable ? "collection.parentReadable" : "collection.parentRestricted")}</p></section>` : ""}
       <section class="meta-card"><h2>${view.text("sharing.links")}</h2><p>${view.text("sharing.linksHelp")}</p>
         ${createdShareLink?.token ? `<p>${view.text("sharing.copyNow")}</p><a href="${escapeAttribute(`${baseUrl.replace(/\/$/, "")}/s/${encodeURIComponent(createdShareLink.token)}`)}">${escapeHtml(`${baseUrl.replace(/\/$/, "")}/s/${encodeURIComponent(createdShareLink.token)}`)}</a>` : ""}
         <form class="editor-form" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/share-links">${localeInput(view.locale)}
@@ -968,9 +1071,9 @@ export function renderInboxPage({ baseUrl, user, notifications = [], unreadCount
       </section></main>` });
 }
 
-export function renderSharedArtifactPage({ artifact, version, content, locale = DEFAULT_LOCALE, sharePath }) {
+export function renderSharedArtifactPage({ artifact, version, content, locale = DEFAULT_LOCALE, sharePath, collection = null }) {
   const view = viewContext(locale, sharePath);
-  const rendered = version.format === "html"
+  const rendered = version.format === "collection" ? renderCollection(collection, view, { shared: true }) : version.format === "html"
     ? `<p>${view.text("sharing.staticPreview")}</p><iframe class="artifact-frame" sandbox="" referrerpolicy="no-referrer" src="${escapeAttribute(`${sharePath}/raw`)}"></iframe>`
     : ["react", "notebook", "svg", "mermaid"].includes(version.format)
     ? `<p>${view.text("sharing.safeSource")}</p><pre class="artifact-code"><code>${escapeHtml(content)}</code></pre>`
@@ -979,7 +1082,7 @@ export function renderSharedArtifactPage({ artifact, version, content, locale = 
       rawUrl: `${sharePath}/raw`,
       bundleFileUrl: (fileName) => `${sharePath}/raw?file=${encodeURIComponent(fileName)}`
     });
-  const needsViewer = ["code", "markdown", "notebook", "sarif", "csv"].includes(version.format);
+  const needsViewer = ["code", "markdown", "notebook", "sarif", "csv", "collection"].includes(version.format);
   return pageShell({ title: artifact.title, locale: view.locale,
     body: `<header class="topbar"><div><h1>${escapeHtml(artifact.title)}</h1><p>${view.text("sharing.readOnly")} · v${Number(version.version)}</p></div></header><main id="main-content" class="artifact-view">${rendered}</main>`,
     head: needsViewer ? editorHead() : "",
@@ -1262,7 +1365,7 @@ export function renderAdminRetentionPage({ user, baseUrl, policy, lastSweep = nu
   });
 }
 
-export function renderArtifactPage({ artifact, version, content, comments = [], baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", user = null, permission = null }) {
+export function renderArtifactPage({ artifact, version, content, comments = [], baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", user = null, permission = null, collection = null }) {
   const view = viewContext(locale, currentPath);
   const canEdit = permission == null || ["edit", "owner", "admin"].includes(permission);
   const canComment = canEdit || permission === "comment";
@@ -1274,7 +1377,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
     })
     .join("");
 
-  const rendered = renderContent(version.format, content, version.metadata || {}, {
+  const rendered = version.format === "collection" ? renderCollection(collection, view) : renderContent(version.format, content, version.metadata || {}, {
     reactFrameUrl: reactRendererEnabled()
       ? view.href(`/artifacts/${encodeURIComponent(artifact.id)}/react-frame?version=${version.version}`)
       : "",
@@ -1294,7 +1397,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
   // mermaid fence in a comment still needs the viewer script to mount it
   // (otherwise the reader sees a blank box).
   const needsViewerScript = version.format === "code" || version.format === "markdown" || version.format === "notebook" ||
-    version.format === "sarif" || version.format === "csv" || comments.length > 0;
+    version.format === "sarif" || version.format === "csv" || version.format === "collection" || comments.length > 0;
   const rawUrl = `/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version.version}`;
   const archiveAction = artifact.archivedAt ? "restore" : "archive";
   const archiveLabel = artifact.archivedAt ? view.text("artifact.restore") : view.text("artifact.archive");
@@ -1323,6 +1426,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
         </div>
         <nav>
 
+          ${user ? `<a href="${view.href(`/categories?artifactId=${encodeURIComponent(artifact.id)}`)}">${view.text("category.title")}</a>` : ""}
           ${canEdit ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit`)}">${view.text("nav.edit")}</a>` : ""}
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
           ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
@@ -1346,12 +1450,15 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
             <span>${escapeHtml(version.sha256.slice(0, 12))}</span>
           </div></details>
         </section>
+        ${version.format === "collection" && (canArchive || canManageVisibility) ? `<details class="collection-management"><summary>${view.text("collection.settings")}</summary><div>` : ""}
         ${canArchive ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${archiveAction}">
           ${hiddenToken(authToken)}
           ${localeInput(view.locale)}
           <button type="submit" class="btn btn-outline-secondary">${archiveLabel}</button>
         </form>` : ""}
         ${visibilityForm}
+        ${version.format === "collection" && (canArchive || canManageVisibility) ? "</div></details>" : ""}
+        ${renderProvenance(artifact, version, view)}
         <section class="version-strip">${versionLinks}</section>
         ${rendered}
         ${renderRelationsSection(artifact, view)}
@@ -1597,7 +1704,7 @@ function renderRelationEntry(entry, view) {
 }
 
 function artifactViewClass({ artifact, version }) {
-  const wideFormats = new Set(["html", "svg", "mermaid", "react", "sarif", "csv", "image", "video", "notebook"]);
+  const wideFormats = new Set(["html", "svg", "mermaid", "react", "sarif", "csv", "image", "video", "notebook", "collection"]);
   const wideTypes = new Set(["dashboard", "design-option", "diff-walkthrough"]);
   const classes = ["artifact-view"];
   if (wideFormats.has(version.format) || wideTypes.has(artifact.artifactType)) {
@@ -2057,6 +2164,7 @@ export function renderReactFramePage({ title, content }) {
 }
 
 export function pageShell({ title, body, head = "", afterBody = "", locale = DEFAULT_LOCALE }) {
+  if (!afterBody.includes("/assets/collections.js")) afterBody += '<script type="module" src="/assets/collections.js"></script>';
   const darkThemeVariables = `        --bg: #15171b;
         --grid: rgba(120, 160, 200, 0.06);
         --panel: #1c1f24;
@@ -2294,7 +2402,9 @@ ${darkThemeVariables}
       white-space: nowrap;
     }
     .checkbox-field input {
-      width: auto;
+      width: 1rem;
+      height: 1rem;
+      flex-shrink: 0;
       min-height: auto;
     }
     .inline-action {
@@ -2933,7 +3043,8 @@ ${darkThemeVariables}
       display: block;
     }
     .task-list-item input[type="checkbox"] {
-      width: auto;
+      width: 1rem;
+      height: 1rem;
       min-height: 0;
       padding: 0;
       margin: 0 8px 0 0;
@@ -3285,7 +3396,10 @@ ${darkThemeVariables}
     .workspace-dropdown summary::-webkit-details-marker { display: none; }
     .workspace-chevron { margin-left: auto; display: inline-flex; }
     .workspace-dropdown[open] > summary .workspace-chevron { transform: rotate(180deg); }
-    .workspace-version { color: var(--faint); font-size: 12px; padding: 10px; }
+    .workspace-version { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 12px; padding: 10px; }
+    .workspace-header nav .workspace-help { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 28px; padding: 0; color: var(--muted); flex: 0 0 auto; }
+    .workspace-help span { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 11px; font-weight: 600; line-height: 1; }
+    .workspace-help:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .settings-page { max-width: 1100px; }
     .settings-page .meta-card { gap: 16px; }
     .settings-page .meta-card p { margin: 0; }
@@ -3359,6 +3473,8 @@ ${darkThemeVariables}
     .dashboard-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
     .dashboard-advanced, .dashboard-saved-views { margin: 0; border-bottom: 1px solid var(--line); }
     .dashboard-advanced > summary, .dashboard-saved-views > summary { padding: 10px 0; cursor: pointer; color: var(--muted); font-size: 13px; }
+    .category-filter { min-width: 150px; max-width: 230px; }
+    .category-filter > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
     .dashboard-filter-count { color: var(--faint); margin-left: 8px; font-size: 12px; }
     .dashboard-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 12px 0 20px; }
     .dashboard-field { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: 12px; }
@@ -3410,7 +3526,9 @@ ${darkThemeVariables}
       .dashboard-filter-grid, .dashboard-saved-content { grid-template-columns: 1fr; }
       .dashboard-heading h1 { font-size: 22px; }
       .dashboard-heading nav { gap: 12px; font-size: 13px; }
-      .dashboard-search-row { gap: 8px; }
+      .dashboard-search-row { gap: 8px; flex-wrap: wrap; }
+      .dashboard-search { flex-basis: calc(100% - 120px); }
+      .category-filter { order: 4; flex-basis: 100%; max-width: none; }
       .dashboard-search-row button { padding: 8px 12px; }
       .dashboard-advanced > summary, .dashboard-saved-views > summary { min-height: 44px; }
       .dashboard .artifact-row { padding: 14px; }
@@ -3672,13 +3790,13 @@ function workspaceHeader(user, view) {
   const link = (href, key, active = pathname === href, className = "") => `<a href="${view.href(href)}" title="${view.attr(key)}" aria-label="${view.attr(key)}"${active ? ' aria-current="page"' : ""}${className ? ` class="${className}"` : ""}>${uiIcon(icons[href] || "files")}<span class="workspace-nav-label">${view.text(key)}</span></a>`;
   const artifactActive = pathname === "/" || pathname.startsWith("/artifacts/");
   const adminLinks = user?.role === "admin" ? `<details class="workspace-dropdown"${pathname.startsWith("/admin/") ? " open" : ""}><summary${pathname.startsWith("/admin/") ? ' class="is-current"' : ""} title="${view.attr("nav.administration")}" aria-label="${view.attr("nav.administration")}">${uiIcon("settings")}<span class="workspace-nav-label">${view.text("nav.administration")}</span><span class="workspace-chevron">${uiIcon("chevron-down", { size: 14 })}</span></summary><div class="workspace-dropdown-content">
-    ${link("/admin/access", "access.title")}${link("/admin/users", "nav.users")}${link("/admin/backup", "nav.backup")}${link("/admin/retention", "retention.navLabel")}${link("/admin/webhooks", "nav.webhooks")}${link("/admin/update", "update.title")}${link("/admin/languages", "languageAdmin.title")}${link("/admin/email", "smtp.title")}<span class="workspace-version">Artifacty v${escapeHtml(APP_VERSION)}</span>
+    ${link("/admin/access", "access.title")}${link("/admin/users", "nav.users")}${link("/admin/backup", "nav.backup")}${link("/admin/retention", "retention.navLabel")}${link("/admin/webhooks", "nav.webhooks")}${link("/admin/update", "update.title")}${link("/admin/languages", "languageAdmin.title")}${link("/admin/email", "smtp.title")}<span class="workspace-version">Artifacty v${escapeHtml(APP_VERSION)}<a class="workspace-help" href="https://github.com/raeseoklee/artifacty" target="_blank" rel="noopener noreferrer" aria-label="${view.attr("nav.repositoryHelp")}" title="${view.attr("nav.repositoryHelp")}"><span aria-hidden="true">?</span></a></span>
   </div></details>` : "";
   const account = user ? `<details class="workspace-dropdown"${pathname.startsWith("/account") ? " open" : ""}><summary${pathname.startsWith("/account") ? ' class="is-current"' : ""} title="${view.attr("nav.account")}" aria-label="${view.attr("nav.account")}">${uiIcon("user-circle")}<span class="workspace-nav-label">${view.text("nav.account")}</span><span class="workspace-chevron">${uiIcon("chevron-down", { size: 14 })}</span></summary><div class="workspace-dropdown-content">
     <span class="workspace-identity">${escapeHtml(user.name || user.email || "")}</span>${link("/account", "nav.accountTokens")}${link("/account/password", "nav.password")}
     <form method="post" action="/logout" class="nav-form">${localeInput(view.locale)}<button type="submit" title="${view.attr("nav.signOut")}" aria-label="${view.attr("nav.signOut")}" class="btn btn-ghost">${uiIcon("logout")}<span class="workspace-nav-label">${view.text("nav.signOut")}</span></button></form>
   </div></details>` : user === null ? link("/login", "nav.signIn") : "";
-  const links = `<div class="workspace-primary">${link("/", "nav.artifacts", artifactActive)}${user ? link("/inbox", "inbox.title") : ""}</div><div class="workspace-actions">${link("/new", "nav.new", pathname === "/new", "workspace-create")}${link("/import", "nav.import")}${adminLinks}${account}${link("/docs/api", "nav.apiDocs")}${languageSwitcher(view)}${themeControls(view)}</div>`;
+  const links = `<div class="workspace-primary">${link("/", "nav.artifacts", artifactActive)}${user ? link("/categories", "category.title") + link("/inbox", "inbox.title") : ""}</div><div class="workspace-actions">${link("/new", "nav.new", pathname === "/new", "workspace-create")}${link("/collections/new", "collection.new")}${link("/import", "nav.import")}${adminLinks}${account}${link("/docs/api", "nav.apiDocs")}${languageSwitcher(view)}${themeControls(view)}</div>`;
   return `<a class="workspace-skip" href="#main-content">${view.text("nav.skip")}</a><header class="workspace-header"><div class="workspace-brand-row"><a class="workspace-brand" aria-label="Artifacty" href="${view.href("/")}">${brandMark()}<span class="workspace-brand-name">artifacty</span></a><button type="button" class="sidebar-toggle btn btn-ghost" data-sidebar-toggle hidden aria-expanded="true" aria-label="${view.attr("nav.collapseSidebar")}" title="${view.attr("nav.collapseSidebar")}" data-collapse-label="${view.attr("nav.collapseSidebar")}" data-expand-label="${view.attr("nav.expandSidebar")}"><span data-sidebar-collapse-icon>${uiIcon("layout-sidebar-left-collapse")}</span><span data-sidebar-expand-icon hidden>${uiIcon("layout-sidebar-left-expand")}</span></button></div>
     <nav class="workspace-desktop" aria-label="${view.attr("dashboard.navigation")}">${links}</nav>
     <details class="workspace-mobile"><summary>${view.text("dashboard.more")}</summary><nav aria-label="${view.attr("dashboard.navigation")}">${links}</nav></details>

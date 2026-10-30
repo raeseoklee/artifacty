@@ -2,6 +2,7 @@
 
 <!-- 번역 기준: 9e73a9f -->
 <!-- 문장·의미 대조: 2026-10-20, 영문 동시 개정본 기준 -->
+<!-- 컬렉션·카테고리·작성 이력 문서 대조: 2026-10-30 영문 동시 개정본 -->
 
 # 아티팩트 스키마 v1
 
@@ -33,6 +34,7 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 
 허용되는 `artifactType` 값은 다음과 같습니다.
 
+- `collection` (다음 릴리스)
 - `document`
 - `html-page`
 - `handoff`
@@ -52,9 +54,9 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 
 변환기는 알 수 없는 레거시 유형이나 외부 유형을 거부하지 않고 `unknown`으로 매핑하는 것이 좋습니다. 네이티브 생성·수정 작업은 명시적으로 지정한 유형이 지원되지 않으면 요청을 거부합니다.
 
-`sourceAgent`는 아티팩트를 만든 도구나 모델 인터페이스를 식별합니다. 예를 들어 `codex`나 `claude`를 사용합니다. `publisherId`는 Artifacty 저장소에 아티팩트를 게시한 사람을 식별합니다. 인증을 사용하는 중앙 서버에서는 개인 토큰 소유자의 이메일입니다. 서버가 요청을 로컬 사용자 레코드와 연결할 수 있으면 `publisherName`과 `publisherUserId`도 포함합니다. 레거시 아티팩트에서는 최초 `create` 또는 `import` 감사 기록의 작업자를 바탕으로 이 필드를 채우도록 시도합니다.
+`sourceAgent`는 선언된 출처를 나타내는 호환성 필드로 유지됩니다. `publisherId`, `publisherName`, `publisherUserId`에는 확인할 수 있는 게시자 정보를 기록합니다. 다음 릴리스에는 최초 작성자를 나타내는 `createdBy`와 최신 버전의 작성 정보를 나타내는 `provenance`가 추가됩니다. 각 버전에도 자체 작성 정보가 있습니다. 이 추가 필드는 배포된 0.16.1에는 포함되지 않습니다.
 
-알려진 에이전트 별칭은 저장 전에 표준 이름으로 정규화합니다. 예를 들어 `claude-code`, `Claude Code`, `anthropic`은 `claude`가 되고, `github-copilot`은 `copilot`, `gemini-cli`는 `gemini`가 됩니다. 기존 `unknown` 레코드는 버전 메타데이터, 감사 데이터, 에이전트 태그에서 알려진 에이전트를 확인할 수 있을 때만 갱신합니다.
+작성 정보는 `tool`, `provider`, `model`, `userId`를 구분하고 `source`, `toolSource`, `modelSource`, `rawSourceAgent`를 기록합니다. 모르는 값은 추정하지 않고 `null`로 남깁니다. `Claude Code`처럼 도구가 명확한 별칭은 `claude-code`로 통일합니다. 제공사 이름이나 뜻이 불분명한 `OpenAI`, `GPT`, `Claude`만으로 도구를 식별하지 않습니다. 이전 정규화 과정에서 이미 사라진 정보는 복원할 수 없습니다. 출처의 의미와 클라이언트 선언의 한계는 [작성 이력 확인](organizing-artifacts.md#작성-이력-확인)을 참고하세요.
 
 `visibility`는 `"private"`, `"team"`, `"public"` 중 하나이며, 기본값은 `"team"`입니다. `ownerUserId`는 소유자를 식별합니다. 사용자 계정이 있는 공개 사이트 모드에서는 누구나 `public` 아티팩트를 읽을 수 있지만, 소유자나 관리자만 수정할 수 있습니다. 인증된 사용자는 `team` 아티팩트를 읽고 수정할 수 있습니다. 팀 아티팩트의 쓰기 권한을 소유자와 관리자로 제한하려면 `ARTIFACTY_TEAM_WRITE=owner`를 설정하세요. 일반 아티팩트 경로로 `private` 아티팩트에 접근하려면 소유자나 관리자여야 합니다. API 인증 요구사항은 그대로 적용됩니다.
 
@@ -85,9 +87,13 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 }
 ```
 
-허용되는 `format` 값은 `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, `notebook`입니다.
+허용되는 `format` 값은 `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, `notebook`입니다. 다음 릴리스에는 `collection`도 추가됩니다.
 
 자주 사용하는 `artifactType` 값으로는 `document`, `handoff`, `code-review`, `test-report`, `dashboard`, `bundle`, `diagram`, `component`, `snippet`, `analysis-report`, `table`이 있습니다.
+
+## 컬렉션 콘텐츠
+
+다음 릴리스의 `format: "collection"`은 `description`과 순서가 있는 `sections` 배열을 담은 JSON 문자열입니다. 각 섹션에는 `id`, `title`, `items`가 있으며, 항목에는 `artifactId`, `version`(`"latest"` 또는 양의 정수), `display`(`"inline"` 또는 `"card"`)가 있습니다. 컬렉션은 별도의 아티팩트이므로 자체 이력과 접근 권한을 가집니다. 참조한 항목의 권한은 상속하지 않으며, 호출자가 읽을 수 없는 참조는 읽기 응답에서 제외합니다. 구성 방법과 예시는 [아티팩트 정리](organizing-artifacts.md)를 참고하세요.
 
 ## 렌더러 정책
 

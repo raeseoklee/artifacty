@@ -142,7 +142,7 @@ test("skips no-op web edits and lets admins repair or delete versions", async ()
       format: "text",
       sourceAgent: "Claude Code"
     });
-    assert.equal(aliased.sourceAgent, "claude");
+    assert.equal(aliased.sourceAgent, "claude-code");
 
     const created = await createArtifact(store, {
       title: "Version Cleanup",
@@ -831,10 +831,10 @@ test("normalizes stored source agent aliases and infers unknown from metadata", 
     const store = createStore({ home });
     const alias = await getArtifact(store, "alias-note");
     const inferred = await getArtifact(store, "unknown-note");
-    assert.equal(alias.sourceAgent, "claude");
-    assert.deepEqual(alias.tags, ["claude", "report6"]);
-    assert.equal(inferred.sourceAgent, "claude");
-    assert.deepEqual(inferred.tags, ["claude", "report7"]);
+    assert.equal(alias.sourceAgent, "claude-code");
+    assert.deepEqual(alias.tags, ["claude-code", "report6"]);
+    assert.equal(inferred.sourceAgent, "claude-code");
+    assert.deepEqual(inferred.tags, ["claude-code", "report7"]);
 
     const page = await listArtifactsPage(store, { sourceAgent: "claude-code" });
     assert.equal(page.total, 2);

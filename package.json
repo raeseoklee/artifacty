@@ -27,7 +27,7 @@
   "scripts": {
     "start": "node src/server.js",
     "mcp": "node src/mcp-server.js",
-    "test": "node --test",
+    "test": "node scripts/run-tests.mjs",
     "lint": "node scripts/lint.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "build:ui": "node scripts/build-ui.mjs",
@@ -67,7 +67,12 @@
     "docs/README.md",
     "docs/ko",
     "docs/claude-artifact-formats.md",
-    "licenses"
+    "licenses",
+    "models",
+    "docs/embeddings.md",
+    "scripts/run-tests.mjs",
+    "vendor",
+    "docs/organizing-artifacts.md"
   ],
   "engines": {
     "node": ">=22.12"
@@ -78,6 +83,7 @@
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.0",
+    "@huggingface/tokenizers": "0.2.0",
     "codemirror": "^6.0.2",
     "mermaid": "^12.1.0"
   },

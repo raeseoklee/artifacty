@@ -61,3 +61,29 @@ $enable-shadows: false;
   .btn, .form-control, .form-select { min-height: 44px; }
 }
 form[data-auto-apply] [hidden] { display: none !important; }
+
+/* A collection keeps navigation narrow while artifact content has room to read. */
+.collection-page { display: grid; grid-template-columns: minmax(150px, 210px) minmax(0, 1fr); gap: 2rem; align-items: start; }
+.collection-toc { position: sticky; top: 1rem; border: 1px solid var(--line); border-radius: 12px; padding: 1rem; }
+.collection-toc summary { cursor: pointer; font-weight: 650; }
+.collection-toc nav { display: grid; gap: .4rem; margin-top: .8rem; }
+.collection-toc a { padding: .45rem .6rem; border-radius: 6px; overflow-wrap: anywhere; }
+.collection-toc a[aria-current] { background: var(--panel); font-weight: 700; }
+.collection-body { min-width: 0; }
+.collection-section { scroll-margin-top: 1rem; margin-bottom: 2rem; }
+.collection-item { border: 1px solid var(--line); border-radius: 12px; margin: 1rem 0; padding: 1.25rem; overflow: hidden; }
+.collection-item h3 { margin: 0 0 .4rem; }
+.collection-item .artifact-frame { min-height: 300px; }
+.collection-editor-section { display: grid; gap: 1rem; margin: 1rem 0; }
+.collection-editor-item { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; padding: 1rem 0; border-top: 1px solid var(--line); align-items: end; }
+.collection-actions { display: flex; gap: .5rem; flex-wrap: wrap; grid-column: 1 / -1; }
+.provenance-details { margin: 1rem 0; }
+.provenance-details dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .5rem 1rem; margin-top: .75rem; }
+.provenance-details dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .collection-page { grid-template-columns: 1fr; gap: 1rem; } .collection-toc { position: static; } .collection-editor-item { grid-template-columns: 1fr; } }
+
+.collection-management { margin: .75rem 0; color: var(--muted); }
+.collection-management summary { cursor: pointer; font-size: .875rem; }
+.collection-management > div { padding: 1rem; margin-top: .75rem; border: 1px solid var(--line); border-radius: 10px; }
+.collection-management .inline-action { display: inline-flex; align-items: end; gap: .75rem; margin: 0 1rem .75rem 0; }
+.collection-management .inline-action label { min-width: 150px; }

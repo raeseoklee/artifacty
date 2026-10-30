@@ -26,11 +26,11 @@ test("canonicalizes explicit source agent aliases", () => {
     content: "<main><h1>Report</h1></main>"
   });
 
-  assert.equal(converted.sourceAgent, "claude");
-  assert.ok(converted.tags.includes("claude"));
-  assert.equal(converted.tags.includes("claude-code"), false);
+  assert.equal(converted.sourceAgent, "claude-code");
+  assert.ok(converted.tags.includes("claude-code"));
+  assert.equal(converted.tags.includes("claude"), false);
   assert.equal(converted.metadata.artifactyImport.originalAgent, "auto");
-  assert.equal(converted.metadata.artifactyImport.sourceAgent, "claude");
+  assert.equal(converted.metadata.artifactyImport.sourceAgent, "claude-code");
 });
 
 test("detects HTML fragments before falling back to plain text", () => {

@@ -2,6 +2,7 @@
 
 [English](../README.md) | 한국어
 
+<!-- 컬렉션·카테고리·작성 이력 문서 대조: 2026-10-30 영문 동시 개정본 -->
 <!-- 문장·의미 대조: 2026-10-20, 영문 동시 개정본 기준 -->
 
 설치 방법, 전체 기능, CLI 명령과 환경 변수는 [한국어 README](../../README.ko.md)에서 확인하세요.
@@ -18,6 +19,8 @@
 | --- | --- | --- |
 | 설치와 기능 참조 | [README](../../README.ko.md) | [README](../../README.md) |
 | 브라우저 사용 매뉴얼 | [매뉴얼](user-guide.md) | [Guide](../user-guide.md) |
+| 컬렉션·카테고리·작성 이력 | [Guide](../organizing-artifacts.md) | [아티팩트 정리와 작성 이력](organizing-artifacts.md) |
+| 로컬 모델과 의미 검색 | [안내](embeddings.md) | [Guide](../embeddings.md) |
 | 언어 팩 | [안내](language-packs.md) | [Guide](../language-packs.md) |
 | SMTP와 비밀번호 재설정 | [안내](smtp.md) | [Guide](../smtp.md) |
 | 에이전트 연동 | [연동 안내](integrations.md) | [Guide](../integrations.md) |

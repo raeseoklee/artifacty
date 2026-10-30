@@ -31,13 +31,15 @@ These screenshots show the English interface with example data.
 
 Follow the [browser user guide](docs/user-guide.md) for step-by-step instructions and checks.
 
+The next release adds collection pages with a table of contents, personal and team categories, and separate records for each version’s authoring tool and model. These repository changes are not included in published version 0.16.1. See [organizing artifacts and author history](docs/organizing-artifacts.md).
+
 ## Why MCP
 
 Artifacts make session output available as pages that you can share and version. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
 
 ## Installation
 
-Artifacty requires Node.js 22.12.0 or newer.
+Artifacty requires Node.js 22.12.0 or newer. Node 24 is recommended. On Node 22.12, enable its experimental SQLite support with `NODE_OPTIONS=--experimental-sqlite`.
 
 The optional React renderer uses Babel 8. Its supported Node.js versions are
 `^22.18.0 || >=24.11.0`. Use a compatible version if you enable that renderer.
@@ -379,30 +381,25 @@ These local snapshots are separate from portable `artifacty backup`/`export` JSO
 
 ### Semantic Search
 
-`?mode=keyword|semantic|hybrid` on `GET /api/artifacts`, the dashboard, `artifacty list --mode`, and the MCP `artifacty_list` tool add optional natural-language search on top of FTS5, without a bundled model or a required dependency:
+The bundled ONNX model and `artifacty embeddings` commands are changes for the next release, not yet included in npm `0.16.1`.
 
-- `keyword` is the existing FTS5/metadata path.
-- `semantic` embeds the query and ranks artifacts by cosine similarity over stored vectors.
-- `hybrid` (the default once a provider is configured and `q`/`query` is set) merges keyword and semantic rankings with reciprocal rank fusion.
+Artifacty includes a quantized ONNX `multilingual-e5-small` model for local semantic search. It runs as CPU WebAssembly in a server-side Node.js worker without an API key or inference-time downloads. Document text and queries stay on the server when the local provider is selected. The model adds about 118 MB of weights plus tokenizer and runtime files to the installation.
 
-If no embedding provider is configured, `semantic`/`hybrid` requests fall back to `keyword` and the response's `search.fallback` is `true`. Configure one provider through the environment:
+- `keyword` searches with FTS5 or metadata.
+- `semantic` compares the meaning of the query with indexed artifacts.
+- `hybrid` combines keyword and semantic rankings and is the default for a nonempty search query.
 
-```bash
-# openai-compatible: POSTs { model, input } to <url>/embeddings
-export ARTIFACTY_EMBEDDINGS_URL=https://api.openai.com/v1
-export ARTIFACTY_EMBEDDINGS_MODEL=text-embedding-3-small
-export ARTIFACTY_EMBEDDINGS_API_KEY=sk-...
-
-# or: command, a local executable reading/writing JSON lines on stdin/stdout
-# (wire in Ollama or any local model without an Artifacty dependency)
-export ARTIFACTY_EMBEDDINGS_COMMAND="python3 embed.py"
-```
-
-Artifacty reads the API key only from the environment. It does not log the key, return it in errors, or save it to the store. `artifacty doctor` reports the provider and model with the key redacted. After a create or update, Artifacty generates embeddings in the background. To generate or refresh embeddings for existing artifacts in batches of 16, run:
+Use `?mode=keyword|semantic|hybrid` on `GET /api/artifacts`, `artifacty list --mode`, or the MCP `artifacty_list` tool. Search permissions and filters apply in every mode. If the selected provider fails or embeddings are disabled, semantic and hybrid requests fall back to keyword search; the response reports `search.fallback: true`.
 
 ```bash
+artifacty embeddings info
+artifacty embeddings check
 artifacty index rebuild --embeddings
 ```
+
+The check command runs inference with the selected provider. Rebuild indexes existing artifacts; newly created or updated artifacts are indexed in the background. After changing models, rebuild embeddings using the same environment and store as the server.
+
+Set `ARTIFACTY_EMBEDDINGS_PROVIDER=disabled` to use keyword search only. Other choices are `local`, `command`, and `openai-compatible`. Without an explicit provider, an existing command configuration takes precedence over an existing URL configuration; otherwise Artifacty uses the bundled model. Custom local models use `ARTIFACTY_EMBEDDINGS_LOCAL_PATH`. See [local models and semantic search](docs/embeddings.md) for model selection, privacy, licenses, and verification.
 
 ### Relations
 
@@ -667,7 +664,7 @@ Schema and storage:
 - Bundle artifacts store multiple files or base64 assets as portable JSON. A `files` entry can also carry a binary document (PDF, DOCX, XLSX, or ZIP, base64-encoded, 32 MB per file) served at `GET /artifacts/:id/raw?file=<path>`; PDFs render in a sandboxed viewer iframe and other document types show a download link.
 - Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, and `notebook`.
 - Native create/import paths infer `html` from HTML documents or fragments when no explicit format is supplied.
-- `sourceAgent` is canonicalized before storage. Aliases such as `claude-code`, `Claude Code`, `github-copilot`, and `gemini-cli` are stored as `claude`, `copilot`, and `gemini`; legacy `unknown` rows are backfilled only when version metadata, audit data, or source-agent tags provide a known agent.
+- The next release distinguishes authoring tools from providers and models. Exact tool aliases such as `Claude Code` and `codex-cli` become `claude-code` and `codex`. Ambiguous values such as `Claude`, `GPT`, or `OpenAI` do not identify a tool. Each version records separate provenance, and `createdBy` preserves the initial author. Earlier releases combined some names; information already lost through that normalization cannot be recovered. See [author history](docs/organizing-artifacts.md#read-author-history).
 - Diagram, component, source snippet, analysis report, table, and media assets use `diagram`, `component`, `snippet`, `analysis-report`, `table`, and `asset` artifact types.
 - Copilot/Cursor examples cover PR reviews, screenshots, demo recordings, and visual evidence bundles.
 - See [docs/artifact-schema-v1.md](docs/artifact-schema-v1.md).
@@ -838,8 +835,10 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | `ARTIFACTY_MCP_TIMEOUT_MS` | Bridge-mode MCP HTTP request timeout | `30000` |
 | `ARTIFACTY_API_TOKEN` | Shared token required for HTTP API and LAN/team sharing | — |
 | `ARTIFACTY_LOCALE` | Initial UI default (`en` or `ko`) before administrator language settings are saved | `en` |
-| `ARTIFACTY_EMBEDDINGS_URL` | openai-compatible embeddings endpoint base URL; enables semantic/hybrid search | — |
-| `ARTIFACTY_EMBEDDINGS_MODEL` | Embeddings model name | provider default |
+| `ARTIFACTY_EMBEDDINGS_PROVIDER` | `local`, `command`, `openai-compatible`, or `disabled`; when unset, command → URL → bundled local model | automatic |
+| `ARTIFACTY_EMBEDDINGS_LOCAL_PATH` | Custom ONNX model directory containing `embedding-model.json` | bundled model |
+| `ARTIFACTY_EMBEDDINGS_URL` | Base URL of an external OpenAI-compatible embeddings API | — |
+| `ARTIFACTY_EMBEDDINGS_MODEL` | Model name for the external API or command provider | provider default |
 | `ARTIFACTY_EMBEDDINGS_API_KEY` | API key for the openai-compatible provider; never logged or stored | — |
 | `ARTIFACTY_EMBEDDINGS_COMMAND` | Local command that reads JSON lines on stdin and writes vectors on stdout | — |
 | `ARTIFACTY_EMBEDDINGS_MAX_CHARS` | Max content characters embedded per artifact | `8000` |
