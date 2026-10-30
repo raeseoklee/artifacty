@@ -1,0 +1,100 @@
+name: Release candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify ${{ matrix.os }} / Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node-version: 22.x
+            smoke: true
+          - os: ubuntu-latest
+            node-version: 24.x
+            smoke: true
+          - os: macos-latest
+            node-version: 24.x
+            smoke: true
+          - os: windows-latest
+            node-version: 24.x
+            smoke: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Documentation and package contents
+        run: npm run docs:check
+
+      - name: Dependency audit
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '24.x'
+        run: npm audit --audit-level=high
+
+      - name: Smoke
+        if: matrix.smoke
+        run: npm run smoke
+
+  security:
+    name: Security checks
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+
+  package:
+    name: Save verified package
+    needs: [verify, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Package the verified commit
+        run: |
+          mkdir release
+          npm pack --pack-destination release
+          mv release/*.tgz release/package.tgz
+          cd release
+          sha256sum package.tgz > SHA256SUMS
+      - name: Preserve candidate for separate publication
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ github.sha }}-${{ github.run_attempt }}
+          path: release/
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+      - name: Record candidate
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+          CANDIDATE_RUN: ${{ github.run_id }}
+        run: |
+          echo "Verified commit: $CANDIDATE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Run Publish separately with verification_run_id=$CANDIDATE_RUN and the same commit selected." >> "$GITHUB_STEP_SUMMARY"

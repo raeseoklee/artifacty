@@ -4,6 +4,19 @@ English | [한국어](ko/release-checklist.md)
 
 Use this checklist before publishing or distributing Artifacty.
 
+## Manual CI and publication
+
+Ordinary pushes, pull requests, releases, and weekly schedules do not start these workflows. Run local checks during development. When a release candidate is ready:
+
+1. Run the **Release candidate** workflow (`verify.yml`) manually on the candidate branch or tag. This runs the Linux, macOS, and Windows matrix, CodeQL, and Scorecard. It does not publish to npm.
+2. Wait for the entire run to succeed. The final job saves the npm tarball and checksum for 14 days. Record the run ID and commit SHA from its summary.
+3. Run **Publish** (`publish.yml`) separately on a branch or tag pointing to that same commit. Set `verification_run_id` to the successful candidate run ID.
+4. Publish checks the workflow identity, repository, result, and exact commit. It downloads the package from that successful attempt and publishes it without rebuilding or running package lifecycle scripts. OIDC Trusted Publishing remains in use.
+
+If the selected commit has changed, run candidate verification again. If the artifact expired or was deleted, verify again before publishing. A GitHub Release alone no longer publishes a package. **Security** can also be run manually without a release; its weekly schedule is disabled, and candidate verification calls it automatically. Scorecard results remain in GitHub code scanning; automatic external Scorecard result publication is disabled.
+
+The workflow files must first be committed and available on the default branch for manual dispatch. If branch protection currently requires checks on every PR, review that policy to fit this manual verification process. Repository rules are not changed by these workflow files. GitHub Actions usage limits can still prevent a manually requested run; local success does not bypass the publication gate.
+
 ## Required Verification
 
 ```bash

@@ -1,90 +1,63 @@
 name: Publish
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
   workflow_dispatch:
-  release:
-    types:
-      - published
+    inputs:
+      verification_run_id:
+        description: Successful Release candidate run ID for this exact commit
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
 jobs:
-  verify:
-    name: Verify ${{ matrix.os }} / Node ${{ matrix.node-version }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            node-version: 22.x
-            smoke: true
-          - os: ubuntu-latest
-            node-version: 24.x
-            smoke: true
-          - os: macos-latest
-            node-version: 24.x
-            smoke: true
-          - os: windows-latest
-            node-version: 24.x
-            smoke: false
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm test
-
-      - name: Documentation and package contents
-        run: npm run docs:check
-
-      - name: Dependency audit
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '24.x'
-        run: npm audit --audit-level=high
-
-      - name: Smoke
-        if: matrix.smoke
-        run: npm run smoke
-
-  publish:
-    name: Publish to npm
-    needs: verify
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && github.event.action == 'published')
+  gate:
+    name: Require a verified candidate
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-
+      actions: read
+    outputs:
+      artifact: ${{ steps.verify.outputs.artifact }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Check successful workflow and exact commit
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFICATION_RUN_ID: ${{ inputs.verification_run_id }}
+        run: node .github/scripts/verify-release-run.mjs
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
+  publish:
+    name: Publish verified npm package
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Publish package
-        run: npm publish --access public
+      - name: Download the verified package
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.gate.outputs.artifact }}
+          run-id: ${{ inputs.verification_run_id }}
+          github-token: ${{ github.token }}
+          path: release
+      - name: Verify package checksum
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Publish without rebuilding or lifecycle scripts
+        run: npm publish ./release/package.tgz --access public --ignore-scripts
