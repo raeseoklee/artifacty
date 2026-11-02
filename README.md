@@ -33,6 +33,10 @@ Follow the [browser user guide](docs/user-guide.md) for step-by-step instruction
 
 Artifacty 0.17.0 adds collection pages with a table of contents, personal and team categories, and separate records for each version’s authoring tool and model. See [organizing artifacts and author history](docs/organizing-artifacts.md). Version 0.17.0 also adds [interactive explanations](docs/interactive-explainers.md): step-by-step reading, comparisons, relationship exploration, and authored scenarios.
 
+![Interactive explanation: selecting branches and retracing a flowchart](docs/assets/screenshots/interactive-explanation.gif)
+
+Follow a Mermaid flowchart, choose a branch, and retrace the highlighted path. Recorded from the English UI with fictional example data.
+
 ## Why MCP
 
 Artifacts make session output available as pages that you can share and version. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
