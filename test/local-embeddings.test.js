@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, writeFile, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import test from "node:test";
@@ -82,7 +83,7 @@ test("embeddings info and check work without initializing a data store", async t
   const env = { ...process.env, ARTIFACTY_HOME: path.join(home, "absent"), ARTIFACTY_EMBEDDINGS_PROVIDER: "local", ARTIFACTY_EMBEDDINGS_LOCAL_PATH: BUNDLED_MODEL_PATH };
   const { stdout } = await exec(process.execPath, ["src/cli.js", "embeddings", "info"], { env });
   assert.equal(JSON.parse(stdout).provider, "local-onnx");
-  const checked = await exec(process.execPath, ["--import", path.resolve("scripts/fixtures/deny-network.mjs"), "src/cli.js", "embeddings", "check"], { env });
+  const checked = await exec(process.execPath, ["--import", pathToFileURL(path.resolve("scripts/fixtures/deny-network.mjs")).href, "src/cli.js", "embeddings", "check"], { env });
   assert.equal(JSON.parse(checked.stdout).ok, true);
   await assert.rejects(readFile(path.join(env.ARTIFACTY_HOME, "artifacty.sqlite")), { code: "ENOENT" });
 });

@@ -10,7 +10,7 @@ ort.env.wasm.numThreads = 1;
 let loaded;
 async function checkedFile(root, entry) {
   const filename = await realpath(path.join(root, entry.path));
-  if (path.dirname(filename) !== root) throw new Error("Model file escapes its directory");
+  if (path.relative(root, path.dirname(filename)) !== "") throw new Error("Model file escapes its directory");
   const bytes = await readFile(filename);
   if (bytes.length !== entry.size || createHash("sha256").update(bytes).digest("hex") !== entry.sha256) throw new Error(`Model integrity check failed: ${entry.path}`);
   return bytes;
