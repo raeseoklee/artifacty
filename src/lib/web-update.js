@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
@@ -6,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import path from "node:path";
 import { updateApplication, inspectWebUpdateService } from "./self-update.js";
+import { databaseConfiguration } from "./database-config.js";
+const POSTGRES_UPDATE_REASON = "Automatic updates do not support PostgreSQL. Verify a database backup and the artifact files together, then update manually.";
 
 const execute = promisify(execFile);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -36,7 +39,8 @@ async function privateDirectory(directory) {
 }
 
 /** The controller does no work on construction. Read-only pages never contact npm. */
-export function createWebUpdater({ home, packageRoot }, injected = {}) {
+export function createWebUpdater({ home, packageRoot, ...databaseOptions }, injected = {}) {
+  const postgres = databaseOptions.databaseBackend === "postgres" || databaseConfiguration(databaseOptions, injected.env || process.env).kind === "postgres" || existsSync(path.join(path.resolve(home), ".postgres-store-id"));
   home = path.resolve(home);
   const root = runnerStateRoot(injected.userHome || homedir());
   const stateInsideStore = root === home || root.startsWith(`${home}${path.sep}`);
@@ -67,6 +71,7 @@ export function createWebUpdater({ home, packageRoot }, injected = {}) {
     finally { await lock.close(); await rm(lockPath, { force: true }); }
   }
   async function status(session) {
+    if (postgres) return { currentVersion: await currentVersion(), supported: false, reason: POSTGRES_UPDATE_REASON, check: null, run: null };
     if (stateInsideStore) return { currentVersion: await currentVersion(), supported: false, reason: "Update state must be outside the artifact store.", check: null, run: null };
     const state = await read();
     // An unfinished job is never inferred successful. Keep uncertain jobs locked.
@@ -93,6 +98,7 @@ export function createWebUpdater({ home, packageRoot }, injected = {}) {
     return publicState(state, session);
   }
   async function check(session) {
+    if (postgres) return status(session);
     return locked(async () => {
       const state = await read();
       if (ACTIVE.has(state.run?.state) || needsRecovery(state.run)) throw fail("Resolve the existing update before checking again", "UPDATE_BUSY");
@@ -113,6 +119,7 @@ export function createWebUpdater({ home, packageRoot }, injected = {}) {
     });
   }
   async function start({ session, confirmationId, targetVersion, confirmUpdate }) {
+    if (postgres) throw fail(POSTGRES_UPDATE_REASON, "POSTGRES_UPDATE_UNSUPPORTED");
     return locked(async () => {
       const state = await read();
       if (ACTIVE.has(state.run?.state) || needsRecovery(state.run)) throw fail("An update is already running or needs recovery", "UPDATE_BUSY");
@@ -144,6 +151,7 @@ export function createWebUpdater({ home, packageRoot }, injected = {}) {
 
 /** Invoked only by the fixed systemd transient service, never the web server. */
 export async function runWebUpdate(id, injected = {}) {
+  if (databaseConfiguration({}, injected.env || process.env).kind === "postgres") throw fail(POSTGRES_UPDATE_REASON, "POSTGRES_UPDATE_UNSUPPORTED");
   if (!UUID.test(id || "")) throw fail("Invalid update job", "INVALID_UPDATE_JOB", 400);
   const root = runnerStateRoot(injected.userHome || homedir());
   await privateDirectory(root);

@@ -1,11 +1,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { databaseConfiguration } from "./database-config.js";
+
+const POSTGRES_UPDATE_REASON = "Automatic updates do not support PostgreSQL. Verify a database backup and the artifact files together, then update manually.";
 import { createUpgradeBackup, verifyUpgradeBackup, restoreUpgradeBackup } from "./upgrade-backup.js";
 
 const execute = promisify(execFile);
@@ -198,7 +201,8 @@ async function waitHealthy(run, home, health, sleep, identity, args) {
 }
 
 /** Verify that a web administrator is operating the managed service itself. */
-export async function inspectWebUpdateService({ home, pid = process.pid }, injected = {}) {
+export async function inspectWebUpdateService({ home, pid = process.pid, ...databaseOptions }, injected = {}) {
+  if (databaseOptions.databaseBackend === "postgres" || databaseConfiguration(databaseOptions, injected.env || process.env).kind === "postgres" || existsSync(path.join(path.resolve(home), ".postgres-store-id"))) throw failure(POSTGRES_UPDATE_REASON, "POSTGRES_UPDATE_UNSUPPORTED");
   if ((injected.platform || process.platform) !== "linux" || (injected.uid ?? process.geteuid?.()) === 0) {
     throw failure("Web updates require a non-root Linux systemd user service", "UNSUPPORTED_SERVICE");
   }
@@ -212,9 +216,12 @@ export async function inspectWebUpdateService({ home, pid = process.pid }, injec
 /** Update the managed Linux user service. Dependencies are injectable for offline tests. */
 export async function updateApplication(options = {}, injected = {}) {
   const env = injected.env || process.env;
+
   const platform = injected.platform || process.platform;
   const userHome = injected.userHome || homedir();
   const home = path.resolve(options.home || env.ARTIFACTY_HOME || path.join(userHome, ".artifacty"));
+  const postgres = options.databaseBackend === "postgres" || databaseConfiguration(options, env).kind === "postgres" || existsSync(path.join(home, ".postgres-store-id"));
+  if (postgres && !options.check) throw failure(POSTGRES_UPDATE_REASON, "POSTGRES_UPDATE_UNSUPPORTED");
   const run = injected.run || ((command, args) => execute(command, args, { env, timeout: 180000, maxBuffer: 2 * 1024 * 1024 }));
   const sleep = injected.sleep || pause;
   const identity = injected.verifyServiceIdentity || verifyServiceIdentity;
@@ -232,7 +239,8 @@ export async function updateApplication(options = {}, injected = {}) {
   if (requested !== "latest" && !VERSION.test(requested)) throw failure("--target-version must be latest or an exact version", "INVALID_UPDATE_VERSION");
   let service;
   let unsupported;
-  if (platform === "linux") {
+  if (postgres) unsupported = POSTGRES_UPDATE_REASON;
+  else if (platform === "linux") {
     try { service = await discoverService(run, home); } catch (error) { unsupported = error.message; }
   } else unsupported = "Automatic updates currently require a Linux systemd user service";
   const current = service?.version || (await packageAt(options.packageRoot || path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url)))))).version;

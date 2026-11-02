@@ -117,3 +117,7 @@ WASM backend sources. Artifacty does not ship the WebGL bundle or the npm
 `guid-typescript` dependency. Embedded native components in the WASM binary remain
 subject to the preserved ONNX Runtime third-party notices; the runtime's MIT
 license does not replace their terms.
+
+## node-postgres (`pg`) 8.23.1
+
+The optional PostgreSQL backend uses node-postgres, distributed under the MIT License by Brian Carlson. SQLite-only installations do not require this optional driver. The upstream license is included in [licenses/pg-LICENSE.txt](licenses/pg-LICENSE.txt). npm retains the license files for the driver's transitive packages in the installed dependency tree.

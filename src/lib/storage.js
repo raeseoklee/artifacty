@@ -1,8 +1,11 @@
+import { requestClientAddress } from "./request-context.js";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { databaseConfiguration, readDatabaseBackend } from "./database-config.js";
+import { openPostgresDatabase } from "./postgres-database.js";
 import { openProtectedDatabase } from "./upgrade-backup.js";
 import { isUnknownSourceAgent, normalizeSourceAgent } from "./agents.js";
 import { normalizeProvenance } from "./provenance.js";
@@ -22,6 +25,7 @@ import {
 } from "./embeddings.js";
 
 export const STORE_VERSION = 11;
+const APPLICATION_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 // Not exported: no caller outside this file reads the constant itself, only
 // the numeric schemaVersion field it seeds on artifacts.
 const ARTIFACT_SCHEMA_VERSION = 1;
@@ -553,12 +557,19 @@ export function createStore(options = {}) {
     process.env.ARTIFACTY_HOME ||
     path.join(homedir(), ".artifacty");
 
-  return {
+  const database = databaseConfiguration(options);
+  const boundBackend = readDatabaseBackend(home);
+  if (database.kind === "sqlite" && boundBackend === "postgres") throw Object.assign(new Error("This home uses PostgreSQL. Set ARTIFACTY_DATABASE_URL; use a fresh home for a SQLite restore."), { code: Object.hasOwn(options, "databaseUrl") ? "DATABASE_BACKEND_CONFLICT" : "DATABASE_CONFIG_REQUIRED" });
+  if (database.kind === "postgres" && existsSync(path.resolve(home, "artifacty.sqlite"))) throw Object.assign(new Error("This home already contains a SQLite database. Export a full backup and restore into a fresh PostgreSQL home."), { code: "DATABASE_BACKEND_CONFLICT" });
+  const store = {
+    databaseBackend: database.kind,
     home: path.resolve(home),
-    dbPath: path.resolve(home, "artifacty.sqlite"),
+    dbPath: database.kind === "postgres" ? null : path.resolve(home, "artifacty.sqlite"),
     indexPath: path.resolve(home, "index.json"),
     artifactsDir: path.resolve(home, "artifacts")
   };
+  Object.defineProperty(store, "database", { value: database });
+  return store;
 }
 
 export async function ensureStore(store = createStore()) {
@@ -1290,6 +1301,7 @@ export async function listArtifactsPage(store = createStore(), filters = {}) {
 // falls back to the LIKE-based metadata scan. Used directly for `mode:
 // "keyword"` and as one ranking input for `mode: "hybrid"`.
 function listArtifactsPageKeyword(db, filters) {
+  if (db.kind === "postgres") return listArtifactsPagePostgres(db, filters);
   if (filters.rawQuery && searchIndexAvailable(db)) {
     const ftsQuery = toFtsQuery(filters.rawQuery);
     if (ftsQuery) {
@@ -1828,8 +1840,26 @@ function listArtifactsPageWithSql(db, filters) {
     total,
     limit: filters.limit,
     offset: filters.offset,
-    searchBackend: filters.query ? "metadata" : "sqlite"
+    searchBackend: filters.query ? "metadata" : (db.kind === "postgres" ? "postgres" : "sqlite")
   });
+}
+
+function listArtifactsPagePostgres(db, filters) {
+  const { clauses, params } = artifactWhereClauses(filters, "a");
+  if (filters.query) {
+    const like = `%${escapeLike(filters.query)}%`;
+    clauses.push(`EXISTS (SELECT 1 FROM artifact_search s WHERE s.artifact_id = a.id AND (
+      LOWER(s.title) LIKE ? ESCAPE '\\' OR LOWER(s.source_agent) LIKE ? ESCAPE '\\' OR
+      LOWER(s.publisher_id) LIKE ? ESCAPE '\\' OR LOWER(s.publisher_name) LIKE ? ESCAPE '\\' OR
+      LOWER(s.tags) LIKE ? ESCAPE '\\' OR LOWER(s.metadata) LIKE ? ESCAPE '\\' OR
+      LOWER(s.content) LIKE ? ESCAPE '\\'))`);
+    params.push(...Array(7).fill(like));
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const total = db.prepare(`SELECT COUNT(*) AS total FROM artifacts a ${where}`).get(...params).total;
+  const rows = db.prepare(`SELECT ${artifactColumns("a.")} FROM artifacts a ${where} ORDER BY a.updated_at DESC, a.created_at DESC, a.id LIMIT ? OFFSET ?`).all(...params, filters.limit, filters.offset);
+  return pagedResult({ artifacts: rows.map(row => toArtifactSummary(artifactFromRow(db, row))), total,
+    limit: filters.limit, offset: filters.offset, searchBackend: filters.query ? "postgres-substring" : "postgres" });
 }
 
 function listArtifactsPageWithFts(db, filters) {
@@ -2517,6 +2547,7 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
         return event;
       }
       if (!filters.access || filters.access.role === "admin") return event;
+      delete event.metadata.clientAddress;
       if ((event.action === "relation-add" || event.action === "relation-remove") && event.metadata.toId) {
         const target = db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(event.metadata.toId);
         if (!target || !canReadArtifactMeta(db, { id: target.id, visibility: target.visibility, ownerUserId: target.owner_user_id }, filters.access)) {
@@ -3423,7 +3454,7 @@ export async function exportFullStoreTables(store = createStore()) {
         createdAt: row.created_at
       }));
     }
-    tables.meta = db.prepare(`SELECT * FROM meta WHERE key NOT IN ('store_version', 'network_policy_pending')`).all().map(rowToCamelCase);
+    tables.meta = db.prepare(`SELECT * FROM meta WHERE key NOT IN ('store_version', 'network_policy_pending', 'postgres_home_binding')`).all().map(rowToCamelCase);
     return tables;
   } finally {
     db.close();
@@ -3621,7 +3652,7 @@ function replaceMetaRows(db, rows) {
   const upsert = db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)");
   let count = 0;
   for (const row of rows) {
-    if (!row || !row.key || ["store_version", "network_policy_pending"].includes(row.key)) {
+    if (!row || !row.key || ["store_version", "network_policy_pending", "postgres_home_binding"].includes(row.key)) {
       continue;
     }
     upsert.run(row.key, row.value);
@@ -3741,6 +3772,7 @@ export function normalizeArtifactType(value = "document") {
 // same connection setup (PRAGMAs, schema init/migration) instead of opening
 // a second, differently-configured DatabaseSync against the same file.
 export function openDatabase(store) {
+  if (store.database?.kind === "postgres") return openPostgresStore(store);
   return openProtectedDatabase(store, STORE_VERSION, (db) => {
     db.exec(`
       PRAGMA journal_mode = WAL;
@@ -3753,6 +3785,51 @@ export function openDatabase(store) {
     normalizeStoredSourceAgents(db, store);
     syncSearchIndexIfEmpty(db, store);
   });
+}
+
+function openPostgresStore(store) {
+  mkdirSync(store.artifactsDir, { recursive: true, mode: 0o700 });
+  const marker = path.join(store.home, ".postgres-store-id");
+  const db = openPostgresDatabase(store.database);
+  let inTransaction = false;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    inTransaction = true;
+    const hasMeta = tableExistsInDb(db, "meta");
+    const version = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'store_version'").get()?.value : undefined;
+    if ((hasMeta && version === undefined) || (version !== undefined && String(version) !== String(STORE_VERSION))) {
+      throw Object.assign(new Error("PostgreSQL store schema differs from this build. Back up the remote database and artifact files before a supported migration."), { code: Number(version) > STORE_VERSION ? "NEWER_STORE_VERSION" : "POSTGRES_MIGRATION_REQUIRED" });
+    }
+    const appVersion = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'application_version'").get()?.value : undefined;
+    if (hasMeta && process.env.ARTIFACTY_BACKUP_ON_UPDATE === "true" && appVersion !== APPLICATION_VERSION) {
+      throw Object.assign(new Error("PostgreSQL application updates require a verified database backup and artifact-home backup. Stop all writers, create and verify both backups, then unset ARTIFACTY_BACKUP_ON_UPDATE for the manually managed update."), { code: "POSTGRES_BACKUP_REQUIRED" });
+    }
+    const binding = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'postgres_home_binding'").get()?.value : undefined;
+    let localId;
+    if (existsSync(marker)) {
+      localId = readFileSync(marker, "utf8").trim();
+      if (!/^[a-f0-9-]{36}$/.test(localId)) throw Object.assign(new Error("Invalid PostgreSQL store marker"), { code: "INVALID_DATABASE_BINDING" });
+    }
+    if (binding && binding !== localId) throw Object.assign(new Error("This PostgreSQL database belongs to another artifact home. Move the complete artifact home, including .postgres-store-id, or choose a new database schema."), { code: "DATABASE_HOME_MISMATCH" });
+    if (!localId) {
+      localId = randomUUID();
+      try { writeFileSync(marker, `${localId}\n`, { flag: "wx", mode: 0o600 }); }
+      catch (error) { if (error.code !== "EEXIST") throw error; localId = readFileSync(marker, "utf8").trim(); }
+    }
+    initializeSchema(db);
+    db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('postgres_home_binding', ?)").run(localId);
+    db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('application_version', ?)").run(APPLICATION_VERSION);
+    db.exec("COMMIT");
+    inTransaction = false;
+    backfillProvenance(db);
+    normalizeStoredSourceAgents(db, store);
+    syncSearchIndexIfEmpty(db, store);
+    return db;
+  } catch (error) {
+    if (inTransaction) { try { db.exec("ROLLBACK"); } catch {} }
+    db.close();
+    throw error;
+  }
 }
 
 function initializeSchema(db) {
@@ -3818,7 +3895,7 @@ function initializeSchema(db) {
 
     CREATE TABLE IF NOT EXISTS teams (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE COLLATE NOCASE
+      name TEXT NOT NULL UNIQUE ${db.kind === "postgres" ? "" : "COLLATE NOCASE"}
     );
 
     CREATE TABLE IF NOT EXISTS team_members (
@@ -3991,6 +4068,7 @@ function initializeSchema(db) {
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_visibility ON artifacts(visibility)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_owner_user_id ON artifacts(owner_user_id)");
   initializeCategorySchema(db);
+  if (db.kind === "postgres") db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_ascii_name ON teams (translate(name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'))");
   backfillArtifactOwnersAndPublishers(db);
   db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('store_version', ?)").run(String(STORE_VERSION));
   ensureSearchTable(db);
@@ -4356,6 +4434,15 @@ function inferableSourceAgent(value) {
 }
 
 function ensureSearchTable(db) {
+  if (db.kind === "postgres") {
+    db.exec(`CREATE TABLE IF NOT EXISTS artifact_search (
+      artifact_id TEXT PRIMARY KEY REFERENCES artifacts(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, source_agent TEXT NOT NULL, publisher_id TEXT NOT NULL,
+      publisher_name TEXT NOT NULL, artifact_type TEXT NOT NULL, tags TEXT NOT NULL,
+      format TEXT NOT NULL, metadata TEXT NOT NULL, content TEXT NOT NULL
+    )`);
+    return true;
+  }
   try {
     const existing = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'artifact_search'").get();
     if (existing && !searchTableHasPublisherColumns(db)) {
@@ -4389,6 +4476,7 @@ function searchTableHasPublisherColumns(db) {
 }
 
 function searchIndexAvailable(db) {
+  if (db.kind === "postgres") return tableExistsInDb(db, "artifact_search");
   const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'artifact_search'").get();
   return (Boolean(row) && searchTableHasPublisherColumns(db)) || ensureSearchTable(db);
 }
@@ -4443,7 +4531,8 @@ function rebuildSearchIndexInDb(db, store) {
   db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('search_index_built_at', ?)").run(new Date().toISOString());
   return {
     ok: skipped.length === 0,
-    fts5: true,
+    fts5: db.kind !== "postgres",
+    ...(db.kind === "postgres" ? { backend: "postgres-substring" } : {}),
     indexed,
     skipped
   };
@@ -4774,7 +4863,7 @@ export async function listNotifications(store = createStore(), { access, unreadO
       WHERE ${where} AND n.read_at IS NULL`).get(...params).count;
     const notifications = db.prepare(`SELECT n.id, n.type, n.artifact_id, a.title, n.created_at, n.read_at
       FROM notifications n JOIN artifacts a ON a.id = n.artifact_id WHERE ${where}
-      ${unreadOnly ? "AND n.read_at IS NULL" : ""} ORDER BY n.created_at DESC, n.rowid DESC LIMIT ?`)
+      ${unreadOnly ? "AND n.read_at IS NULL" : ""} ORDER BY n.created_at DESC, ${db.kind === "postgres" ? "n.id" : "n.rowid"} DESC LIMIT ?`)
       .all(...params, clampInteger(limit, 1, 200, 50)).map((row) => ({
         id: row.id, type: row.type, artifactId: row.artifact_id, title: row.title, createdAt: row.created_at, readAt: row.read_at
       }));
@@ -4858,7 +4947,7 @@ function insertAuditRecord(db, { action, artifactId, version, sourceAgent, audit
     sourceAgent || null,
     audit.actor || null,
     audit.surface || null,
-    JSON.stringify(metadata || {})
+    JSON.stringify({ ...metadata, ...(requestClientAddress() ? { clientAddress: requestClientAddress() } : {}) })
   );
 
   insertNotificationsForAudit(db, { action, artifactId, audit, metadata, createdAt });
@@ -4972,13 +5061,15 @@ let pendingEvents = [];
 export function transaction(db, fn) {
   const outerPending = pendingEvents;
   pendingEvents = [];
-  db.exec("BEGIN IMMEDIATE");
   let result;
+  let began = false;
   try {
+    db.exec("BEGIN IMMEDIATE");
+    began = true;
     result = fn();
     db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (began) { try { db.exec("ROLLBACK"); } catch {} }
     pendingEvents = outerPending;
     throw error;
   }

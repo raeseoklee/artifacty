@@ -1,6 +1,6 @@
 {
   "name": "artifacty",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
   "keywords": [
@@ -73,7 +73,8 @@
     "scripts/run-tests.mjs",
     "vendor",
     "docs/organizing-artifacts.md",
-    "docs/interactive-explainers.md"
+    "docs/interactive-explainers.md",
+    "docs/postgresql.md"
   ],
   "engines": {
     "node": ">=22.12"
@@ -90,6 +91,7 @@
   },
   "optionalDependencies": {
     "@babel/standalone": "^8.0.4",
+    "pg": "8.23.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

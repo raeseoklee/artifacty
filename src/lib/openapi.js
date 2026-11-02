@@ -242,8 +242,9 @@ export const routeTable = [
   {
     method: "GET",
     path: "/api/audit",
-    auth: "read",
-    summary: "List audit events",
+    auth: "admin",
+    summary: "List audit events (administrator)",
+    description: "Requires an administrator and admin token scope. Audit metadata may include the resolved client address.",
     parameters: [
       { name: "artifactId", in: "query", schema: { type: "string" } },
       { name: "limit", in: "query", schema: { type: "number" } }

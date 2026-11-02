@@ -41,6 +41,8 @@ Follow a Mermaid flowchart, choose a branch, and retrace the highlighted path. R
 
 Artifacts make session output available as pages that you can share and version. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
 
+Artifacty 0.18.0 supports PostgreSQL as an optional metadata backend; SQLite remains the default. See [PostgreSQL setup and operational limits](docs/postgresql.md).
+
 ## Installation
 
 Artifacty requires Node.js 22.12.0 or newer. Node 24 is recommended. On Node 22.12, enable its experimental SQLite support with `NODE_OPTIONS=--experimental-sqlite`.
@@ -605,7 +607,7 @@ Browser routes:
 - `/admin/backup`: administrator-only backup download and restore screen, with an `artifacts`/`full` scope selector.
 - `/api/admin/backup?scope=artifacts|full`: administrator-only backup JSON download.
 - `/api/admin/backup/import`: administrator-only backup restore. Accepts the raw bundle or `{ bundle, confirm, forceUsers }`.
-- `/api/audit`: list audit events.
+- `/api/audit`: list audit events (administrator with the `admin` token scope only).
 - `/openapi.json`: machine-readable OpenAPI 3.1 document for every `/api/*` route and `/mcp`; `/docs/api`: server-rendered human-readable reference for the same routes. Both require no authentication. The API reference groups endpoints in expandable sections, with search, request/response examples, and copyable curl commands generated from OpenAPI. It is read-only and has no live “Try it” execution. It uses the same saved browser theme as the dashboard.
 
 List APIs support pagination with `limit` and `offset`. Responses keep the top-level `artifacts` array and include `pagination` and `search` metadata:
@@ -828,9 +830,13 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | Storage directory | `~/.artifacty` |
+| `ARTIFACTY_DATABASE_URL` | PostgreSQL connection URL; unset uses SQLite | Unset |
+| `ARTIFACTY_DATABASE_SCHEMA` | Dedicated PostgreSQL schema | `artifacty` |
+| `ARTIFACTY_DATABASE_TIMEOUT_MS` | PostgreSQL operation timeout (1,000–120,000 ms) | `15000` |
 | `ARTIFACTY_BACKUP_ON_UPDATE` | Snapshot existing stores before application-version changes; schema-migration snapshots are always required | `false` |
 | `ARTIFACTY_UPGRADE_BACKUP_KEEP` | Automatic upgrade snapshots to retain; integer from 1 to 1000 | `3` |
 | `ARTIFACTY_URL` | Public URL override; otherwise CLI/MCP read the last running server URL | — |
+| `ARTIFACTY_TRUSTED_PROXIES` | Trusted proxy IP/CIDR list, separated by commas or newlines; empty ignores forwarded headers | Unset |
 | `ARTIFACTY_HOST` | Bind host for the HTTP server | `127.0.0.1` |
 | `ARTIFACTY_PORT` | Bind port for the HTTP server | `8787` |
 | `ARTIFACTY_MCP_URL` | Central MCP HTTP endpoint used by bridge mode | — |

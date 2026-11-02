@@ -60,6 +60,36 @@ jobs:
         if: matrix.smoke
         run: npm run smoke
 
+  postgres:
+    name: Verify PostgreSQL 17
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: artifacty
+          POSTGRES_PASSWORD: artifacty-test-only
+          POSTGRES_DB: artifacty_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U artifacty -d artifacty_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ARTIFACTY_TEST_POSTGRES_URL: postgresql://artifacty:artifacty-test-only@127.0.0.1:5432/artifacty_test
+      ARTIFACTY_EMBEDDINGS_PROVIDER: disabled
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify PostgreSQL adapter, storage and HTTP migration
+        run: node --test test/postgres-database.test.js test/storage-postgres.test.js test/postgres-http.test.js test/postgres-operations.test.js
+
   security:
     name: Security checks
     uses: ./.github/workflows/security.yml
@@ -70,7 +100,7 @@ jobs:
 
   package:
     name: Save verified package
-    needs: [verify, security]
+    needs: [verify, postgres, security]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

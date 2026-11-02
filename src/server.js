@@ -4,6 +4,8 @@ import { parseCollection, resolveCollection, collectionContentForReader } from "
 import { importMermaidFlowchart } from "./lib/flowchart-import.js";
 import { createExplainerDraft } from "./lib/explainers.js";
 import { createSourceExplainer, explainerSourceVersion } from "./lib/explainer-service.js";
+import { runWithRequestContext } from "./lib/request-context.js";
+import { trustedProxyNetworks, clientAddress } from "./lib/trusted-proxies.js";
 import http from "node:http";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -113,7 +115,7 @@ import {
   validateServerExposure,
   createRateLimiter
 } from "./lib/security.js";
-import { writeServerState } from "./lib/server-state.js";
+import { normalizePublicBaseUrl, writeServerState } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
 import { deliverWebhook, registerWebhookDispatcher } from "./lib/webhooks.js";
 import { createMcpJsonRpcHandler } from "./mcp-server.js";
@@ -207,8 +209,10 @@ export async function startServer(options = {}) {
   const allowPortFallback =
     options.portFallback === true ||
     (!explicitPort && options.portFallback !== false);
-  const store = createStore({ home: options.home });
-  const webUpdater = options.webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT });
+  const store = createStore({ home: options.home, ...(Object.hasOwn(options, "databaseUrl") ? { databaseUrl: options.databaseUrl } : {}), databaseSchema: options.databaseSchema, databaseTimeoutMs: options.databaseTimeoutMs });
+  const webUpdater = options.webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT, database: store.database });
+  const trustedProxies = trustedProxyNetworks(options.trustedProxies);
+  const publicBaseUrl = process.env.ARTIFACTY_URL ? normalizePublicBaseUrl(process.env.ARTIFACTY_URL) : undefined;
   const security = securityConfig(options);
   const mcpHttp = Boolean(options.mcpHttp || process.env.ARTIFACTY_MCP_HTTP === "true");
   validateServerExposure({ host, config: security });
@@ -222,7 +226,7 @@ export async function startServer(options = {}) {
     allowPortFallback,
     createServer(port) {
       const candidateServer = http.createServer((request, response) => {
-        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security, mcpHttp, webUpdater, smtpSender: options.smtpSender }).catch((error) => {
+        handleRequest({ request, response, store, host, port: candidateServer.address()?.port || port, security, mcpHttp, webUpdater, smtpSender: options.smtpSender, trustedProxies, publicBaseUrl }).catch((error) => {
           sendError(response, error);
         });
       });
@@ -333,9 +337,15 @@ function isBrowserPath(pathname) {
 }
 
 export async function handleRequest(args) {
+  const address = clientAddress(args.request, args.trustedProxies ?? trustedProxyNetworks());
+  args.request.artifactyClientAddress = address;
+  return runWithRequestContext({ clientAddress: address }, () => handleRequestWithContext(args));
+}
+
+async function handleRequestWithContext(args) {
   const { request, store } = args;
   let networkSharedArtifact;
-  try { assertNetworkAccess(store, request.socket.remoteAddress); }
+  try { assertNetworkAccess(store, request.artifactyClientAddress); }
   catch (cause) {
     const match = /^\/s\/([A-Za-z0-9_-]{43})(?:\/raw)?$/.exec(new URL(request.url, "http://artifacty.local").pathname);
     if (cause.code !== "IP_NOT_ALLOWED" || !["GET", "HEAD"].includes(request.method) || !match || !getNetworkPolicy(store).allowSharedLinks) throw cause;
@@ -349,10 +359,10 @@ export async function handleRequest(args) {
   return runWithLanguageSettings(settings, () => handleScopedRequest(args));
 }
 
-async function handleScopedRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater, smtpSender = sendSmtpMail, networkSharedArtifact }) {
+async function handleScopedRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater, smtpSender = sendSmtpMail, networkSharedArtifact, publicBaseUrl }) {
   const url = new URL(request.url, `http://${request.headers.host || `${host}:${port}`}`);
   const pathname = decodeURIComponent(url.pathname);
-  const baseUrl = `http://${host}:${port}`;
+  const baseUrl = publicBaseUrl || (process.env.ARTIFACTY_URL ? normalizePublicBaseUrl(process.env.ARTIFACTY_URL) : `http://${host}:${port}`);
   const authToken = url.searchParams.get("token") || "";
   const currentPath = `${url.pathname}${url.search}`;
   const browserPage = isBrowserPath(pathname);
@@ -718,7 +728,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
     requireAdmin(currentUser);
     response.setHeader("cache-control", "no-store");
-    const updater = webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT });
+    const updater = webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT, database: store.database });
     const session = sessionTokenFromRequest(request);
     if (method === "GET" && pathname === "/admin/update/status") return sendJson(response, await updater.status(session), 200, headOnly);
     if (method === "GET" && pathname === "/admin/update") {
@@ -744,7 +754,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     baseUrl, user: currentUser, mode: await getAccessMode(store),
     teams: await listTeams(store), users: await listUsers(store),
     networkPolicy: await getNetworkPolicy(store), pendingNetworkPolicy: await getPendingNetworkPolicy(store),
-    shareLinkPolicy: await getShareLinkPolicy(store), currentIp: request.socket.remoteAddress,
+    shareLinkPolicy: await getShareLinkPolicy(store), currentIp: request.artifactyClientAddress,
     locale, currentPath, ...extra
   });
   const adminAccessPaths = ["/admin/access", "/admin/access/preview", "/admin/access/network", "/admin/access/network/confirm", "/admin/access/network/rollback", "/admin/access/share-links", "/admin/teams", "/admin/samples/install", "/admin/samples/remove"];
@@ -763,7 +773,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, config: security, currentUser });
       await enforceRateLimit({ store, host, request, bucket: "write" });
       const body = await readFormBody(request);
-      const options = { access: browserAccess, audit: browserAudit, remoteAddress: request.socket.remoteAddress };
+      const options = { access: browserAccess, audit: browserAudit, remoteAddress: request.artifactyClientAddress };
       if (pathname === "/admin/access/preview") {
         return sendHtml(response, renderAccessModePreviewPage({
           baseUrl, user: currentUser, locale: localeFromBodyOrUrl(body, url), currentPath: "/admin/access/preview",
@@ -1290,7 +1300,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "GET" && pathname === "/health") {
-    return sendJson(response, { ok: true, name: "artifacty", store: store.home }, 200, headOnly);
+    return sendJson(response, { ok: true, name: "artifacty", store: store.home, databaseBackend: store.databaseBackend || "sqlite" }, 200, headOnly);
   }
 
   if (!currentUser && await getAccessMode(store) === "private" &&
@@ -1497,7 +1507,8 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "GET" && pathname === "/api/audit") {
-    await requireApiScope(store, request, "read");
+    await requireApiScope(store, request, "admin");
+    requireAdminAuth(request.artifactyAuth);
     const events = await listAuditEvents(store, {
       artifactId: url.searchParams.get("artifactId") || undefined,
       limit: url.searchParams.get("limit") || undefined,
@@ -2855,14 +2866,14 @@ async function handleEventStream({ request, response, store, filter, access }) {
     // Recheck persisted permissions: sharing and membership can change while connected.
     const readable = canReadArtifactEvent(store, event, access).catch(() => false);
     readable.then(async (allowed) => {
-      await assertNetworkAccess(store, request.socket.remoteAddress);
+      await assertNetworkAccess(store, request.artifactyClientAddress);
       if (allowed && !closed) writeSseEvent(response, event);
     }).catch(() => { cleanup(); response.end(); });
   });
 
-  heartbeat = setInterval(() => {
+  heartbeat = setInterval(async () => {
     try {
-      assertNetworkAccess(store, request.socket.remoteAddress);
+      await assertNetworkAccess(store, request.artifactyClientAddress);
       if (!closed) response.write(": heartbeat\n\n");
     } catch {
       cleanup();
@@ -2954,7 +2965,7 @@ function getRateLimiter(store) {
 
 function rateLimitPrincipal(request) {
   const auth = request.artifactyAuth;
-  return auth?.tokenId || auth?.user?.id || request.socket?.remoteAddress || "unknown";
+  return auth?.tokenId || auth?.user?.id || request.artifactyClientAddress || "unknown";
 }
 
 // Non-throwing rate-limit check, shared by the throwing HTTP helper below
