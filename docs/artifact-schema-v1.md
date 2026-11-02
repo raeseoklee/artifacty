@@ -31,7 +31,7 @@ converters, and SQLite storage.
 
 Allowed `artifactType` values:
 
-- `collection` (next release)
+- `collection` (since 0.17.0)
 - `document`
 - `html-page`
 - `handoff`
@@ -55,9 +55,8 @@ explicit types.
 
 `sourceAgent` remains a compatibility label for the declared source. `publisherId`,
 `publisherName`, and `publisherUserId` describe publication identity when known.
-The next release adds `createdBy` for the initial author and `provenance` for the
-latest version. Each version also has its own provenance. These additions are
-not included in published version 0.16.1.
+Artifacty 0.17.0 adds `createdBy` for the initial author and `provenance` for the
+latest version. Each version also has its own provenance. These additions are available in Artifacty 0.17.0 and later.
 
 Provenance separates `tool`, `provider`, `model`, and `userId`, and records
 `source`, `toolSource`, `modelSource`, and `rawSourceAgent`. Unknown values remain
@@ -121,7 +120,7 @@ accidental or sensitive content. These exceptional maintenance operations write
 
 Allowed `format` values are `html`, `markdown`, `text`, `json`, `code`, `svg`,
 `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, and `notebook`. The next
-release also adds `collection`.
+release also adds `collection` and `explainer`.
 
 Common `artifactType` values include `document`, `handoff`, `code-review`,
 `test-report`, `dashboard`, `bundle`, `diagram`, `component`, `snippet`,
@@ -129,7 +128,7 @@ Common `artifactType` values include `document`, `handoff`, `code-review`,
 
 ## Collection content
 
-The next release adds `format: "collection"`. Its content is a JSON string with
+Artifacty 0.17.0 adds `format: "collection"`. Its content is a JSON string with
 `description` and an ordered `sections` array. Each section has `id`, `title`,
 and `items`. Each item has `artifactId`, `version` (`"latest"` or a positive
 integer), and `display` (`"inline"` or `"card"`). A collection is a separate
@@ -137,11 +136,25 @@ artifact with its own history and access policy. It does not inherit permission
 to its referenced items; read responses omit references the caller cannot read.
 See [organizing artifacts](organizing-artifacts.md) for examples.
 
+## Interactive explainer content
+
+Artifacty 0.17.0 adds `format: "explainer"`. Its JSON content declares
+`schemaVersion: 1`, a `goal`, optional `summary` and `limitations`, and ordered
+`blocks`. Block types are `steps`, `compare`, `diagram`, and `scenarios`.
+Each item has an ID, label, explanation, and an author-declared evidence basis:
+`source`, `interpretation`, or `assumption`. Source-based items require a citation.
+The server validates structure; it does not verify factual claims or citations.
+Diagram connections reference items within the same block. Scenarios use ordered,
+finite sample values and never imply calculated values between samples.
+See [interactive explanations](interactive-explainers.md) for the contract,
+limits, creation example, and permission rules.
+
 ## Renderer Policy
 
 Storage preserves artifact source as immutable content. The browser viewer must
 treat all source as untrusted:
 
+- `explainer` (since 0.17.0): validated declarative data renders as escaped text with local native controls. It does not execute artifact-supplied code. All items remain readable without JavaScript, including in permitted shared previews.
 - `code`: read-only CodeMirror viewer with escaped source fallback.
 - `svg`: scriptless sandboxed iframe after viewer-side sanitization; `/raw`
   preserves the original source.

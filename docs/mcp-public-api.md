@@ -92,9 +92,19 @@ JSON-RPC protocol error. Example codes include `INVALID_RELATION`,
 `COMMENT_NOT_FOUND`, `THREAD_TOO_DEEP`, `COMMENT_TOO_LARGE`, and
 `INVALID_REVIEW_STATUS`. Clients can use the code without parsing error text.
 
-## Collections and author provenance (next release)
+## Interactive explanations (since 0.17.0)
 
-These additions are not included in published version 0.16.1.
+These additions are available in Artifacty 0.17.0 and later.
+
+- `artifacty_explain`: create a private `explainer` artifact from `sourceId`, optional positive `sourceVersion`, optional `title`, a structured `explainer` object, and optional `provenance`. The caller must be able to read the source and create an artifact. A multiuser store requires personal authentication. The tool does not invoke a model or generate an explanation; the calling agent supplies the content.
+- The result has a `derived-from` relation to the source. Its version metadata records `explainerSourceVersion` and `explainerSourceSha256`. Source content remains unchanged, and access to the new artifact does not grant source access. Copied excerpts follow the new artifact's permissions.
+- The MCP prompt `artifacty_explanation` accepts required `artifactId` and optional `goal`. It provides authoring instructions, including reading the source and separating source-supported claims, interpretations, and assumptions.
+
+See [interactive explanations](interactive-explainers.md) for a complete call, the four block types, and validation limits. Source labels and citations are author declarations, not server-verified facts.
+
+## Collections and author provenance (since 0.17.0)
+
+These additions are available in Artifacty 0.17.0 and later.
 
 - `artifacty_collection_create`: create a collection from `title`, optional `description`, and `sections`. Each section has `id`, `title`, and `items`; each item references `artifactId`, with `version: "latest"` or a positive version number and `display: "inline"` or `"card"`.
 - `artifacty_collection_update`: append a collection version with `id`, the complete section list, and `expectedVersion` from the last read. A stale version returns a conflict. If existing references are unavailable, restore access or explicitly use `dropUnavailableReferences: true` to remove them from the new version; earlier versions remain unchanged.

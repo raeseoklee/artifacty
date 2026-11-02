@@ -35,7 +35,7 @@ Artifacty는 AI가 만든 아티팩트를 로컬에 보관하고 에이전트끼
 
 단계별 사용 방법과 확인 절차는 [브라우저 사용자 매뉴얼](docs/ko/user-guide.md)을 참고하세요.
 
-다음 릴리스에는 목차가 있는 컬렉션 페이지, 개인·팀 카테고리, 버전별 작성 도구와 모델 기록이 추가됩니다. 저장소에 반영된 이 변경 사항은 배포된 0.16.1에는 포함되지 않습니다. [아티팩트 정리와 작성 이력](docs/ko/organizing-artifacts.md)을 참고하세요.
+0.17.0에는 목차가 있는 컬렉션 페이지, 개인·팀 카테고리, 버전별 작성 도구와 모델 기록이 추가되었습니다. [아티팩트 정리와 작성 이력](docs/ko/organizing-artifacts.md)을 참고하세요. 0.17.0은 단계별 읽기, 항목 비교, 관계 탐색, 작성된 시나리오를 제공하는 [인터랙티브 설명](docs/ko/interactive-explainers.md)도 제공합니다.
 
 ## MCP를 사용하는 이유
 
@@ -352,7 +352,7 @@ Artifacty는 기존 저장소의 스키마를 마이그레이션하기 전에 �
 
 ### 의미 검색
 
-기본 포함 ONNX 모델과 `artifacty embeddings` 명령은 다음 릴리스용 변경 사항이며, npm `0.16.1`에는 아직 포함되지 않았습니다.
+기본 포함 ONNX 모델과 `artifacty embeddings` 명령은 Artifacty 0.17.0부터 사용할 수 있습니다.
 
 Artifacty는 로컬 의미 검색을 위해 양자화된 ONNX `multilingual-e5-small` 모델을 포함합니다. 서버의 Node.js 워커에서 CPU WebAssembly로 실행하므로 API 키나 추론 시 모델 다운로드가 필요하지 않습니다. 로컬 제공자를 사용하면 문서 내용과 검색어를 외부로 보내지 않습니다. 설치 용량에는 약 118 MB의 가중치와 토크나이저·실행 라이브러리가 추가됩니다.
 
@@ -635,7 +635,7 @@ UI 조작 요소는 Bootstrap 5.3.8의 폼, 버튼, 버튼 그룹만 선택해 �
 - bundle 아티팩트는 여러 파일이나 base64 자산을 이동 가능한 JSON으로 저장합니다. `files` 항목에는 PDF, DOCX, XLSX, ZIP 같은 바이너리 문서도 넣을 수 있습니다. 파일당 최대 32 MB이며 base64로 인코딩합니다. `GET /artifacts/:id/raw?file=<path>`로 제공하고, PDF는 샌드박스 iframe에서 미리보기하며 다른 문서는 다운로드 링크를 표시합니다.
 - 지원 형식은 `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, `notebook`입니다.
 - 생성·가져오기 시 형식을 명시하지 않으면 HTML 문서나 조각에서 `html`을 추론합니다.
-- 다음 릴리스부터 작성 도구와 제공사·모델을 구분합니다. `Claude Code`, `codex-cli`처럼 도구가 명확한 별칭은 `claude-code`, `codex`로 통일합니다. `Claude`, `GPT`, `OpenAI`처럼 뜻이 불분명한 값으로 도구를 추정하지 않습니다. 버전마다 작성 정보를 기록하고, `createdBy`에는 최초 작성자를 보존합니다. 이전 릴리스에서 이름을 합치는 과정에 사라진 정보는 복구할 수 없습니다. [작성 이력 확인](docs/ko/organizing-artifacts.md#작성-이력-확인)을 참고하세요.
+- 0.17.0부터 작성 도구와 제공사·모델을 구분합니다. `Claude Code`, `codex-cli`처럼 도구가 명확한 별칭은 `claude-code`, `codex`로 통일합니다. `Claude`, `GPT`, `OpenAI`처럼 뜻이 불분명한 값으로 도구를 추정하지 않습니다. 버전마다 작성 정보를 기록하고, `createdBy`에는 최초 작성자를 보존합니다. 이전 릴리스에서 이름을 합치는 과정에 사라진 정보는 복구할 수 없습니다. [작성 이력 확인](docs/ko/organizing-artifacts.md#작성-이력-확인)을 참고하세요.
 - 다이어그램, 컴포넌트, 코드 조각, 분석 보고서, 표, 미디어 자산은 각각 `diagram`, `component`, `snippet`, `analysis-report`, `table`, `asset` 유형을 사용합니다.
 - Copilot/Cursor 예시에는 PR 리뷰, 스크린샷, 데모 녹화, 시각적 증거 번들이 있습니다.
 - [아티팩트 스키마 v1](docs/ko/artifact-schema-v1.md)을 참고하세요.
@@ -690,7 +690,7 @@ UI 조작 요소는 Bootstrap 5.3.8의 폼, 버튼, 버튼 그룹만 선택해 �
 
 ## 샘플 매뉴얼
 
-영문 샘플 아티팩트 **Start here**, **Feature guide**, **Architecture**, **Handoff exercise** 네 개를 설치할 수 있습니다. 관리자는 `/admin/access`의 샘플 기능을 사용하고, 로컬 CLI에서는 다음을 실행하세요.
+0.17.0에서는 영문 샘플 아티팩트 **Start here**, **Feature guide**, **Architecture**, **Handoff exercise**, **Interactive explanations — cache tradeoffs** 다섯 개를 설치할 수 있습니다. 관리자는 `/admin/access`의 샘플 기능을 사용하고, 로컬 CLI에서는 다음을 실행하세요.
 
 ```bash
 artifacty samples install

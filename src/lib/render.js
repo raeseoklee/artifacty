@@ -1,5 +1,6 @@
 import { renderCategoryFilter, renderCategoriesBody } from "./category-ui.js";
 import { parseCollection } from "./collections.js";
+import { renderExplainer } from "./render-explainer.js";
 import { uiIcon } from "./ui-icons.js";
 import { readFileSync } from "node:fs";
 import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
@@ -379,6 +380,27 @@ function renderProvenance(artifact, version, view) {
   return `<details class="artifact-details provenance-details"><summary>${view.text("provenance.title")}: ${escapeHtml(provenanceLabel(author, artifact.sourceAgent, view))}</summary><dl>
     <dt>${view.text("provenance.creator")}</dt><dd>${escapeHtml(provenanceLabel(artifact.createdBy, "", view))}</dd>
     ${["tool", "provider", "model", "userId", "source", "rawSourceAgent"].map(key => `<dt>${view.text(`provenance.${key}`)}</dt><dd>${escapeHtml(author?.[key] || view.raw("provenance.unknown"))}</dd>`).join("")}</dl></details>`;
+}
+
+export function renderExplainerDraftPage({ artifact, draft, user, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", error = "", mode = "new", expectedVersion, conflict = null, draftTitle }) {
+  const view = viewContext(locale, currentPath);
+  const edit = mode === "edit";
+  const content = typeof draft === "string" ? draft : JSON.stringify(draft, null, 2);
+  const labels = Object.fromEntries(["flowView", "flowText", "flowChart", "flowDirection", "flowHorizontal", "flowVertical", "flowStart", "goal", "summary", "limitations", "blockTitle", "mode", "steps", "compare", "diagram", "scenarios", "label", "explanation", "basis", "source", "interpretation", "assumption", "reference", "value", "parameter", "unit", "addBlock", "addItem", "remove", "up", "down", "connections", "from", "to", "addConnection", "item", "block", "invalidDraft", "invalidCounts", "missingCitation", "scenarioOrder", "invalidConnections", "invalidLimitations"].map(key => [key, view.raw(`explainer.${key}`)]));
+  const sourceVersion = artifact.version?.version || artifact.latestVersion;
+  const heading = edit ? "explainer.edit" : "explainer.create";
+  return pageShell({ title: view.raw(heading), locale: view.locale,
+    body: `${workspaceHeader(user, view)}<header class="topbar"><div><h1>${view.text(heading)}</h1><p>${escapeHtml(artifact.title)} · v${Number(sourceVersion)}</p></div></header>
+    <main id="main-content" class="artifact-editor explainer-editor"><p class="explainer-editor-intro">${view.text(edit ? "explainer.editHelp" : "explainer.draftHelp")}</p>
+    ${conflict ? `<p class="conflict-banner" role="alert">${view.text("form.conflict", { latestVersion: conflict.latestVersion })}</p>` : ""}
+    ${error ? `<p role="alert" class="conflict-banner">${escapeHtml(error)}</p>` : ""}
+    <form method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${edit ? "edit" : "explain"}" class="editor-form" data-explainer-editor data-explainer-labels="${escapeAttribute(JSON.stringify(labels))}">
+      ${hiddenToken(authToken)}${localeInput(view.locale)}${edit ? `<input type="hidden" name="format" value="explainer"><input type="hidden" name="artifactType" value="${escapeAttribute(artifact.artifactType || "document")}"><input type="hidden" name="tags" value="${escapeAttribute((artifact.tags || []).join(", "))}"><input type="hidden" name="expectedVersion" value="${Number(expectedVersion ?? artifact.latestVersion)}">` : `<input type="hidden" name="sourceVersion" value="${Number(sourceVersion)}">`}
+      <label class="field"><span>${view.text("form.title")}</span><input class="form-control" name="title" required maxlength="500" value="${escapeAttribute(draftTitle ?? (edit ? artifact.title : `${artifact.title} — ${view.raw("explainer.title")}`))}"></label>
+      <label class="field" data-explainer-json><span>${view.text("explainer.structuredContent")}</span><textarea class="form-control" name="content" rows="20" required>${escapeHtml(content)}</textarea></label>
+      <div data-explainer-editor-fields></div>${edit ? "" : `<p class="muted">${view.text("explainer.privateHelp")}</p>`}
+      <footer class="editor-actions"><a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}?version=${sourceVersion}`)}">${view.text("nav.cancel")}</a><button type="submit" class="btn btn-primary">${view.text(edit ? "form.saveVersion" : "explainer.createDraft")}</button></footer>
+    </form></main>` });
 }
 
 export function renderArtifactFormPage({ user, mode, baseUrl, artifact, version, content, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", expectedVersion, conflict = null }) {
@@ -1428,6 +1450,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
 
           ${user ? `<a href="${view.href(`/categories?artifactId=${encodeURIComponent(artifact.id)}`)}">${view.text("category.title")}</a>` : ""}
           ${canEdit ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit`)}">${view.text("nav.edit")}</a>` : ""}
+          ${(user || canEdit) && version.format !== "explainer" ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/explain?version=${version.version}`)}">${view.text("explainer.create")}</a>` : ""}
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
           ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
           <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
@@ -1450,7 +1473,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
             <span>${escapeHtml(version.sha256.slice(0, 12))}</span>
           </div></details>
         </section>
-        ${version.format === "collection" && (canArchive || canManageVisibility) ? `<details class="collection-management"><summary>${view.text("collection.settings")}</summary><div>` : ""}
+        ${["collection", "explainer"].includes(version.format) && (canArchive || canManageVisibility) ? `<details class="collection-management"><summary>${view.text("collection.settings")}</summary><div>` : ""}
         ${canArchive ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${archiveAction}">
           ${hiddenToken(authToken)}
           ${localeInput(view.locale)}
@@ -1460,6 +1483,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
         ${version.format === "collection" && (canArchive || canManageVisibility) ? "</div></details>" : ""}
         ${renderProvenance(artifact, version, view)}
         <section class="version-strip">${versionLinks}</section>
+        ${version.format === "explainer" && (canArchive || canManageVisibility) ? "</div></details>" : ""}
         ${rendered}
         ${renderRelationsSection(artifact, view)}
         ${renderCommentsSection(artifact, comments, view, { version: version.version, authToken, canModerate: canManageVisibility, canComment })}
@@ -1675,6 +1699,7 @@ function renderRelationGroup(entries, label, view) {
 }
 
 function renderRelationEntry(entry, view) {
+  const pinnedSourceVersion = Number.isSafeInteger(entry.sourceVersion) && entry.sourceVersion > 0 ? entry.sourceVersion : undefined;
   const relationLabel = escapeHtml(entry.relation);
   const createdAt = escapeHtml(view.text("relations.createdAt", { date: entry.createdAt }));
   if (entry.restricted) {
@@ -1697,7 +1722,7 @@ function renderRelationEntry(entry, view) {
   return `
     <li class="relation-item">
       <span class="badge">${relationLabel}</span>
-      <a href="${view.href(`/artifacts/${encodeURIComponent(entry.artifactId)}`)}">${escapeHtml(entry.artifact.title)}</a>
+      <a href="${view.href(`/artifacts/${encodeURIComponent(entry.artifactId)}${entry.relation === "derived-from" && pinnedSourceVersion ? `?version=${pinnedSourceVersion}` : ""}`)}">${escapeHtml(entry.artifact.title)}</a>
       <span class="relation-meta">${createdAt}</span>
     </li>
   `;
@@ -2014,6 +2039,7 @@ function renderBundleFiles(content, options = {}) {
 
 export function renderContent(format, content, metadata = {}, options = {}) {
   const view = options.view || viewContext(options.locale || DEFAULT_LOCALE, "/");
+  if (format === "explainer") return renderExplainer(content, view);
   if (format === "html") {
     return `<iframe class="artifact-frame" sandbox="allow-scripts allow-forms allow-popups" srcdoc="${escapeAttribute(htmlFrameContent(content))}"></iframe>`;
   }
@@ -2164,6 +2190,7 @@ export function renderReactFramePage({ title, content }) {
 }
 
 export function pageShell({ title, body, head = "", afterBody = "", locale = DEFAULT_LOCALE }) {
+  if (!afterBody.includes("/assets/explainers.js")) afterBody += '<script type="module" src="/assets/explainers.js"></script>';
   if (!afterBody.includes("/assets/collections.js")) afterBody += '<script type="module" src="/assets/collections.js"></script>';
   const darkThemeVariables = `        --bg: #15171b;
         --grid: rgba(120, 160, 200, 0.06);

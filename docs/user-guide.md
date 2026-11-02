@@ -29,7 +29,11 @@ The bundled local ONNX model adds semantic matching to the default hybrid search
 
 ## Organize artifacts and inspect authors
 
-The next release adds collection pages, personal and team categories, and per-version author records. These features are not included in published version 0.16.1. Follow [organizing artifacts and author history](organizing-artifacts.md) for the browser steps, screenshots, permission rules, and MCP examples.
+Artifacty 0.17.0 adds collection pages, personal and team categories, and per-version author records. Follow [organizing artifacts and author history](organizing-artifacts.md) for the browser steps, screenshots, permission rules, and MCP examples.
+
+## Explain existing content
+
+Artifacty 0.17.0 also adds **Explain interactively** on the artifact viewer. Create a separate private explanation with guided steps, comparisons, connected elements, or authored scenarios. The source remains unchanged. See [interactive explanations](interactive-explainers.md) for screenshots, evidence labels, and sharing precautions.
 
 ## Create or edit an artifact
 

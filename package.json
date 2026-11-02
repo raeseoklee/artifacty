@@ -1,6 +1,6 @@
 {
   "name": "artifacty",
-  "version": "0.16.1",
+  "version": "0.17.0",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
   "keywords": [
@@ -72,7 +72,8 @@
     "docs/embeddings.md",
     "scripts/run-tests.mjs",
     "vendor",
-    "docs/organizing-artifacts.md"
+    "docs/organizing-artifacts.md",
+    "docs/interactive-explainers.md"
   ],
   "engines": {
     "node": ">=22.12"

@@ -15,7 +15,7 @@ const messages = {
   ...(globalThis.ARTIFACTY_I18N || {})
 };
 
-const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "mermaid", "react", "sarif", "csv", "image", "video"];
+const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "mermaid", "react", "sarif", "csv", "image", "video", "notebook", "collection", "explainer"];
 
 const editorTheme = EditorView.theme({
   "&": {
@@ -158,7 +158,7 @@ function enhanceTextarea(textarea) {
       return;
     }
 
-    if (format === "json" || format === "sarif") {
+    if (["json", "sarif", "notebook", "collection", "explainer"].includes(format)) {
       const pre = document.createElement("pre");
       try {
         pre.textContent = JSON.stringify(JSON.parse(content), null, 2);
@@ -191,7 +191,7 @@ function languageExtension(format) {
   if (format === "html" || format === "svg") {
     return html();
   }
-  if (format === "json" || format === "sarif") {
+  if (["json", "sarif", "notebook", "collection", "explainer"].includes(format)) {
     return json();
   }
   if (format === "markdown") {

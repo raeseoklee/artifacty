@@ -7,6 +7,7 @@ import { openProtectedDatabase } from "./upgrade-backup.js";
 import { isUnknownSourceAgent, normalizeSourceAgent } from "./agents.js";
 import { normalizeProvenance } from "./provenance.js";
 import { parseCollection } from "./collections.js";
+import { parseExplainer, explainerSearchText } from "./explainers.js";
 import { initializeCategorySchema, categoryArtifactPredicate } from "./category-schema.js";
 import { assertNoSecrets, normalizeTokenScopes, securityConfig } from "./security.js";
 import { EVENT_TYPES, eventFromAudit, eventHistoryLimit, eventVisibleTo, matchesFilter, publish as publishEvent } from "./events.js";
@@ -66,7 +67,8 @@ export const ARTIFACT_FORMATS = [
   "image",
   "video",
   "notebook",
-  "collection"
+  "collection",
+  "explainer"
 ];
 export const ARTIFACT_TYPES = [
   "collection",
@@ -129,6 +131,7 @@ export function inverseRelation(name) {
 
 const FORMAT_TO_EXTENSION = {
   collection: "json",
+  explainer: "json",
   html: "html",
   markdown: "md",
   text: "txt",
@@ -146,6 +149,7 @@ const FORMAT_TO_EXTENSION = {
 
 const FORMAT_TO_CONTENT_TYPE = {
   collection: "application/json; charset=utf-8",
+  explainer: "application/json; charset=utf-8",
   html: "text/html; charset=utf-8",
   markdown: "text/markdown; charset=utf-8",
   text: "text/plain; charset=utf-8",
@@ -4448,6 +4452,7 @@ function rebuildSearchIndexInDb(db, store) {
 // References may point to private artifacts. Never put their IDs into a
 // globally searchable parent document or search snippet.
 function indexableContent(version, content) {
+  if (version.format === "explainer") return explainerSearchText(content);
   if (version.format !== "collection") return content;
   const collection = parseCollection(content);
   return [collection.description, ...collection.sections.map((section) => section.title)].join("\n");
@@ -4633,7 +4638,7 @@ function relationsForArtifact(db, id, options = {}) {
 
   if (direction === "both" || direction === "out") {
     const rows = db.prepare(`
-      SELECT id, from_id, to_id, relation, created_at
+      SELECT id, from_id, to_id, relation, created_at, metadata_json
       FROM artifact_relations
       WHERE from_id = ?
       ORDER BY created_at ASC
@@ -4648,7 +4653,7 @@ function relationsForArtifact(db, id, options = {}) {
 
   if (direction === "both" || direction === "in") {
     const rows = db.prepare(`
-      SELECT id, from_id, to_id, relation, created_at
+      SELECT id, from_id, to_id, relation, created_at, metadata_json
       FROM artifact_relations
       WHERE to_id = ?
       ORDER BY created_at ASC
@@ -4685,6 +4690,7 @@ function relationEntryFromRow(db, row, direction, access) {
     // titles), so it is withheld along with the summary rather than only
     // blanking `artifact`.
     artifactId: restricted ? null : otherId,
+    ...(!restricted && otherRow && direction === "out" && row.relation === "derived-from" && Number.isSafeInteger(parseJson(row.metadata_json, {}).explainerSourceVersion) && parseJson(row.metadata_json, {}).explainerSourceVersion > 0 ? { sourceVersion: parseJson(row.metadata_json, {}).explainerSourceVersion } : {}),
     artifact,
     restricted,
     missing: !otherRow,
@@ -5228,6 +5234,7 @@ function normalizeArtifactInput(input, options) {
 
   const format = normalizeFormat(input.format || inferFormat(input.contentType, content));
   if (format === "collection") parseCollection(content);
+  if (format === "explainer") parseExplainer(content);
   const provenance = normalizeProvenance(input);
   return {
     title,
@@ -5271,6 +5278,7 @@ function normalizeSchemaVersion(value) {
 
 function inferArtifactType(input) {
   if (input.format === "collection") return "collection";
+  if (input.format === "explainer") return "document";
   let format;
   try {
     format = normalizeFormat(input.format || inferFormat(input.contentType, input.content));

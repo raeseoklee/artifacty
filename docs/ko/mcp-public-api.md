@@ -56,9 +56,19 @@ Artifacty의 MCP 서버는 에이전트 간 연동을 위한 기본 인터페이
 
 저장소 검증 오류와 찾을 수 없음 오류에는 프로그램에서 처리할 수 있는 `code`가 포함됩니다. 관계와 댓글 오류도 여기에 해당합니다. `tools/call`은 JSON-RPC 프로토콜 오류 대신 `isError: true` 도구 결과와 `structuredContent.code`를 반환합니다. 오류 코드에는 `INVALID_RELATION`, `SELF_RELATION`, `ARTIFACT_NOT_FOUND`, `RELATION_NOT_FOUND`, `COMMENT_NOT_FOUND`, `THREAD_TOO_DEEP`, `COMMENT_TOO_LARGE`, `INVALID_REVIEW_STATUS` 등이 있습니다. 클라이언트는 오류 메시지 텍스트를 파싱하지 않고 코드를 사용할 수 있습니다.
 
-## 컬렉션과 작성 정보 — 다음 릴리스
+## 인터랙티브 설명 — 0.17.0부터
 
-이 추가 기능은 배포된 0.16.1에는 포함되지 않습니다.
+이 추가 기능은 Artifacty 0.17.0부터 사용할 수 있습니다.
+
+- `artifacty_explain`: `sourceId`, 선택적인 양의 정수 `sourceVersion`과 `title`, 구조화된 `explainer` 객체, 선택적인 `provenance`로 비공개 `explainer` 아티팩트를 만듭니다. 호출자는 원본을 읽고 아티팩트를 생성할 수 있어야 합니다. 다중 사용자 저장소에서는 개인 인증이 필요합니다. 도구가 모델을 호출하거나 설명을 생성하지는 않으며, 호출한 에이전트가 콘텐츠를 제공합니다.
+- 결과에는 원본을 향한 `derived-from` 관계가 생깁니다. 버전 메타데이터에는 `explainerSourceVersion`과 `explainerSourceSha256`을 기록합니다. 원본 내용은 바뀌지 않으며 새 아티팩트에 접근할 수 있어도 원본 권한까지 생기지는 않습니다. 복사한 발췌문에는 새 아티팩트의 권한이 적용됩니다.
+- MCP 프롬프트 `artifacty_explanation`에는 필수 `artifactId`와 선택적인 `goal`을 전달합니다. 원본을 읽고 원본이 뒷받침하는 주장, 해석, 가정을 구분하도록 작성 지침을 제공합니다.
+
+전체 호출 예시, 네 가지 블록 유형과 검증 제한은 [인터랙티브 설명](interactive-explainers.md)을 참고하세요. 원본 근거 표시와 출처는 작성자의 선언이며 서버가 검증한 사실이 아닙니다.
+
+## 컬렉션과 작성 정보 — 0.17.0부터
+
+이 추가 기능은 Artifacty 0.17.0부터 사용할 수 있습니다.
 
 - `artifacty_collection_create`: `title`, 선택적 `description`, `sections`로 컬렉션을 만듭니다. 각 섹션에는 `id`, `title`, `items`가 있습니다. 항목은 `artifactId`를 참조하며, `version`은 `"latest"` 또는 양의 버전 번호, `display`는 `"inline"` 또는 `"card"`입니다.
 - `artifacty_collection_update`: `id`, 전체 섹션 목록, 마지막으로 읽은 `expectedVersion`으로 컬렉션의 새 버전을 만듭니다. 버전이 오래되었으면 충돌을 반환합니다. 기존 참조를 사용할 수 없다면 접근 권한을 복구하거나 `dropUnavailableReferences: true`를 명시해 새 버전에서 제거하세요. 이전 버전은 유지됩니다.

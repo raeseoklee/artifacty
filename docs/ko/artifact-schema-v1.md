@@ -34,7 +34,7 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 
 허용되는 `artifactType` 값은 다음과 같습니다.
 
-- `collection` (다음 릴리스)
+- `collection` (0.17.0부터)
 - `document`
 - `html-page`
 - `handoff`
@@ -54,7 +54,7 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 
 변환기는 알 수 없는 레거시 유형이나 외부 유형을 거부하지 않고 `unknown`으로 매핑하는 것이 좋습니다. 네이티브 생성·수정 작업은 명시적으로 지정한 유형이 지원되지 않으면 요청을 거부합니다.
 
-`sourceAgent`는 선언된 출처를 나타내는 호환성 필드로 유지됩니다. `publisherId`, `publisherName`, `publisherUserId`에는 확인할 수 있는 게시자 정보를 기록합니다. 다음 릴리스에는 최초 작성자를 나타내는 `createdBy`와 최신 버전의 작성 정보를 나타내는 `provenance`가 추가됩니다. 각 버전에도 자체 작성 정보가 있습니다. 이 추가 필드는 배포된 0.16.1에는 포함되지 않습니다.
+`sourceAgent`는 선언된 출처를 나타내는 호환성 필드로 유지됩니다. `publisherId`, `publisherName`, `publisherUserId`에는 확인할 수 있는 게시자 정보를 기록합니다. 0.17.0에는 최초 작성자를 나타내는 `createdBy`와 최신 버전의 작성 정보를 나타내는 `provenance`가 추가되었습니다. 각 버전에도 자체 작성 정보가 있습니다. 이 추가 필드는 0.17.0부터 사용할 수 있습니다.
 
 작성 정보는 `tool`, `provider`, `model`, `userId`를 구분하고 `source`, `toolSource`, `modelSource`, `rawSourceAgent`를 기록합니다. 모르는 값은 추정하지 않고 `null`로 남깁니다. `Claude Code`처럼 도구가 명확한 별칭은 `claude-code`로 통일합니다. 제공사 이름이나 뜻이 불분명한 `OpenAI`, `GPT`, `Claude`만으로 도구를 식별하지 않습니다. 이전 정규화 과정에서 이미 사라진 정보는 복원할 수 없습니다. 출처의 의미와 클라이언트 선언의 한계는 [작성 이력 확인](organizing-artifacts.md#작성-이력-확인)을 참고하세요.
 
@@ -87,18 +87,25 @@ Artifacty 스키마 v1은 HTTP, CLI, MCP, 변환기, SQLite 저장소에서 사�
 }
 ```
 
-허용되는 `format` 값은 `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, `notebook`입니다. 다음 릴리스에는 `collection`도 추가됩니다.
+허용되는 `format` 값은 `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, `notebook`입니다. 0.17.0부터 `collection`과 `explainer`도 지원합니다.
 
 자주 사용하는 `artifactType` 값으로는 `document`, `handoff`, `code-review`, `test-report`, `dashboard`, `bundle`, `diagram`, `component`, `snippet`, `analysis-report`, `table`이 있습니다.
 
 ## 컬렉션 콘텐츠
 
-다음 릴리스의 `format: "collection"`은 `description`과 순서가 있는 `sections` 배열을 담은 JSON 문자열입니다. 각 섹션에는 `id`, `title`, `items`가 있으며, 항목에는 `artifactId`, `version`(`"latest"` 또는 양의 정수), `display`(`"inline"` 또는 `"card"`)가 있습니다. 컬렉션은 별도의 아티팩트이므로 자체 이력과 접근 권한을 가집니다. 참조한 항목의 권한은 상속하지 않으며, 호출자가 읽을 수 없는 참조는 읽기 응답에서 제외합니다. 구성 방법과 예시는 [아티팩트 정리](organizing-artifacts.md)를 참고하세요.
+0.17.0의 `format: "collection"`은 `description`과 순서가 있는 `sections` 배열을 담은 JSON 문자열입니다. 각 섹션에는 `id`, `title`, `items`가 있으며, 항목에는 `artifactId`, `version`(`"latest"` 또는 양의 정수), `display`(`"inline"` 또는 `"card"`)가 있습니다. 컬렉션은 별도의 아티팩트이므로 자체 이력과 접근 권한을 가집니다. 참조한 항목의 권한은 상속하지 않으며, 호출자가 읽을 수 없는 참조는 읽기 응답에서 제외합니다. 구성 방법과 예시는 [아티팩트 정리](organizing-artifacts.md)를 참고하세요.
+
+## 인터랙티브 설명 콘텐츠
+
+0.17.0에는 `format: "explainer"`도 지원합니다. JSON 콘텐츠는 `schemaVersion: 1`, `goal`, 선택적인 `summary`와 `limitations`, 순서가 있는 `blocks`로 구성합니다. 블록 유형은 `steps`, `compare`, `diagram`, `scenarios`입니다. 각 항목에는 ID, 제목, 설명과 작성자가 선언한 근거 유형(`source`, `interpretation`, `assumption`)이 있습니다. `source`에는 출처 표기가 필수입니다. 서버는 구조를 검증하지만 사실관계나 출처의 정확성까지 검증하지는 않습니다.
+
+관계도는 같은 블록 안의 항목을 연결합니다. 시나리오는 유한한 수치 표본을 오름차순으로 나열하며, 표본 사이의 값을 계산하지 않습니다. 상세 규격, 제한, 생성 예시와 권한 규칙은 [인터랙티브 설명](interactive-explainers.md)을 참고하세요.
 
 ## 렌더러 정책
 
 저장소는 아티팩트 원본을 변경 불가능한 콘텐츠로 보존합니다. 브라우저 뷰어는 모든 원본을 신뢰할 수 없는 콘텐츠로 취급해야 합니다.
 
+- `explainer` (0.17.0부터): 검증된 선언형 데이터를 이스케이프한 텍스트와 기본 컨트롤로 표시합니다. 아티팩트가 제공한 코드는 실행하지 않습니다. 허용된 공유 미리보기를 포함해 JavaScript 없이도 모든 항목을 읽을 수 있습니다.
 - `code`: 읽기 전용 CodeMirror 뷰어를 사용하며, 이를 사용할 수 없으면 이스케이프한 원본을 표시합니다.
 - `svg`: 뷰어에서 위험 요소를 제거한 뒤 스크립트를 실행하지 않는 샌드박스 iframe에 표시합니다. `/raw`는 원본을 그대로 보존합니다.
 - `mermaid`: 함께 배포하는 로컬 Mermaid 번들을 `allow-same-origin`이 없는 샌드박스 iframe에서 실행합니다. 출처가 불투명한 프레임에서도 ESM을 가져올 수 있도록, 로컬 JavaScript 자산은 `Origin: null` 요청에 `Access-Control-Allow-Origin: null`을 사용합니다.

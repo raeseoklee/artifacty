@@ -60,6 +60,36 @@ export const collectionSchema = {
   required: ["sections"]
 };
 
+export const explainerSchema = {
+  type: "object", additionalProperties: false,
+  description: "Declarative interactive explanation. Source labels are author declarations, not verified facts. No executable code. At most 200 items across all blocks.",
+  properties: {
+    schemaVersion: { const: 1 }, goal: { type: "string", minLength: 1, maxLength: 500 },
+    summary: { type: "string", maxLength: 5000 }, limitations: { type: "array", maxItems: 20, items: { type: "string", minLength: 1, maxLength: 1000 } },
+    blocks: { type: "array", minItems: 1, maxItems: 20, items: {
+      type: "object", additionalProperties: false,
+      properties: {
+        id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,80}$" }, title: { type: "string", minLength: 1, maxLength: 200 },
+        type: { enum: ["steps", "compare", "diagram", "scenarios"] },
+        items: { type: "array", minItems: 1, maxItems: 40, items: {
+          type: "object", additionalProperties: false,
+          properties: {
+            id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,80}$" }, label: { type: "string", minLength: 1, maxLength: 200 },
+            explanation: { type: "string", minLength: 1, maxLength: 10000 }, basis: { enum: ["source", "interpretation", "assumption"] },
+            citation: { type: "string", minLength: 1, maxLength: 1000, description: "Plain-text source section, figure or line reference; required when basis is source." },
+            value: { type: "number", description: "Only for scenarios; finite, strictly increasing in item order." }
+          }, required: ["id", "label", "explanation", "basis"],
+          allOf: [{ if: { properties: { basis: { const: "source" } } }, then: { required: ["citation"] } }]
+        } },
+        connections: { type: "array", maxItems: 100, description: "Diagram only. Endpoints reference distinct item IDs in this block; no duplicate pairs.", items: { type: "object", additionalProperties: false, properties: { from: { type: "string" }, to: { type: "string" }, label: { type: "string", maxLength: 200 } }, required: ["from", "to"] } },
+        diagram: { type: "object", additionalProperties: false, description: "Diagram only. Author-selected entry point and visual direction; connections define selectable paths, never inferred execution order.", properties: { direction: { enum: ["LR", "TB"] }, start: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,80}$", description: "Existing item ID in this block." } }, required: ["direction", "start"] },
+        parameter: { type: "object", additionalProperties: false, description: "Required for scenarios only. Samples are discrete, never interpolated.", properties: { label: { type: "string", minLength: 1, maxLength: 200 }, unit: { type: "string", maxLength: 40 } }, required: ["label"] }
+      }, required: ["id", "title", "type", "items"],
+      allOf: [{ if: { properties: { type: { const: "scenarios" } } }, then: { required: ["parameter"], properties: { items: { minItems: 2, items: { required: ["value"] } } } }, else: { not: { required: ["parameter"] }, properties: { items: { items: { not: { required: ["value"] } } } } } }, { if: { properties: { type: { const: "diagram" } } }, else: { allOf: [{ not: { required: ["connections"] } }, { not: { required: ["diagram"] } }] } }]
+    } }
+  }, required: ["schemaVersion", "goal", "blocks"]
+};
+
 export const artifactVersionSchema = {
   type: "object",
   description: "One immutable, append-only artifact version.",
@@ -480,6 +510,7 @@ export const categorySchema = {
 };
 
 export const schemas = {
+  Explainer: explainerSchema,
   Category: categorySchema,
   CategoryList: { type: "object", properties: { categories: { type: "array", items: categorySchema } }, required: ["categories"] },
   CategoryTeams: { type: "object", properties: { teams: { type: "array", items: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } }, required: ["id", "name"] } } }, required: ["teams"] },

@@ -31,7 +31,7 @@ These screenshots show the English interface with example data.
 
 Follow the [browser user guide](docs/user-guide.md) for step-by-step instructions and checks.
 
-The next release adds collection pages with a table of contents, personal and team categories, and separate records for each version’s authoring tool and model. These repository changes are not included in published version 0.16.1. See [organizing artifacts and author history](docs/organizing-artifacts.md).
+Artifacty 0.17.0 adds collection pages with a table of contents, personal and team categories, and separate records for each version’s authoring tool and model. See [organizing artifacts and author history](docs/organizing-artifacts.md). Version 0.17.0 also adds [interactive explanations](docs/interactive-explainers.md): step-by-step reading, comparisons, relationship exploration, and authored scenarios.
 
 ## Why MCP
 
@@ -381,7 +381,7 @@ These local snapshots are separate from portable `artifacty backup`/`export` JSO
 
 ### Semantic Search
 
-The bundled ONNX model and `artifacty embeddings` commands are changes for the next release, not yet included in npm `0.16.1`.
+The bundled ONNX model and `artifacty embeddings` commands are available in Artifacty 0.17.0 and later.
 
 Artifacty includes a quantized ONNX `multilingual-e5-small` model for local semantic search. It runs as CPU WebAssembly in a server-side Node.js worker without an API key or inference-time downloads. Document text and queries stay on the server when the local provider is selected. The model adds about 118 MB of weights plus tokenizer and runtime files to the installation.
 
@@ -664,7 +664,7 @@ Schema and storage:
 - Bundle artifacts store multiple files or base64 assets as portable JSON. A `files` entry can also carry a binary document (PDF, DOCX, XLSX, or ZIP, base64-encoded, 32 MB per file) served at `GET /artifacts/:id/raw?file=<path>`; PDFs render in a sandboxed viewer iframe and other document types show a download link.
 - Supported formats are `html`, `markdown`, `text`, `json`, `code`, `svg`, `mermaid`, `react`, `sarif`, `csv`, `image`, `video`, and `notebook`.
 - Native create/import paths infer `html` from HTML documents or fragments when no explicit format is supplied.
-- The next release distinguishes authoring tools from providers and models. Exact tool aliases such as `Claude Code` and `codex-cli` become `claude-code` and `codex`. Ambiguous values such as `Claude`, `GPT`, or `OpenAI` do not identify a tool. Each version records separate provenance, and `createdBy` preserves the initial author. Earlier releases combined some names; information already lost through that normalization cannot be recovered. See [author history](docs/organizing-artifacts.md#read-author-history).
+- Artifacty 0.17.0 distinguishes authoring tools from providers and models. Exact tool aliases such as `Claude Code` and `codex-cli` become `claude-code` and `codex`. Ambiguous values such as `Claude`, `GPT`, or `OpenAI` do not identify a tool. Each version records separate provenance, and `createdBy` preserves the initial author. Earlier releases combined some names; information already lost through that normalization cannot be recovered. See [author history](docs/organizing-artifacts.md#read-author-history).
 - Diagram, component, source snippet, analysis report, table, and media assets use `diagram`, `component`, `snippet`, `analysis-report`, `table`, and `asset` artifact types.
 - Copilot/Cursor examples cover PR reviews, screenshots, demo recordings, and visual evidence bundles.
 - See [docs/artifact-schema-v1.md](docs/artifact-schema-v1.md).
@@ -770,8 +770,8 @@ access also hides its notifications and removes them from unread counts.
 
 ## Sample Manuals
 
-Install four English sample artifacts: **Start here**, **Feature guide**,
-**Architecture**, and **Handoff exercise**. Administrators can use the sample
+Install five English sample artifacts in this development build: **Start here**, **Feature guide**,
+**Architecture**, **Handoff exercise**, and **Interactive explanations — cache tradeoffs**. Administrators can use the sample
 controls on `/admin/access`; local CLI users can run:
 
 ```bash

@@ -4,7 +4,7 @@ English | [한국어](ko/embeddings.md)
 
 Semantic search helps find artifacts whose wording differs from your query. For example, a query about insufficient server memory can find an artifact about a Java OOM investigation. It ranks stored artifacts; it does not generate an answer or run a chat model.
 
-The bundled model and `artifacty embeddings` commands described here are changes for the next release. They are not yet included in npm version `0.16.1`.
+The bundled model and `artifacty embeddings` commands described here are available in Artifacty 0.17.0 and later.
 
 ## Default model and data handling
 

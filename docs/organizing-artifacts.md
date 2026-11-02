@@ -2,7 +2,7 @@
 
 English | [한국어](ko/organizing-artifacts.md)
 
-These features are implemented for the next release. They are not included in published version 0.16.1. Use a build that includes these changes before following this guide.
+These features are available in Artifacty 0.17.0 and later.
 
 The screenshots show English UI on an isolated public-mode server with fictional data and a signed-in administrator. The example model names are test labels, not claims about models used in production.
 

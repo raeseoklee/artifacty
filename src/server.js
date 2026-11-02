@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { createCategory, updateCategory, deleteCategory, listCategories, listCategoryTeams, setCategoryArtifact } from "./lib/categories.js";
 import { parseCollection, resolveCollection, collectionContentForReader } from "./lib/collections.js";
+import { importMermaidFlowchart } from "./lib/flowchart-import.js";
+import { createExplainerDraft } from "./lib/explainers.js";
+import { createSourceExplainer, explainerSourceVersion } from "./lib/explainer-service.js";
 import http from "node:http";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
@@ -118,6 +121,7 @@ import {
   renderArtifactFormPage,
   renderArtifactPage,
   renderCollectionFormPage,
+  renderExplainerDraftPage,
   renderAccountPage,
   renderCategoriesPage,
   renderAdminBackupPage,
@@ -374,6 +378,10 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   if (method === "GET" && pathname === "/assets/categories.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "categories.js"), headOnly, request);
   }
+  if (method === "GET" && pathname === "/assets/explainers.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "explainers.js"), headOnly, request);
+  }
+
   if (method === "GET" && pathname === "/assets/collections.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "collections.js"), headOnly, request);
   }
@@ -1362,6 +1370,36 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     return sendRedirect(response, localizedHref("/", bodyLocale));
   }
 
+  const explainMatch = /^\/artifacts\/([^/]+)\/explain$/.exec(pathname);
+  if (explainMatch && method === "GET") {
+    const artifact = await getArtifact(store, explainMatch[1], { version: explainerSourceVersion(url.searchParams.get("version")), access: accessContext(request, currentUser) });
+    let draft;
+    try { draft = artifact.version.format === "mermaid" ? importMermaidFlowchart(artifact.content) : createExplainerDraft(artifact); }
+    catch (error) {
+      if (!["UNSUPPORTED_EXPLAINER_SOURCE", "UNSUPPORTED_FLOWCHART_SOURCE"].includes(error.code)) throw error;
+      draft = { schemaVersion: 1, goal: "Explain the source in your own words", summary: "Manual draft: review the original before writing an explanation.", limitations: ["This draft was not generated from the source content. Replace the placeholder before saving."], blocks: [{ id: "overview", title: "Key idea", type: "steps", items: [{ id: "idea", label: "Your explanation", explanation: "Replace this placeholder with a grounded explanation and a source reference.", basis: "assumption" }] }] };
+    }
+    return sendHtml(response, renderExplainerDraftPage({ artifact, draft, baseUrl, authToken, user: currentUser, locale, currentPath }), 200, headOnly);
+  }
+  if (explainMatch && method === "POST") {
+    assertLocalOrigin(request);
+    const body = await readFormBody(request);
+    request.artifactyAuth = requestToken({ request, url, body })
+      ? await requireRequestAuth({ store, request, url, body, config: security })
+      : await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
+    await requireApiScope(store, request, "write");
+    await enforceRateLimit({ store, host, request, bucket: "write" });
+    currentUser = request.artifactyAuth.user || null;
+    try {
+      const artifact = await createSourceExplainer(store, { sourceId: explainMatch[1], sourceVersion: body.sourceVersion, title: body.title, explainer: body.content, provenance: { tool: "artifacty" } }, { access: accessContext(request, currentUser), audit: auditContext(request, "web") });
+      return sendRedirect(response, localizedHref(`/artifacts/${encodeURIComponent(artifact.id)}`, localeFromBodyOrUrl(body, url)));
+    } catch (error) {
+      if (error.code !== "INVALID_EXPLAINER") throw error;
+      const artifact = await getArtifact(store, explainMatch[1], { version: explainerSourceVersion(body.sourceVersion), access: accessContext(request, currentUser) });
+      return sendHtml(response, renderExplainerDraftPage({ artifact, draft: body.content, draftTitle: body.title, error: error.message, baseUrl, authToken, user: currentUser, locale: localeFromBodyOrUrl(body, url), currentPath }), 400, headOnly);
+    }
+  }
+
   if (method === "GET" && pathname === "/collections/new") {
     const candidates = await listArtifacts(store, { access: accessContext(request, currentUser), limit: 200 });
     return sendHtml(response, renderCollectionFormPage({ baseUrl, authToken, user: currentUser, candidates, locale, currentPath }), 200, headOnly);
@@ -1664,6 +1702,9 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       version: url.searchParams.get("version") || undefined,
       access: accessContext(request, currentUser)
     });
+    if (artifact.version.format === "explainer") {
+      return sendHtml(response, renderExplainerDraftPage({ mode: "edit", artifact, draft: artifact.content, expectedVersion: artifact.latestVersion, user: currentUser, baseUrl, authToken, locale, currentPath }), 200, headOnly);
+    }
     if (artifact.version.format === "collection") {
       const candidates = await listArtifacts(store, { access: accessContext(request, currentUser), limit: 200 });
       return sendHtml(response, renderCollectionFormPage({ user: currentUser, baseUrl, artifact, content: artifact.content, candidates, unavailableCount: artifact.resolvedCollection?.unavailableCount || 0, authToken, locale, currentPath }), 200, headOnly);
@@ -1685,12 +1726,17 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     assertLocalOrigin(request);
     const body = await readFormBody(request);
     const bodyLocale = localeFromBodyOrUrl(body, url);
-    request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
+    request.artifactyAuth = requestToken({ request, url, body })
+      ? await requireRequestAuth({ store, request, url, body, config: security })
+      : await requireBrowserWriteAuth({ store, request, url, body, config: security, currentUser });
+    await requireApiScope(store, request, "write");
+    currentUser = request.artifactyAuth.user || null;
     await enforceRateLimit({ store, host, request, bucket: "write" });
     const expectedVersion = expectedVersionFromBody(body);
     try {
       await assertCollectionEditableReferences(store, editMatch[1], accessContext(request, currentUser), undefined, body.dropUnavailableReferences === "true");
       if (body.format === "collection" && body.dropUnavailableReferences === "true") body.content = await dropUnavailableCollectionReferences(store, body.content, accessContext(request, currentUser));
+      const editingExplainer = body.format === "explainer" ? await getArtifact(store, editMatch[1], { access: accessContext(request, currentUser) }) : null;
       const artifact = await updateArtifact(store, editMatch[1], {
         title: body.title,
         content: body.content,
@@ -1700,7 +1746,8 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       provenance: { tool: "artifacty" },
         tags: splitTags(body.tags),
         metadata: {
-          updatedVia: "artifacty-web"
+          updatedVia: "artifacty-web",
+          ...(editingExplainer?.version.metadata?.explainerSourceVersion ? { explainerSourceVersion: editingExplainer.version.metadata.explainerSourceVersion, explainerSourceSha256: editingExplainer.version.metadata.explainerSourceSha256 } : {})
         },
         skipNoop: true,
         expectedVersion,
@@ -1709,6 +1756,10 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       });
       return sendRedirect(response, localizedHref(`/artifacts/${encodeURIComponent(artifact.id)}`, bodyLocale));
     } catch (error) {
+      if (body.format === "explainer" && error.code === "INVALID_EXPLAINER") {
+        const current = await getArtifact(store, editMatch[1], { access: accessContext(request, currentUser) });
+        return sendHtml(response, renderExplainerDraftPage({ mode: "edit", artifact: { ...current, title: body.title || current.title }, draft: body.content, expectedVersion, error: error.message, user: currentUser, baseUrl, authToken, locale: bodyLocale, currentPath }), 400, headOnly);
+      }
       if (error instanceof VersionConflictError) {
         const current = await getArtifact(store, editMatch[1], { access: accessContext(request, currentUser) });
         const unsavedArtifact = {
@@ -1718,6 +1769,9 @@ async function handleScopedRequest({ request, response, store, host, port, secur
           artifactType: body.artifactType || current.artifactType,
           tags: splitTags(body.tags)
         };
+        if (body.format === "explainer") {
+          return sendHtml(response, renderExplainerDraftPage({ mode: "edit", artifact: unsavedArtifact, draft: body.content, expectedVersion: error.latestVersion, conflict: { latestVersion: error.latestVersion }, user: currentUser, baseUrl, authToken, locale: bodyLocale, currentPath }), 409, headOnly);
+        }
         if (body.format === "collection") {
           const candidates = await listArtifacts(store, { access: accessContext(request, currentUser), limit: 200 });
           return sendHtml(response, renderCollectionFormPage({ user: currentUser, baseUrl, artifact: unsavedArtifact, content: body.content, candidates, unavailableCount: current.resolvedCollection?.unavailableCount || 0, expectedVersion: error.latestVersion, conflict: { latestVersion: error.latestVersion }, authToken, locale: bodyLocale, currentPath }), 409, headOnly);

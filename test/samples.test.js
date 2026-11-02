@@ -47,21 +47,24 @@ test("sample management requires an active administrator and is ownership scoped
   assert.equal((await getArtifact(store, local.artifactIds[0])).archivedAt, null);
 });
 
-test("the final manual catalog installs all four real samples safely", async (t) => {
+test("the final manual catalog installs all five real samples safely", async (t) => {
   const store = await fixture(t);
   const first = await installSamples(store);
-  assert.equal(first.installed, 4);
-  assert.equal(new Set(first.artifactIds).size, 4);
+  assert.equal(first.installed, 5);
+  assert.equal(new Set(first.artifactIds).size, 5);
   const artifacts = await Promise.all(first.artifactIds.map((id) => getArtifact(store, id)));
-  assert.deepEqual(artifacts.map((artifact) => artifact.version.format), ["markdown", "html", "mermaid", "markdown"]);
+  assert.deepEqual(artifacts.map((artifact) => artifact.version.format), ["markdown", "html", "mermaid", "markdown", "explainer"]);
   assert.equal(artifacts[3].artifactType, "handoff");
+  const example = JSON.parse(artifacts[4].content);
+  assert.deepEqual(example.blocks.map(block => block.type), ["steps", "compare", "diagram", "scenarios"]);
+  assert.ok(example.blocks[3].items.every(item => item.basis === "assumption"));
   for (const artifact of artifacts) assert.ok(artifact.content.length > 500);
   assert.doesNotMatch(artifacts[1].content, /<script\b/i);
   assert.match(artifacts[1].content, /120 seconds/);
   assert.match(artifacts[1].content, new RegExp(`${ARTIFACT_FORMATS.length} formats`));
   assert.match(artifacts[1].content, new RegExp(`store schema is ${STORE_VERSION}`));
   assert.match(artifacts[1].content, /Collections, categories, and author history/);
-  assert.equal((await installSamples(store)).skipped, 4);
-  assert.equal((await removeSamples(store)).archived, 4);
-  assert.equal((await installSamples(store)).restored, 4);
+  assert.equal((await installSamples(store)).skipped, 5);
+  assert.equal((await removeSamples(store)).archived, 5);
+  assert.equal((await installSamples(store)).restored, 5);
 });
