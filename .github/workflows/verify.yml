@@ -43,6 +43,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Verify offline model compatibility first
+        run: node --test test/local-embeddings.test.js
+
       - name: Test
         run: npm test
 

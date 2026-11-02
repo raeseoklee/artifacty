@@ -9,6 +9,8 @@ import { readModelManifest } from "./local-embeddings.js";
 ort.env.wasm.numThreads = 1;
 let loaded;
 async function checkedFile(root, entry) {
+  // Use the same realpath implementation for the root and file (Windows aliases).
+  root = await realpath(root);
   const filename = await realpath(path.join(root, entry.path));
   if (path.relative(root, path.dirname(filename)) !== "") throw new Error("Model file escapes its directory");
   const bytes = await readFile(filename);
