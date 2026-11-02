@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
 import { startServer } from '../src/server.js';
-import { createStore, createUser, createSession, createApiToken, createArtifact, getArtifact, checkStoreIntegrity, listEventsSince, addComment, transaction } from '../src/lib/storage.js';
+import { createStore, createUser, createSession, createApiToken, createArtifact, getArtifact, checkStoreIntegrity, listEventsSince, listAuditEvents, addComment, transaction } from '../src/lib/storage.js';
 import { createCategory, setCategoryArtifact, listCategories } from '../src/lib/categories.js';
 import { exportStoreToString, importStoreFromString } from '../src/lib/backup.js';
 const exec=promisify(execFile);
@@ -22,7 +22,7 @@ test('PostgreSQL HTTP permissions, categories, histories and cross-backend full 
   const sqliteHome=await mkdtemp(path.join(tmpdir(),'artifacty-pg-sqlite-'));
   let app;
   try {
-    app=await startServer({home,port:0,databaseUrl:url,databaseSchema:schema});
+    app=await startServer({home,port:0,databaseUrl:url,databaseSchema:schema,trustedProxies:"127.0.0.0/8"});
     assert.equal((await (await fetch(app.url+'/health')).json()).databaseBackend,'postgres');
     const admin=await createUser(app.store,{email:'admin@example.test',password:'Demo-password-2026',role:'admin'});
     const reader=await createUser(app.store,{email:'reader@example.test',password:'Demo-password-2026',role:'user'});
@@ -31,8 +31,10 @@ test('PostgreSQL HTTP permissions, categories, histories and cross-backend full 
     const token=await createApiToken(app.store,admin.id,{name:"Integration",scopes:["read","write","admin"]});
     const cookie=`artifacty_session=${session.token}`;
     const authorization=`Bearer ${token.token}`;
-    const created=await fetch(app.url+'/api/artifacts',{method:'POST',headers:{authorization,'content-type':'application/json'},body:JSON.stringify({title:'PostgreSQL guide',format:'markdown',content:'# PostgreSQL\n\n한국어 본문 검색 example.',visibility:'private'})});
+    const created=await fetch(app.url+'/api/artifacts',{method:'POST',headers:{authorization,'content-type':'application/json','x-forwarded-for':'198.51.100.8'},body:JSON.stringify({title:'PostgreSQL guide',format:'markdown',content:'# PostgreSQL\n\n한국어 본문 검색 example.',visibility:'private'})});
     assert.equal(created.status,201);const artifact=await created.json();
+    const auditRows=await listAuditEvents(app.store,{artifactId:artifact.id,access});
+    assert.equal(auditRows.find(row=>row.action==="create").metadata.clientAddress,"198.51.100.8");
     assert.equal((await fetch(app.url+'/api/artifacts/'+artifact.id)).status,401);
     const result=await fetch(app.url+'/api/artifacts/'+artifact.id,{headers:{authorization}});assert.equal(result.status,200);assert.match((await result.json()).content,/한국어/);
     const search=await fetch(app.url+'/api/artifacts?q='+encodeURIComponent('한국어'),{headers:{authorization}});assert.equal(search.status,200);assert.equal((await search.json()).artifacts.length,1);

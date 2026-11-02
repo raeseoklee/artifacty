@@ -2,7 +2,7 @@
 
 [English](../postgresql.md) | 한국어
 
-PostgreSQL 지원은 아직 배포하지 않은 저장소 변경 사항입니다. npm 0.17.0에는 포함되지 않습니다. 이 기능이 포함된 빌드를 설치한 뒤 이 안내를 따르세요.
+PostgreSQL 지원은 Artifacty 0.18.0부터 제공합니다.
 
 기본 데이터베이스는 SQLite입니다. `ARTIFACTY_DATABASE_URL`을 설정하면 PostgreSQL을 명시적으로 선택합니다. 설정한 PostgreSQL 서버에 연결할 수 없거나 인증에 실패해도 SQLite로 자동 전환하지 않습니다.
 

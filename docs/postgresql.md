@@ -2,7 +2,7 @@
 
 English | [한국어](ko/postgresql.md)
 
-PostgreSQL support is an unreleased repository change. It is not included in npm version 0.17.0. Use a build containing this feature before following this guide.
+PostgreSQL support is available from Artifacty 0.18.0.
 
 SQLite remains the default. Set `ARTIFACTY_DATABASE_URL` to select PostgreSQL explicitly. Artifacty does not fall back to SQLite when the configured PostgreSQL server is unavailable or rejects a connection.
 

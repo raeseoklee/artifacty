@@ -41,7 +41,7 @@ Follow a Mermaid flowchart, choose a branch, and retrace the highlighted path. R
 
 Artifacts make session output available as pages that you can share and version. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
 
-PostgreSQL support is available in the development build as an optional metadata backend; SQLite remains the default. See [PostgreSQL setup and operational limits](docs/postgresql.md).
+Artifacty 0.18.0 supports PostgreSQL as an optional metadata backend; SQLite remains the default. See [PostgreSQL setup and operational limits](docs/postgresql.md).
 
 ## Installation
 
