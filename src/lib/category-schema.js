@@ -4,7 +4,7 @@ export function initializeCategorySchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL COLLATE NOCASE,
+      name TEXT NOT NULL ${db.kind === "postgres" ? "" : "COLLATE NOCASE"},
       scope TEXT NOT NULL CHECK (scope IN ('personal', 'team')),
       owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
       team_id TEXT REFERENCES teams(id) ON DELETE CASCADE,
@@ -15,9 +15,9 @@ export function initializeCategorySchema(db) {
         OR (scope = 'team' AND owner_user_id IS NULL AND team_id IS NOT NULL))
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_personal_name
-      ON categories(owner_user_id, name) WHERE scope = 'personal';
+      ON categories(owner_user_id, ${db.kind === "postgres" ? "translate(name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')" : "name"}) WHERE scope = 'personal';
     CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_team_name
-      ON categories(team_id, name) WHERE scope = 'team';
+      ON categories(team_id, ${db.kind === "postgres" ? "translate(name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')" : "name"}) WHERE scope = 'team';
     CREATE TABLE IF NOT EXISTS category_artifacts (
       category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
       artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,

@@ -5,6 +5,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { isPostgresStore } from "./database-config.js";
 
 const APP_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 const KIND = "artifacty-upgrade-backup";
@@ -16,6 +17,7 @@ function error(message, code = "UPGRADE_BACKUP_FAILED") {
 }
 
 function paths(store) {
+  if (isPostgresStore(store) || existsSync(path.join(path.resolve(store.home), ".postgres-store-id"))) throw error("Physical upgrade snapshots support SQLite only. Back up PostgreSQL and the artifact files together before a manual upgrade or restore.", "POSTGRES_BACKUP_UNSUPPORTED");
   const home = path.resolve(store.home);
   return { home, dbPath: path.join(home, "artifacty.sqlite"), indexPath: path.join(home, "index.json"), artifactsDir: path.join(home, "artifacts"), backups: path.join(home, "upgrade-backups") };
 }

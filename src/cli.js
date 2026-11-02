@@ -1081,6 +1081,9 @@ Upgrade recovery:
 
 Environment:
   ARTIFACTY_HOME           Storage directory. Defaults to ~/.artifacty
+  ARTIFACTY_DATABASE_URL   PostgreSQL connection URL; unset uses SQLite
+  ARTIFACTY_DATABASE_SCHEMA PostgreSQL schema. Defaults to artifacty
+  ARTIFACTY_DATABASE_TIMEOUT_MS PostgreSQL timeout, 1000-120000 ms. Defaults to 15000
   ARTIFACTY_BACKUP_ON_UPDATE  Set true for optional app-version snapshots; schema backups are mandatory
   ARTIFACTY_UPGRADE_BACKUP_KEEP  Automatic snapshots to retain after a successful upgrade (default: 3)
   ARTIFACTY_URL            Public URL override. Otherwise CLI/MCP read the last running server URL

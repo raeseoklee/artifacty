@@ -45,6 +45,8 @@ Mermaid 플로우차트에서 분기를 선택하고, 강조된 경로를 따라
 
 아티팩트는 세션에서 만든 결과물을 공유하고 버전을 관리할 수 있는 페이지입니다. Artifacty는 이 페이지를 로컬에 보관하고 여러 에이전트가 함께 사용하도록 합니다. 브라우저 서버는 사람이 볼 화면을 렌더링하고, MCP stdio 서버는 에이전트에 공통 도구 인터페이스를 제공합니다.
 
+개발 빌드에서는 PostgreSQL을 선택적 메타데이터 백엔드로 사용할 수 있습니다. 기본값은 SQLite입니다. [PostgreSQL 설정과 운영 제한](docs/ko/postgresql.md)을 참고하세요.
+
 ## 설치
 
 Artifacty를 실행하려면 Node.js 22.12.0 이상이 필요하며 Node 24를 권장합니다. Node 22.12에서는 `NODE_OPTIONS=--experimental-sqlite`로 실험적 SQLite 지원을 활성화해야 합니다.
@@ -742,6 +744,9 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | 변수 | 용도 | 기본값 |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | 저장소 디렉터리 | `~/.artifacty` |
+| `ARTIFACTY_DATABASE_URL` | PostgreSQL 연결 URL. 설정하지 않으면 SQLite를 사용합니다. | 미설정 |
+| `ARTIFACTY_DATABASE_SCHEMA` | PostgreSQL 전용 스키마 | `artifacty` |
+| `ARTIFACTY_DATABASE_TIMEOUT_MS` | PostgreSQL 작업 제한 시간(1,000–120,000ms) | `15000` |
 | `ARTIFACTY_BACKUP_ON_UPDATE` | 애플리케이션 버전 변경 전에 기존 저장소를 스냅샷으로 보관. 스키마 마이그레이션 스냅샷은 항상 필수 | `false` |
 | `ARTIFACTY_UPGRADE_BACKUP_KEEP` | 보관할 자동 업그레이드 스냅샷 수. 1–1000의 정수 | `3` |
 | `ARTIFACTY_URL` | 공개 URL 재정의. 미설정 시 CLI/MCP가 마지막 서버 URL 사용 | — |

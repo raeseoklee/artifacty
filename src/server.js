@@ -207,8 +207,8 @@ export async function startServer(options = {}) {
   const allowPortFallback =
     options.portFallback === true ||
     (!explicitPort && options.portFallback !== false);
-  const store = createStore({ home: options.home });
-  const webUpdater = options.webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT });
+  const store = createStore({ home: options.home, ...(Object.hasOwn(options, "databaseUrl") ? { databaseUrl: options.databaseUrl } : {}), databaseSchema: options.databaseSchema, databaseTimeoutMs: options.databaseTimeoutMs });
+  const webUpdater = options.webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT, database: store.database });
   const security = securityConfig(options);
   const mcpHttp = Boolean(options.mcpHttp || process.env.ARTIFACTY_MCP_HTTP === "true");
   validateServerExposure({ host, config: security });
@@ -718,7 +718,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
     requireAdmin(currentUser);
     response.setHeader("cache-control", "no-store");
-    const updater = webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT });
+    const updater = webUpdater || createWebUpdater({ home: store.home, packageRoot: PACKAGE_ROOT, database: store.database });
     const session = sessionTokenFromRequest(request);
     if (method === "GET" && pathname === "/admin/update/status") return sendJson(response, await updater.status(session), 200, headOnly);
     if (method === "GET" && pathname === "/admin/update") {
@@ -1290,7 +1290,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "GET" && pathname === "/health") {
-    return sendJson(response, { ok: true, name: "artifacty", store: store.home }, 200, headOnly);
+    return sendJson(response, { ok: true, name: "artifacty", store: store.home, databaseBackend: store.databaseBackend || "sqlite" }, 200, headOnly);
   }
 
   if (!currentUser && await getAccessMode(store) === "private" &&

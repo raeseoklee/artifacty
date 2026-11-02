@@ -41,6 +41,8 @@ Follow a Mermaid flowchart, choose a branch, and retrace the highlighted path. R
 
 Artifacts make session output available as pages that you can share and version. Artifacty keeps those pages local and makes them available across agents. The browser server renders artifacts for people. The MCP stdio server gives agents a common tool interface.
 
+PostgreSQL support is available in the development build as an optional metadata backend; SQLite remains the default. See [PostgreSQL setup and operational limits](docs/postgresql.md).
+
 ## Installation
 
 Artifacty requires Node.js 22.12.0 or newer. Node 24 is recommended. On Node 22.12, enable its experimental SQLite support with `NODE_OPTIONS=--experimental-sqlite`.
@@ -828,6 +830,9 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | Storage directory | `~/.artifacty` |
+| `ARTIFACTY_DATABASE_URL` | PostgreSQL connection URL; unset uses SQLite | Unset |
+| `ARTIFACTY_DATABASE_SCHEMA` | Dedicated PostgreSQL schema | `artifacty` |
+| `ARTIFACTY_DATABASE_TIMEOUT_MS` | PostgreSQL operation timeout (1,000–120,000 ms) | `15000` |
 | `ARTIFACTY_BACKUP_ON_UPDATE` | Snapshot existing stores before application-version changes; schema-migration snapshots are always required | `false` |
 | `ARTIFACTY_UPGRADE_BACKUP_KEEP` | Automatic upgrade snapshots to retain; integer from 1 to 1000 | `3` |
 | `ARTIFACTY_URL` | Public URL override; otherwise CLI/MCP read the last running server URL | — |
