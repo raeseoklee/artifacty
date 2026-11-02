@@ -6,3 +6,6 @@ vendor/onnxruntime/*.map -diff
 vendor/onnxruntime/*.wasm binary
 # Preserve the publisher's original CRLF license bytes.
 licenses/multilingual-e5-small-LICENSE.txt -text whitespace=cr-at-eol
+# SHA-256-pinned assets must retain exact upstream bytes on Windows too.
+models/** -text
+vendor/onnxruntime/** -text
