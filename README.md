@@ -607,7 +607,7 @@ Browser routes:
 - `/admin/backup`: administrator-only backup download and restore screen, with an `artifacts`/`full` scope selector.
 - `/api/admin/backup?scope=artifacts|full`: administrator-only backup JSON download.
 - `/api/admin/backup/import`: administrator-only backup restore. Accepts the raw bundle or `{ bundle, confirm, forceUsers }`.
-- `/api/audit`: list audit events.
+- `/api/audit`: list audit events (administrator with the `admin` token scope only).
 - `/openapi.json`: machine-readable OpenAPI 3.1 document for every `/api/*` route and `/mcp`; `/docs/api`: server-rendered human-readable reference for the same routes. Both require no authentication. The API reference groups endpoints in expandable sections, with search, request/response examples, and copyable curl commands generated from OpenAPI. It is read-only and has no live “Try it” execution. It uses the same saved browser theme as the dashboard.
 
 List APIs support pagination with `limit` and `offset`. Responses keep the top-level `artifacts` array and include `pagination` and `search` metadata:
@@ -836,6 +836,7 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | `ARTIFACTY_BACKUP_ON_UPDATE` | Snapshot existing stores before application-version changes; schema-migration snapshots are always required | `false` |
 | `ARTIFACTY_UPGRADE_BACKUP_KEEP` | Automatic upgrade snapshots to retain; integer from 1 to 1000 | `3` |
 | `ARTIFACTY_URL` | Public URL override; otherwise CLI/MCP read the last running server URL | — |
+| `ARTIFACTY_TRUSTED_PROXIES` | Trusted proxy IP/CIDR list, separated by commas or newlines; empty ignores forwarded headers | Unset |
 | `ARTIFACTY_HOST` | Bind host for the HTTP server | `127.0.0.1` |
 | `ARTIFACTY_PORT` | Bind port for the HTTP server | `8787` |
 | `ARTIFACTY_MCP_URL` | Central MCP HTTP endpoint used by bridge mode | — |

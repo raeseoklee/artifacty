@@ -578,7 +578,7 @@ curl -s http://127.0.0.1:8787/api/import \
 - `/admin/backup`: 관리자 전용 백업 다운로드·복원 화면입니다. `artifacts`/`full` 범위를 선택할 수 있습니다.
 - `/api/admin/backup?scope=artifacts|full`: 관리자 전용 백업 JSON 다운로드입니다.
 - `/api/admin/backup/import`: 관리자 전용 백업 복원입니다. 원본 번들 또는 `{ bundle, confirm, forceUsers }`를 받습니다.
-- `/api/audit`: 감사 이벤트를 조회합니다.
+- `/api/audit`: 관리자 권한과 `admin` 토큰 스코프로 감사 이벤트를 조회합니다.
 - `/openapi.json`: 모든 `/api/*` 경로와 `/mcp`를 다루는 OpenAPI 3.1 명세입니다. `/docs/api`는 같은 경로의 참고 문서를 서버에서 렌더링합니다. 둘 다 인증 없이 볼 수 있습니다. API 참조는 펼칠 수 있는 영역으로 엔드포인트를 묶고 검색, 요청·응답 예제, OpenAPI에서 생성한 복사용 curl 명령어를 제공합니다. 읽기 전용 안내이며 실제 요청을 보내는 “Try it” 기능은 없습니다. 대시보드와 같은 브라우저 테마 설정을 사용합니다.
 
 목록 API는 `limit`, `offset` 페이지네이션을 지원합니다. 응답은 최상위 `artifacts` 배열을 유지하며 `pagination`, `search` 메타데이터를 포함합니다.
@@ -750,6 +750,7 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | `ARTIFACTY_BACKUP_ON_UPDATE` | 애플리케이션 버전 변경 전에 기존 저장소를 스냅샷으로 보관. 스키마 마이그레이션 스냅샷은 항상 필수 | `false` |
 | `ARTIFACTY_UPGRADE_BACKUP_KEEP` | 보관할 자동 업그레이드 스냅샷 수. 1–1000의 정수 | `3` |
 | `ARTIFACTY_URL` | 공개 URL 재정의. 미설정 시 CLI/MCP가 마지막 서버 URL 사용 | — |
+| `ARTIFACTY_TRUSTED_PROXIES` | 쉼표 또는 줄바꿈으로 구분한 신뢰 프록시 IP/CIDR. 미설정 시 전달 헤더를 무시합니다. | 미설정 |
 | `ARTIFACTY_HOST` | HTTP 서버의 바인딩 호스트 | `127.0.0.1` |
 | `ARTIFACTY_PORT` | HTTP 서버의 바인딩 포트 | `8787` |
 | `ARTIFACTY_MCP_URL` | 브리지 모드의 중앙 MCP HTTP 엔드포인트 | — |

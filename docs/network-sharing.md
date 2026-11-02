@@ -78,3 +78,11 @@ See [threat-model.md](threat-model.md) for the full trust-boundary summary.
 
 For a durable internal deployment where many MCP clients share one central
 Artifacty instance, see [central-team-deployment-design.md](central-team-deployment-design.md).
+
+## Reverse proxies and audit addresses
+
+Set `ARTIFACTY_URL` to the externally reachable HTTP(S) base URL. Artifacty normalizes trailing slashes and uses that address in browser pages and OpenAPI. Without this setting, the listening address remains the default. This does not change Origin checks or cookie security settings.
+
+Set `ARTIFACTY_TRUSTED_PROXIES` to a comma- or newline-separated list of proxy IP addresses or CIDRs. Invalid entries prevent server startup. Only a trusted socket peer may supply `X-Forwarded-For`. Artifacty validates the complete list and walks it from right to left, stopping at the first untrusted address. A malformed list, or a chain containing only trusted addresses, uses the socket peer instead. Empty trust lists ignore forwarded headers. Configure the proxy to append its peer address; do not trust arbitrary upstream header values.
+
+The resolved address drives network policy, policy lockout checks, rate limiting and ongoing SSE checks. New HTTP audit records store it as `metadata.clientAddress`; old records and local CLI operations do not gain an address retroactively. `/api/audit` requires an administrator and the `admin` token scope. Non-administrator audit readers do not receive this field. Event, webhook and notification payloads do not gain the address. Full administrator backups include audit records and must be protected accordingly.

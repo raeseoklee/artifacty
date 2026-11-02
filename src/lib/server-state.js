@@ -48,6 +48,9 @@ export function serverStatePath(store) {
   return path.join(store.home, SERVER_STATE_FILE);
 }
 
-function normalizePublicBaseUrl(value) {
-  return String(value || DEFAULT_PUBLIC_URL).replace(/\/+$/, "");
+export function normalizePublicBaseUrl(value) {
+  let parsed;
+  try { parsed = new URL(String(value || DEFAULT_PUBLIC_URL).trim()); } catch { throw new Error("Invalid public base URL"); }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Invalid public base URL");
+  return parsed.href.replace(/\/+$/, "");
 }

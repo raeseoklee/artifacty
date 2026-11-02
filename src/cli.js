@@ -1086,6 +1086,7 @@ Environment:
   ARTIFACTY_DATABASE_TIMEOUT_MS PostgreSQL timeout, 1000-120000 ms. Defaults to 15000
   ARTIFACTY_BACKUP_ON_UPDATE  Set true for optional app-version snapshots; schema backups are mandatory
   ARTIFACTY_UPGRADE_BACKUP_KEEP  Automatic snapshots to retain after a successful upgrade (default: 3)
+  ARTIFACTY_TRUSTED_PROXIES Trusted proxy IP/CIDR list; unset ignores forwarded headers
   ARTIFACTY_URL            Public URL override. Otherwise CLI/MCP read the last running server URL
   ARTIFACTY_HOST           Bind host for the HTTP server. Defaults to 127.0.0.1
   ARTIFACTY_PORT           Bind port for the HTTP server. Defaults to 8787

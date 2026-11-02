@@ -163,24 +163,11 @@ test("H3: audit log hides private artifact events for a non-owner over HTTP and 
 
     // Whole-log listing must not include the private artifact's row.
     const wholeLogResponse = await fetch(`${app.url}/api/audit`, { headers: { "x-artifacty-token": otherToken } });
-    const wholeLog = await wholeLogResponse.json();
-    assert.ok(!wholeLog.events.some((event) => event.artifactId === created.id), "private artifact must not appear in the whole audit log");
-    assert.ok(!wholeLog.events.some((event) => JSON.stringify(event.metadata || {}).includes("H3 Confidential Roadmap")));
-
-    // Directly filtering by the private artifact's id must not disclose its
-    // existence either (defeats the 404-not-403 existence-hiding design).
-    const scopedLogResponse = await fetch(`${app.url}/api/audit?artifactId=${encodeURIComponent(created.id)}`, {
-      headers: { "x-artifacty-token": otherToken }
-    });
-    const scopedLog = await scopedLogResponse.json();
-    assert.equal(scopedLog.events.length, 0);
-
-    // The owner still sees their own row.
-    const ownerLogResponse = await fetch(`${app.url}/api/audit?artifactId=${encodeURIComponent(created.id)}`, {
-      headers: { "x-artifacty-token": ownerToken }
-    });
-    const ownerLog = await ownerLogResponse.json();
-    assert.ok(ownerLog.events.length > 0);
+    assert.equal(wholeLogResponse.status, 403);
+    for (const token of [otherToken, ownerToken]) {
+      const response = await fetch(`${app.url}/api/audit?artifactId=${encodeURIComponent(created.id)}`, { headers: { "x-artifacty-token": token } });
+      assert.equal(response.status, 403, "HTTP audit requires an administrator even for the artifact owner");
+    }
 
     // Same guarantee over MCP's artifacty_audit tool.
     const otherHandler = createMcpRequestHandler({

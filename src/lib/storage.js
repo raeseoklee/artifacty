@@ -1,3 +1,4 @@
+import { requestClientAddress } from "./request-context.js";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -2546,6 +2547,7 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
         return event;
       }
       if (!filters.access || filters.access.role === "admin") return event;
+      delete event.metadata.clientAddress;
       if ((event.action === "relation-add" || event.action === "relation-remove") && event.metadata.toId) {
         const target = db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(event.metadata.toId);
         if (!target || !canReadArtifactMeta(db, { id: target.id, visibility: target.visibility, ownerUserId: target.owner_user_id }, filters.access)) {
@@ -4945,7 +4947,7 @@ function insertAuditRecord(db, { action, artifactId, version, sourceAgent, audit
     sourceAgent || null,
     audit.actor || null,
     audit.surface || null,
-    JSON.stringify(metadata || {})
+    JSON.stringify({ ...metadata, ...(requestClientAddress() ? { clientAddress: requestClientAddress() } : {}) })
   );
 
   insertNotificationsForAudit(db, { action, artifactId, audit, metadata, createdAt });

@@ -841,7 +841,7 @@ test("supports login, user token management, and admin users", async () => {
         cookie,
         "content-type": "application/x-www-form-urlencoded"
       },
-      body: new URLSearchParams({ name: "Codex central token" })
+      body: new URLSearchParams({ name: "Codex central token", scopeRead: "on", scopeWrite: "on", scopeAdmin: "on" })
     });
     assert.equal(tokenResponse.status, 200);
     const tokenPage = await tokenResponse.text();

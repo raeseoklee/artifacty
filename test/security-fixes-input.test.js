@@ -9,7 +9,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createApiToken, createStore, createUser } from "../src/lib/storage.js";
+import { listAuditEvents, createApiToken, createStore, createUser } from "../src/lib/storage.js";
 import { startServer } from "../src/server.js";
 
 test("M5: POST /api/artifacts ignores an attacker-supplied ownerUserId and auditAction", async () => {
@@ -45,7 +45,8 @@ test("M5: POST /api/artifacts ignores an attacker-supplied ownerUserId and audit
     const auditResponse = await fetch(`${app.url}/api/audit?artifactId=${encodeURIComponent(created.id)}`, {
       headers: { "x-artifacty-token": attackerToken }
     });
-    const audit = await auditResponse.json();
+    assert.equal(auditResponse.status, 403);
+    const audit = { events: await listAuditEvents(store, { artifactId: created.id }) };
     assert.ok(audit.events.length > 0);
     assert.ok(audit.events.every((event) => event.action !== "archive"), "auditAction must not be settable from the request body");
     assert.ok(audit.events.some((event) => event.action === "create"));
@@ -86,7 +87,8 @@ test("M5: POST /api/artifacts/:id (update) ignores an attacker-supplied auditAct
     const auditResponse = await fetch(`${app.url}/api/audit?artifactId=${encodeURIComponent(created.id)}`, {
       headers: { "x-artifacty-token": ownerToken }
     });
-    const audit = await auditResponse.json();
+    assert.equal(auditResponse.status, 403);
+    const audit = { events: await listAuditEvents(store, { artifactId: created.id }) };
     assert.ok(audit.events.every((event) => event.action !== "restore"), "auditAction must not be settable from the update body");
     assert.ok(audit.events.some((event) => event.action === "update"));
   } finally {
