@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveRemote } from "./lib/remotes.js";
 import { explainerSchema } from "./lib/schemas.js";
 import { createSourceExplainer } from "./lib/explainer-service.js";
 import { readFile } from "node:fs/promises";
@@ -697,18 +698,20 @@ export async function handleJsonRpcMessage(message, requestHandler) {
 }
 
 export function createRemoteMcpJsonRpcHandler(options = {}) {
+  const remote = options.remote || process.env.ARTIFACTY_REMOTE;
   const endpoint = normalizeMcpUrl(options.url || process.env.ARTIFACTY_MCP_URL);
-  if (!endpoint) {
-    throw new Error("ARTIFACTY_MCP_URL is required when ARTIFACTY_MCP_MODE=bridge");
+  if (!endpoint && !remote) {
+    throw new Error("ARTIFACTY_MCP_URL or ARTIFACTY_REMOTE is required when ARTIFACTY_MCP_MODE=bridge");
   }
   const token = options.apiToken || process.env.ARTIFACTY_API_TOKEN || "";
   const timeoutMs = normalizeTimeoutMs(options.timeoutMs || process.env.ARTIFACTY_MCP_TIMEOUT_MS);
 
   return async (message) => {
     try {
+      const profile = remote ? await resolveRemote({ name: remote === "active" ? undefined : remote, configDir: options.configDir }) : null;
       return await postMcpJsonRpc({
-        url: endpoint,
-        token,
+        url: profile ? profile.mcpUrl : endpoint,
+        token: profile ? profile.apiToken || "" : token,
         message,
         timeoutMs
       });
@@ -740,7 +743,7 @@ async function runStdioServer(options = {}) {
 }
 
 function createStdioJsonRpcHandler(options = {}) {
-  const mode = String(options.mode || process.env.ARTIFACTY_MCP_MODE || "local").toLowerCase();
+  const mode = String(options.mode || process.env.ARTIFACTY_MCP_MODE || (process.env.ARTIFACTY_REMOTE ? "bridge" : "local")).toLowerCase();
   if (mode === "bridge" || mode === "remote") {
     return createRemoteMcpJsonRpcHandler(options);
   }
@@ -1736,14 +1739,15 @@ async function postMcpJsonRpc({ url, token, message, timeoutMs }) {
         ...(token ? { authorization: `Bearer ${token}` } : {})
       },
       body: JSON.stringify(message),
-      signal: controller.signal
+      signal: controller.signal,
+      redirect: "error"
     });
     const text = await response.text();
     if (response.status === 202 && !text.trim()) {
       return null;
     }
     if (!response.ok) {
-      throw new Error(`Remote MCP ${response.status}: ${text.trim() || response.statusText}`);
+      throw new Error(`Remote MCP returned HTTP ${response.status}`);
     }
     if (!text.trim()) {
       return null;
@@ -1753,6 +1757,7 @@ async function postMcpJsonRpc({ url, token, message, timeoutMs }) {
     if (error.name === "AbortError") {
       throw new Error(`Remote MCP request timed out after ${timeoutMs}ms`);
     }
+    if (error instanceof SyntaxError) throw new Error("Remote MCP returned an invalid JSON response");
     throw error;
   } finally {
     clearTimeout(timeout);

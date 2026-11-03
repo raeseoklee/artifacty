@@ -21,6 +21,7 @@
 | 브라우저 사용 매뉴얼 | [매뉴얼](user-guide.md) | [Guide](../user-guide.md) |
 | 컬렉션·카테고리·작성 이력 | [아티팩트 정리와 작성 이력](organizing-artifacts.md) | [Guide](../organizing-artifacts.md) |
 | 인터랙티브 설명 | [안내](interactive-explainers.md) | [Guide](../interactive-explainers.md) |
+| 원격 연결 프로필 | [안내](newremote-connections.md) | [Guide](../newremote-connections.md) |
 | PostgreSQL 저장소 | [안내](postgresql.md) | [Guide](../postgresql.md) |
 | 로컬 모델과 의미 검색 | [안내](embeddings.md) | [Guide](../embeddings.md) |
 | 언어 팩 | [안내](language-packs.md) | [Guide](../language-packs.md) |

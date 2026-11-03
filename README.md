@@ -43,6 +43,8 @@ Artifacts make session output available as pages that you can share and version.
 
 Artifacty 0.18.0 supports PostgreSQL as an optional metadata backend; SQLite remains the default. See [PostgreSQL setup and operational limits](docs/postgresql.md).
 
+Artifacty 0.18.1 adds [remote connection profiles and MCP settings migration](docs/newremote-connections.md). Use `artifacty remote add company https://artifacty.example.com`, `artifacty remote use company`, and `artifacty remote check`; install clients with `artifacty install all --remote active` to follow that selection.
+
 ## Installation
 
 Artifacty requires Node.js 22.12.0 or newer. Node 24 is recommended. On Node 22.12, enable its experimental SQLite support with `NODE_OPTIONS=--experimental-sqlite`.
@@ -830,6 +832,8 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | Storage directory | `~/.artifacty` |
+| `ARTIFACTY_CONFIG_HOME` | Private remote profile configuration directory | `~/.config/artifacty` |
+| `ARTIFACTY_REMOTE` | Remote profile name, or `active` to follow the current selection | Unset |
 | `ARTIFACTY_DATABASE_URL` | PostgreSQL connection URL; unset uses SQLite | Unset |
 | `ARTIFACTY_DATABASE_SCHEMA` | Dedicated PostgreSQL schema | `artifacty` |
 | `ARTIFACTY_DATABASE_TIMEOUT_MS` | PostgreSQL operation timeout (1,000–120,000 ms) | `15000` |

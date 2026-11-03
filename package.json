@@ -1,6 +1,6 @@
 {
   "name": "artifacty",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "description": "Local artifact exchange for heterogeneous LLM agents via HTTP and MCP.",
   "type": "module",
   "keywords": [
@@ -74,7 +74,8 @@
     "vendor",
     "docs/organizing-artifacts.md",
     "docs/interactive-explainers.md",
-    "docs/postgresql.md"
+    "docs/postgresql.md",
+    "docs/newremote-connections.md"
   ],
   "engines": {
     "node": ">=22.12"

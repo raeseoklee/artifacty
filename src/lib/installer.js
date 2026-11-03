@@ -66,6 +66,17 @@ export function createMcpServerConfig(options = {}) {
     env.ARTIFACTY_HOME = path.resolve(options.home || process.env.ARTIFACTY_HOME);
   }
 
+  const remote = options.remote || process.env.ARTIFACTY_REMOTE;
+  if (remote) {
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(remote)) throw new Error("Invalid remote profile name");
+    env.ARTIFACTY_MCP_MODE = "bridge";
+    env.ARTIFACTY_REMOTE = remote;
+    if (process.env.ARTIFACTY_CONFIG_HOME) env.ARTIFACTY_CONFIG_HOME = path.resolve(process.env.ARTIFACTY_CONFIG_HOME);
+    delete env.ARTIFACTY_MCP_URL;
+    delete env.ARTIFACTY_URL;
+    delete env.ARTIFACTY_API_TOKEN;
+  }
+
   return {
     command: "node",
     args: [serverPath],

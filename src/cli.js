@@ -11,7 +11,7 @@ const PACKAGE_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 async function main() {
   const [command, ...args] = process.argv.slice(2);
-  const options = parseArgs(args);
+  const options = parseArgs(args, command);
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp();
@@ -20,6 +20,24 @@ async function main() {
 
   if (command === "version" || command === "--version" || command === "-v") {
     process.stdout.write(`${await packageVersion()}\n`);
+    return;
+  }
+
+  if (command === "remote") {
+    const [action, ...values] = options._;
+    const usage = "Usage: artifacty remote add <name> <url> [--api-token <token>] | use <name> | check [name] | list | migrate <old-url> --to <new-url> [--dry-run] [--config <path> --agent <client>]";
+    const allowed = new Set(["_", "apiToken", "configDir", "projectDir", "config", "agent", "to", "dryRun", "timeout", "allowInsecureDowngrade"]);
+    if (Object.keys(options).some(key => !allowed.has(key))) throw new Error(usage);
+    const remotes = await import("./lib/remotes.js");
+    const shared = { configDir: options.configDir, ...(options.apiToken !== undefined ? { apiToken: options.apiToken } : {}), timeoutMs: options.timeout, allowInsecureDowngrade: Boolean(options.allowInsecureDowngrade) };
+    if (action === "add" && values.length === 2) printJson(await remotes.addRemote(values[0], values[1], shared));
+    else if (action === "use" && values.length === 1) printJson(await remotes.useRemote(values[0], shared));
+    else if (action === "check" && values.length <= 1) printJson(await remotes.checkRemote(values[0], shared));
+    else if (action === "list" && values.length === 0) printJson(await remotes.listRemotes(shared));
+    else if (action === "migrate" && values.length === 1 && typeof options.to === "string") {
+      const { migrateRemote } = await import("./lib/remote-migrate.js");
+      printJson(await migrateRemote(values[0], options.to, { ...shared, projectDir: options.projectDir, configPath: options.config, agent: options.agent, dryRun: Boolean(options.dryRun) }));
+    } else throw new Error(usage);
     return;
   }
 
@@ -284,6 +302,7 @@ async function main() {
       serverPath: options.serverPath,
       url: options.url,
       mcpUrl: options.mcpUrl,
+      remote: options.remote,
       apiToken: options.apiToken,
       transport: options.transport,
       home: options.home,
@@ -929,7 +948,7 @@ async function execWatchCommand(command, event) {
   });
 }
 
-function parseArgs(args) {
+function parseArgs(args, command) {
   const options = {};
   const positional = [];
 
@@ -941,7 +960,7 @@ function parseArgs(args) {
     }
 
     const key = arg.slice(2);
-    if (key === "check" || key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force" || key === "skip-mcp" || key === "mcp-http" || key === "no-password-reset" || key === "relations" || key === "structured" || key === "json" || key === "once" || key === "full" || key === "force-users" || key === "allow-purge" || key === "shared" || key === "embeddings") {
+    if (key === "allow-insecure-downgrade" || key === "check" || key === "raw" || key === "dry-run" || key === "trust" || key === "include-archived" || key === "allow-secrets" || key === "generate-token" || key === "detach" || key === "foreground" || key === "force" || key === "skip-mcp" || key === "mcp-http" || key === "no-password-reset" || key === "relations" || key === "structured" || key === "json" || key === "once" || key === "full" || key === "force-users" || key === "allow-purge" || key === "shared" || key === "embeddings") {
       options[toCamelCase(key)] = true;
       continue;
     }
@@ -951,7 +970,9 @@ function parseArgs(args) {
       throw new Error(`Missing value for --${key}`);
     }
 
-    if (key === "tag") {
+    if (key === "to" && command === "remote") {
+      options.to = value;
+    } else if (key === "tag") {
       options.tag = [...(options.tag || []), value];
     } else if (key === "keep-tag") {
       options.keepTag = [...(options.keepTag || []), value];
@@ -1032,7 +1053,12 @@ Usage:
   artifacty doctor [--home ~/.artifacty] [--skip-mcp] [--timeout 5000]
   artifacty publish --title <title> (--file <path> | --content <text>) [--format html|markdown|text|json|code|svg|mermaid|react|sarif|csv|image|video|notebook|collection|explainer] [--source agent] [--tag tag] [--visibility private|team|public]
   artifacty import --agent claude|codex|gemini|copilot|cursor|auto (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react|sarif|csv|image|video|notebook|collection|explainer] [--tag tag]
-  artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--mcp-url http://127.0.0.1:8787/mcp] [--api-token token] [--transport local|bridge] [--timeout 30000]
+  artifacty remote add <name> <url> [--api-token token] [--allow-insecure-downgrade]
+  artifacty remote use <name>
+  artifacty remote check [name]
+  artifacty remote list
+  artifacty remote migrate <old-url> --to <new-url> [--dry-run] [--agent client --config path] [--api-token token]
+  artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--remote active|name] [--mcp-url http://127.0.0.1:8787/mcp] [--api-token token] [--transport local|bridge] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
   artifacty update [--check] [--target-version <version>] [--home <path>]
   artifacty upgrade [--check] [--target-version <version>] [--home <path>]
@@ -1080,6 +1106,8 @@ Upgrade recovery:
   artifacty restore <id> restores an archived artifact, not a store backup.
 
 Environment:
+  ARTIFACTY_CONFIG_HOME    Remote profile directory. Defaults to ~/.config/artifacty
+  ARTIFACTY_REMOTE         MCP connection profile name or active; resolved on each request
   ARTIFACTY_HOME           Storage directory. Defaults to ~/.artifacty
   ARTIFACTY_DATABASE_URL   PostgreSQL connection URL; unset uses SQLite
   ARTIFACTY_DATABASE_SCHEMA PostgreSQL schema. Defaults to artifacty

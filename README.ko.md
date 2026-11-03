@@ -47,6 +47,8 @@ Mermaid 플로우차트에서 분기를 선택하고, 강조된 경로를 따라
 
 0.18.0부터 PostgreSQL을 선택적 메타데이터 백엔드로 사용할 수 있습니다. 기본값은 SQLite입니다. [PostgreSQL 설정과 운영 제한](docs/ko/postgresql.md)을 참고하세요.
 
+0.18.1부터 [원격 연결 프로필과 MCP 설정 이전](docs/ko/newremote-connections.md)을 제공합니다. `artifacty remote add company https://artifacty.example.com`, `artifacty remote use company`, `artifacty remote check`로 연결을 준비하고, `artifacty install all --remote active`로 설치하면 클라이언트가 활성 프로필을 따릅니다.
+
 ## 설치
 
 Artifacty를 실행하려면 Node.js 22.12.0 이상이 필요하며 Node 24를 권장합니다. Node 22.12에서는 `NODE_OPTIONS=--experimental-sqlite`로 실험적 SQLite 지원을 활성화해야 합니다.
@@ -744,6 +746,8 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | 변수 | 용도 | 기본값 |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | 저장소 디렉터리 | `~/.artifacty` |
+| `ARTIFACTY_CONFIG_HOME` | 원격 연결 프로필의 비공개 설정 디렉터리 | `~/.config/artifacty` |
+| `ARTIFACTY_REMOTE` | 원격 프로필 이름. `active`이면 현재 활성 선택을 따릅니다. | 미설정 |
 | `ARTIFACTY_DATABASE_URL` | PostgreSQL 연결 URL. 설정하지 않으면 SQLite를 사용합니다. | 미설정 |
 | `ARTIFACTY_DATABASE_SCHEMA` | PostgreSQL 전용 스키마 | `artifacty` |
 | `ARTIFACTY_DATABASE_TIMEOUT_MS` | PostgreSQL 작업 제한 시간(1,000–120,000ms) | `15000` |
