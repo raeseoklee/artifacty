@@ -81,9 +81,17 @@ A share link provides read-only access to the selected version or the latest ver
 
 IP restrictions still apply unless an administrator enables the specific shared-link exception. That exception permits valid share links and their raw content; it does not open the dashboard, API, or MCP to the blocked IP range. See [network sharing](network-sharing.md).
 
-![English comments and review status](assets/screenshots/comments.png)
+![English comments and review status](assets/screenshots/comments-review-source.png)
 
-Comments support discussion about an artifact version. **Review status** records the workflow state: **No review**, **Pending review**, **Changes requested**, or **Approved**. The artifact owner or administrator can select a status and use **Change status**. Review status helps people find work that needs attention; it does not grant access or make content public. Confirm the new status in the viewer or dashboard filter.
+The following comment controls are available in Artifacty 0.19.0 and later. The screenshot uses a fictional artifact with administrator access.
+
+Comments support discussion about an artifact version. Enter a message and select **Add comment** below the form. A line number is optional for `text`, `code`, and `markdown` artifacts. Open **Source line numbers** to inspect the exact stored source for the version you are viewing, then select its line-number button to fill the optional line field. The rendered document’s visual lines can wrap or omit source syntax, so they do not define these line numbers. Other formats do not show this source panel or line field, including images, video, notebooks, SARIF, CSV, collections, and interactive explainers. Existing API row and path anchors are unchanged.
+
+The source panel shows at most the first 5,000 lines, and its line field accepts numbers from 1 to 5,000. For longer source, read the truncation notice and follow the **Raw** version link to inspect the complete stored content. The limit affects this panel, not the artifact or its raw content.
+
+A comment’s line link opens its recorded artifact version and identifies the source row when that row is within the displayed range. If you are reading an older version, the link stays with that version; it does not attach the comment to the latest content.
+
+**Review status** records the workflow state: **No review**, **Pending review**, **Changes requested**, or **Approved**. With JavaScript enabled, the artifact owner or administrator changes the dropdown and waits for the save result; there is no separate **Change status** button. If saving fails, read the error and retry. Without JavaScript, select the status and submit **Change status**. Review status helps people find work that needs attention; it does not grant access or make content public. Confirm the saved status in the viewer or dashboard filter. Comment and review controls preserve the existing access permissions.
 
 ## Administration and preferences
 

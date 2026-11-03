@@ -184,7 +184,7 @@ On Linux, the updater can install a release and restart the systemd user service
 artifacty update
 ```
 
-`artifacty upgrade` is an alias. With no artifact ID, `update` updates the application. The existing `artifacty update <id>` command still updates artifact content. Use `--target-version <version>` to select an exact release. Use `--home /path/to/store` to select the store. Automatic updates refuse root execution and downgrades. If `latest` is older than the installed service, the updater keeps the newer installation.
+`artifacty upgrade` is an alias. With no artifact ID, `update` updates the application. The existing `artifacty update <id>` command still updates artifact content. Use `--target-version <version>` to select an exact release. Use `--home /path/to/store` to select the store. User-service updates refuse root execution. Automatic updates refuse downgrades. If `latest` is older than the installed service, the updater keeps the newer installation.
 
 For installed versions before 0.14.0, bootstrap the updater with:
 
@@ -196,9 +196,18 @@ This POSIX Linux shell command puts the user-owned launcher first for the curren
 
 The updater stages releases in the user's `~/.local/share/artifacty/releases` directory. It preserves the service's arguments and environment through a systemd drop-in. It creates and verifies a store snapshot before switching releases. If switching or startup fails, it attempts to roll back the changed code, service configuration, and store. Failures before the switch leave the running release in place.
 
+**System services (0.19.0 and later):** A system service such as `artifacty.service` does not require a user login session. With a trusted installation of Artifacty 0.19.0 or later, an administrator can check and update it with:
+
+```bash
+sudo /usr/bin/node /path/to/trusted/artifacty/src/cli.js update --check --service-scope system --service-name artifacty.service --home /path/to/store
+sudo /usr/bin/node /path/to/trusted/artifacty/src/cli.js update --service-scope system --service-name artifacty.service --home /path/to/store
+```
+
+Replace both paths before running these commands. Actual system-service updates require root, but the server must run as a fixed non-root `User`. The unit must have a supported absolute Node `ExecStart` and an explicit matching `--home`. Do not run a service-account-writable updater as root. The updater stages a release, verifies a store snapshot, switches the service, and attempts rollback on failure. It does not overwrite the original application directory. Browser updates remain limited to supported user services; system installations show administrator CLI guidance. PostgreSQL automatic updates remain unsupported. These new options are not available in 0.18.1. See [system-service update requirements and recovery](docs/upgrade-backups.md#system-service-updates) before using them.
+
 Before stopping an active service, the updater checks its current health. If its bind address or network policy blocks that check, the update stops before downtime. The service stops during the update. Stop other clients that use the same store first. A store rollback discards writes made after the snapshot.
 
-This automatic update path supports the Linux systemd user service only. It does not update macOS, Windows, foreground servers, or detached background servers automatically. A root-owned global installation remains in place. Add `~/.local/bin` to `PATH` if needed to use the user-owned launchers. If another command takes precedence, use the absolute `nextCommand` returned by the updater. It does not change shell configuration. An abrupt process or host shutdown can leave an update lock or a stopped service; inspect recovery before retrying. See [update operations and recovery](docs/upgrade-backups.md) for prerequisites and limits.
+The default automatic update path supports the Linux systemd user service. It does not update macOS, Windows, foreground servers, or detached background servers automatically. A root-owned global installation remains in place. Add `~/.local/bin` to `PATH` if needed to use the user-owned launchers. If another command takes precedence, use the absolute `nextCommand` returned by the updater. It does not change shell configuration. An abrupt process or host shutdown can leave an update lock or a stopped service; inspect recovery before retrying. See [update operations and recovery](docs/upgrade-backups.md) for prerequisites and limits.
 
 ## Quick Start
 
@@ -832,6 +841,8 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | Variable | Purpose | Default |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | Storage directory | `~/.artifacty` |
+| `ARTIFACTY_SERVICE_SCOPE` | Updater service scope: `user` or opt-in `system`; applying a system-service update requires root (0.19.0 and later) | `user` |
+| `ARTIFACTY_SERVICE_NAME` | Updater systemd unit; system scope must select a supported non-root service (0.19.0 and later) | `com.artifacty.server.service` for user; `artifacty.service` for system |
 | `ARTIFACTY_CONFIG_HOME` | Private remote profile configuration directory | `~/.config/artifacty` |
 | `ARTIFACTY_REMOTE` | Remote profile name, or `active` to follow the current selection | Unset |
 | `ARTIFACTY_DATABASE_URL` | PostgreSQL connection URL; unset uses SQLite | Unset |

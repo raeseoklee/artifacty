@@ -96,13 +96,14 @@ test("worker persists progress and success outside a replaced artifact store, an
   const started = await updater.start(confirmed(checked));
   await runWebUpdate(started.run.id, { userHome, update: async (options) => {
     assert.equal(options.targetVersion, "99.0.0");
-    options.onProgress("Stopping service.");
+    options.onProgress("Stopping service.", "backup");
     await rm(home, { recursive: true });
     await mkdir(home);
     return { updated: true, currentVersion, targetVersion: "99.0.0", backupId: "backup-1" };
   } });
   const state = await updater.status("session-a");
   assert.equal(state.run.state, "succeeded");
+  assert.equal(state.run.step, "completed");
   assert.equal(state.run.result.backupId, "backup-1");
   await assert.rejects(runWebUpdate(started.run.id, { userHome }));
 });
@@ -115,6 +116,7 @@ test("rollback failure retains safe recovery information without exposing proces
   } });
   const state = await updater.status("session-a");
   assert.equal(state.run.state, "failed");
+  assert.equal(state.run.step, "failed");
   assert.equal(state.run.errorCode, "UPDATE_RECOVERY_INCOMPLETE");
   assert.equal(state.run.result.backupId, "backup-2");
   assert.ok(!JSON.stringify(state).includes("SECRET"));
@@ -200,4 +202,31 @@ test("POSIX update state and worker requests must remain private", { skip: proce
   let invoked = false;
   await assert.rejects(runWebUpdate(started.run.id, { userHome, update: async () => { invoked = true; } }), { code: "UNSAFE_UPDATE_STATE" });
   assert.equal(invoked, false);
+});
+
+test("system service checks give safe administrator guidance without privileged dispatch", async (t) => {
+  const { updater, calls } = await fixture(t, {
+    inspect: async () => { throw Object.assign(new Error("SECRET systemctl stderr"), { code: "SYSTEM_UPDATE_REQUIRES_ADMIN" }); },
+    update: async () => ({ targetVersion: "99.0.0", updateAvailable: true, supported: true, serviceScope: "system" })
+  });
+  const state = await updater.check("session-a");
+  assert.equal(state.check.supported, false);
+  assert.equal(state.check.reasonCode, "SYSTEM_UPDATE_REQUIRES_ADMIN");
+  assert.ok(!JSON.stringify(state).includes("SECRET"));
+  await assert.rejects(updater.start(confirmed(state)), { code: "UPDATE_CONFIRMATION_REQUIRED" });
+  assert.equal(calls.length, 0);
+});
+
+test("system service read-only checks need no writable account home", async (t) => {
+  const { home } = await fixture(t);
+  const updater = createWebUpdater({ home, packageRoot }, {
+    userHome: path.join(path.dirname(home), "not-a-directory"),
+    inspect: async () => { throw Object.assign(new Error("No user bus"), { code: "SYSTEM_UPDATE_REQUIRES_ADMIN" }); },
+    update: async () => ({ targetVersion: "99.0.0", updateAvailable: true, supported: true, serviceScope: "system" })
+  });
+  await writeFile(path.join(path.dirname(home), "not-a-directory"), "fixture");
+  const state = await updater.check("session-a");
+  assert.equal(state.check.reasonCode, "SYSTEM_UPDATE_REQUIRES_ADMIN");
+  assert.equal((await updater.status("session-a")).check.targetVersion, "99.0.0");
+  await assert.rejects(updater.start(confirmed(state)), { code: "UPDATE_CONFIRMATION_REQUIRED" });
 });

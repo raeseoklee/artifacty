@@ -401,6 +401,9 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   if (method === "GET" && pathname === "/assets/theme.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "theme.js"), headOnly, request);
   }
+  if (method === "GET" && pathname === "/assets/comment-lines.js") {
+    return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "comment-lines.js"), headOnly, request);
+  }
   if (method === "GET" && pathname === "/assets/auto-apply.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "auto-apply.js"), headOnly, request);
   }
@@ -2128,6 +2131,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       access: accessContext(request, currentUser),
       audit: auditContext(request, "web")
     });
+    if (request.headers.accept === "application/json") return sendJson(response, { ok: true, status: body.status });
     return sendRedirect(response, localizedHref(`/artifacts/${encodeURIComponent(reviewStatusFormMatch[1])}`, bodyLocale));
   }
 

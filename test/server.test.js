@@ -91,7 +91,8 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.match(markdownTablePage, /<th class="align-left">Name<\/th>/);
     assert.match(markdownTablePage, /<th class="align-right">Count<\/th>/);
     assert.match(markdownTablePage, /<th class="align-center">Status<\/th>/);
-    assert.doesNotMatch(markdownTablePage, /\|:-----\|------:\|/);
+    assert.doesNotMatch(markdownTablePage.replace(/<details class="comment-source"[\s\S]*?<\/details>/g, ""), /\|:-----\|------:\|/);
+    assert.match(markdownTablePage, /data-comment-source/);
 
     const sarifContent = JSON.stringify({
       version: "2.1.0",

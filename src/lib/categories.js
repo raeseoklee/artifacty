@@ -178,7 +178,7 @@ export async function setCategoryArtifact(store = createStore(), id, artifactId,
         db.prepare("UPDATE categories SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
         auditMutation(db, present ? "category-artifact-add" : "category-artifact-remove", row, access, audit, artifactId);
       }
-      return { categoryId: id, artifactId, present };
+      return { categoryId: id, artifactId, present, changed: Boolean(change.changes) };
     });
   } finally { db.close(); }
 }

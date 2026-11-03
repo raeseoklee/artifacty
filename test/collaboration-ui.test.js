@@ -93,3 +93,25 @@ test("public HTML preview is confined to a scriptless capability iframe", () => 
   assert.match(html, /Static preview/);
   assert.doesNotMatch(html, /srcdoc=|allow-scripts|fetch\(document.baseURI\)|secret-id/);
 });
+
+test("comment source lines match stored text and binary/structured viewers omit line fields", () => {
+  const common = { artifact: { ...artifact, relations: undefined }, baseUrl, user: { id: "owner", role: "admin" }, permission: "owner" };
+  for (const format of ["text", "code", "markdown"]) {
+    const page = renderArtifactPage({ ...common, version: { ...version, format }, content: "first\r\n<script>second</script>\n" });
+    assert.match(page, /data-source-line="3"/);
+    assert.match(page, /max="3" data-comment-line-input/);
+    assert.match(page, /&lt;script&gt;second&lt;\/script&gt;/);
+    assert.match(page, /data-review-status/);
+    assert.match(page, /comment-form-actions/);
+  }
+  const page = renderArtifactPage({ ...common, version: { ...version, format: "json" }, content: '{}' });
+  assert.doesNotMatch(page, /data-comment-source|data-comment-line-input/);
+});
+
+test("numbered comment source bounds DOM growth without truncating the artifact", () => {
+  const page = renderArtifactPage({ artifact: { ...artifact, relations: undefined }, version: { ...version, format: "text" }, content: Array.from({ length: 5001 }, (_, i) => `line-${i+1}`).join('\n'), baseUrl });
+  assert.match(page, /data-source-line="5000"/);
+  assert.doesNotMatch(page, /data-source-line="5001"/);
+  assert.match(page, /first 5,000 source lines/);
+  assert.match(page, /line-5001/);
+});

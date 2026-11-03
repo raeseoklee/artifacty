@@ -42,7 +42,7 @@ for (const scenario of ["succeeded", "failed", "interrupted", "running", "offlin
   test(`update polling handles ${scenario} without submitting an update`, async () => {
     const state = {}, error = {}, version = {}, login = { hidden: true }, timers = [], requests = [];
     const messages = { succeeded: "done", failed: "failed", interrupted: "interrupted", running: "running", signIn: "login", reconnect: "reconnect" };
-    const panel = { dataset: { active: "true", messages: JSON.stringify(messages) }, querySelector: (selector) => selector.includes("state") ? state : selector.includes("error") ? error : login };
+    const panel = { dataset: { active: "true", messages: JSON.stringify(messages) }, querySelector: (selector) => selector.includes("state") ? state : selector.includes("error") ? error : selector.includes("login") ? login : null };
     const fetch = async (url, options) => {
       requests.push({ url, options });
       if (scenario === "offline") throw new Error("offline");
@@ -67,4 +67,65 @@ test("an up-to-date installation shows only the current-version message without 
     assert.doesNotMatch(html, /releases\/tag|action="\/admin\/update\/start"|<h2>Available version<\/h2>|<h2>업데이트할 버전<\/h2>/);
     assert.match(html, /data-update-version>0.14.0/);
   }
+});
+
+test("system services show administrator CLI guidance in both languages", () => {
+  for (const locale of ["en", "ko"]) {
+    const html = render({ check: { ...check, supported: false, reasonCode: "SYSTEM_UPDATE_REQUIRES_ADMIN", reason: "SECRET" } }, locale);
+    assert.match(html, /--service-scope system/);
+    assert.match(html, /--service-name/);
+    assert.doesNotMatch(html, /SECRET|action="\/admin\/update\/start"/);
+  }
+});
+
+
+test("update progress tracks structured steps without claiming completion before health passes", () => {
+  for (const [step, value, number] of [["preparing", 0, 1], ["staging", 1, 2], ["backup", 2, 3], ["switching", 3, 4], ["health", 4, 5]]) {
+    const html = render({ run: { state: "running", step, targetVersion: "99.0.0" } });
+    assert.match(html, new RegExp(`aria-valuenow="${value}"`));
+    assert.match(html, new RegExp(`Step ${number} of 5:`));
+    assert.match(html, new RegExp(`style="width: ${value * 20}%"`));
+    assert.doesNotMatch(html, /data-update-step[^>]*>All update steps completed/);
+  }
+  const success = render({ run: { state: "succeeded", targetVersion: "99.0.0" } });
+  assert.match(success, /aria-valuenow="5"/);
+  assert.match(success, /data-update-step[^>]*>All update steps completed/);
+  for (const run of [{state:"queued"}, {state:"running",step:"future-step"}, {state:"running",step:"recovery"}, {state:"failed",step:"completed"}, {state:"interrupted",step:"completed"}]) {
+    const html = render({run});
+    assert.match(html, /role="progressbar"/);
+    assert.doesNotMatch(html, /aria-valuenow=|data-update-step[^>]*>All update steps completed/);
+  }
+});
+
+test("refreshing the updated version dismisses a completed run but preserves recovery warnings", () => {
+  assert.doesNotMatch(render({ run: { state: "succeeded", targetVersion: "0.14.0" } }), /data-update-status|All update steps completed/);
+  for (const state of ["failed", "interrupted"]) {
+    assert.match(render({ run: { state, targetVersion: "0.14.0" } }), /data-update-status/);
+  }
+});
+
+test("polling updates accessible progress and removes numeric values for recovery", async () => {
+  const attributes = new Map(), toggles = new Map(), timers = [];
+  const progress = { setAttribute: (name, value) => attributes.set(name, value), removeAttribute: name => attributes.delete(name) };
+  const bar = { style: {}, classList: { toggle: (name, value) => toggles.set(name, value) } };
+  const step = {}, state = {}, error = {}, version = {};
+  const messages = { running: "running", succeeded: "done", steps: { staging: "Checking release", health: "Checking health", completed: "All steps done", recovery: "Restoring backup" }, stepCount: "Step {current} of {total}: {phase}" };
+  const elements = { "[data-update-progress]": progress, "[data-update-bar]": bar, "[data-update-step]": step, "[data-update-state]": state, "[data-update-error]": error };
+  const panel = { dataset: { active: "true", messages: JSON.stringify(messages) }, querySelector: selector => elements[selector] || null };
+  let run = { state: "running", step: "staging" };
+  const fetch = async () => ({ ok: true, status: 200, json: async () => ({ run }) });
+  vm.runInNewContext(client, { document: { querySelector: selector => selector.includes("status") ? panel : version }, fetch, window: { setTimeout: callback => timers.push(callback) } });
+  await timers.shift()();
+  assert.equal(attributes.get("aria-valuenow"), "1");
+  assert.equal(step.textContent, "Step 2 of 5: Checking release");
+  assert.equal(bar.style.width, "20%");
+  run = { state: "running", step: "recovery" };
+  await timers.shift()();
+  assert.equal(attributes.has("aria-valuenow"), false);
+  assert.equal(step.textContent, "Restoring backup");
+  run = { state: "succeeded", step: "completed" };
+  await timers.shift()();
+  assert.equal(attributes.get("aria-valuenow"), "5");
+  assert.equal(bar.style.width, "100%");
+  assert.equal(timers.length, 0);
 });

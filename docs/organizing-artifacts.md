@@ -2,7 +2,7 @@
 
 English | [한국어](ko/organizing-artifacts.md)
 
-These features are available in Artifacty 0.17.0 and later.
+Collections, category memberships, and author history are available in Artifacty 0.17.0 and later. Sidebar category navigation and the drag-and-drop workflow require Artifacty 0.19.0 or later.
 
 The screenshots show English UI on an isolated public-mode server with fictional data and a signed-in administrator. The example model names are test labels, not claims about models used in production.
 
@@ -68,7 +68,7 @@ The same artifact belongs to one personal category and one team category. The ex
 
 Sign in with an active account before using categories. Categories do not provide an anonymous or browser-local substitute for an account. Category management requires JavaScript.
 
-1. Open **Categories** in the navigation.
+1. Open **Artifact categories → Manage categories** in the navigation.
 2. Under **Create category**, enter a name and select **Personal** or **Team**. For a team category, select one of your available teams and create the category.
 3. Open an artifact and follow its **Categories** link. Select **Included** for each category you want. Membership changes apply immediately; wait for **Saved**.
 4. Return to **Artifacts** and use the **Category** filter, or follow a category’s artifact-count link, to view its members.
@@ -77,6 +77,22 @@ Sign in with an active account before using categories. Categories do not provid
 ![Artifact list filtered to the personal Research library category](assets/screenshots/manual-category-filter.png)
 
 Selecting the category narrows the list to its readable members without changing their tags or access.
+
+### Add artifacts from the list
+
+![Grouped category sidebar after adding two selected artifacts to a team category](assets/screenshots/category-tree-drag.png)
+
+The signed-in administrator added two fictional artifacts to **Release review** under **Product team**. The sidebar reports the result and offers **Undo**; the row dropdowns provide an alternative to dragging.
+
+The sidebar groups categories under **Personal** and **Teams**, with a separate branch for each team. Expand or collapse a branch to browse your categories. The browser remembers these choices for your account on that browser. These are navigation groups, not nested category memberships. Select a category to filter the artifact list, or use **All artifacts** to return to the full list you can read.
+
+1. On **Artifacts**, drag an artifact row onto a writable category in the sidebar.
+2. To add several artifacts, select their checkboxes first, then drag one of the selected rows. Select up to 100 artifacts for one action; the page prevents selecting a 101st artifact and displays a limit message.
+3. If dragging is inconvenient, use the row’s **Add to category** dropdown. It acts on the selected group when that row is selected; otherwise, it acts only on that row. This alternative also requires JavaScript.
+4. Wait for the addition result. Adding to a category keeps the artifact in its existing categories and does not change its sharing permissions.
+5. Use **Undo** to remove only the memberships newly added by the latest action. Pre-existing memberships remain. Undo is temporary page state, not a persistent operation history.
+
+If some additions fail, successful additions remain. Read the result before retrying; **Undo**, when offered, applies to the successful new additions. Refresh the filtered list to verify its members. To remove an existing membership, use the artifact’s **Categories** page and clear **Included**.
 
 Categories reuse existing teams. The page shows the teams available to you. Administrators can follow **Manage teams and members** to Access settings; other users ask an administrator to change membership.
 

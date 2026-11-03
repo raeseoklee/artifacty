@@ -18,3 +18,36 @@ export function enhanceAutoApply(document) {
   }
 }
 if (typeof document !== 'undefined') enhanceAutoApply(document);
+
+// Review status is the only opt-in mutation; save without navigating away from
+// an unfinished comment. The ordinary submit remains available without JS.
+export function enhanceReviewStatus(document, fetcher = globalThis.fetch) {
+  for (const form of document.querySelectorAll('form[data-review-status]')) {
+    const select = form.querySelector('select[name="status"]');
+    const feedback = form.querySelector('[data-review-feedback]');
+    const submit = form.querySelector('button[type="submit"]');
+    if (!select || !feedback || !fetcher) continue;
+    let saved = select.value;
+    async function save(event) {
+      event?.preventDefault();
+      if (select.disabled || !form.reportValidity() || select.value === saved) return;
+      const next = select.value;
+      const body = new URLSearchParams(new FormData(form));
+      select.disabled = true;
+      feedback.textContent = form.dataset.saving;
+      try {
+        const response = await fetcher(form.action, { method: 'POST', body, credentials: 'same-origin', headers: { Accept: 'application/json' } });
+        if (!response.ok || (await response.json()).ok !== true) throw new Error('Save failed');
+        saved = next;
+        feedback.textContent = form.dataset.saved;
+      } catch {
+        select.value = saved;
+        feedback.textContent = form.dataset.failed;
+      } finally { select.disabled = false; }
+    }
+    select.addEventListener('change', save);
+    form.addEventListener('submit', save);
+    if (submit) submit.hidden = true;
+  }
+}
+if (typeof document !== 'undefined') enhanceReviewStatus(document);

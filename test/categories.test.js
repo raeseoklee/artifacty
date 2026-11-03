@@ -34,8 +34,8 @@ test("personal categories are owner-only and independent of tags, versions, and 
     assert.equal(one.name, "Read next");
     assert.equal(one.scope, "personal");
     assert.equal(one.ownerUserId, owner.userId);
-    await setCategoryArtifact(store, one.id, artifact.id, true, { access: owner });
-    await setCategoryArtifact(store, one.id, artifact.id, true, { access: owner });
+    assert.equal((await setCategoryArtifact(store, one.id, artifact.id, true, { access: owner })).changed, true);
+    assert.equal((await setCategoryArtifact(store, one.id, artifact.id, true, { access: owner })).changed, false);
     await setCategoryArtifact(store, two.id, artifact.id, true, { access: owner });
     assert.deepEqual(await listCategoryArtifactIds(store, one.id, { access: owner }), [artifact.id]);
     assert.deepEqual(await listCategories(store, { access: member }), []);

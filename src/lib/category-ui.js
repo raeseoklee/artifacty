@@ -29,3 +29,17 @@ export function renderCategoriesBody({ categories, teams, artifact, view, user }
     <script type="application/json" id="category-messages">${JSON.stringify(messages).replaceAll("<", "\\u003c")}</script>
   </main>`;
 }
+
+// The sidebar loads only the signed-in user's categories through the checked API.
+// Keeping this shell independent of category data lets every page share it.
+export function renderCategoryNavigation({ user, view }) {
+  if (!user) return "";
+  const keys = ["allArtifacts", "manage", "personal", "teams", "empty", "loadError", "added", "alreadyIncluded", "undo", "undone", "choose", "dropHint", "partialError", "selectionLimit", "saving", "error"];
+  const messages = Object.fromEntries(keys.map(key => [key, view.raw(`category.${key}`, { count: "{count}", name: "{name}" })]));
+  const current = new URL(view.currentPath || "/", "http://artifacty.local");
+  return `<details class="category-navigation" data-category-navigation data-category-user="${escape(user.id)}" data-category-selected="${escape(current.searchParams.get("categoryId") || "")}" data-category-home="${escape(view.href("/"))}" data-category-messages="${escape(JSON.stringify(messages))}" open>
+    <summary>${view.text("category.navigation")}</summary>
+    <div class="category-navigation-content"><a class="category-all-link" href="${view.href("/")}">${view.text("category.allArtifacts")}</a><div data-category-tree></div><a class="category-manage-link" href="${view.href("/categories")}">${view.text("category.manage")}</a></div>
+    <p class="category-navigation-status" data-category-nav-status role="status" aria-live="polite"></p><button class="btn btn-outline-secondary category-undo" type="button" data-category-undo hidden>${view.text("category.undo")}</button>
+  </details>`;
+}

@@ -5,6 +5,28 @@ if (panel?.dataset.active === "true") {
   const stateLabel = panel.querySelector("[data-update-state]");
   const errorLabel = panel.querySelector("[data-update-error]");
   const versionLabel = document.querySelector("[data-update-version]");
+  const progress = panel.querySelector("[data-update-progress]");
+  const bar = panel.querySelector("[data-update-bar]");
+  const stepLabel = panel.querySelector("[data-update-step]");
+  const steps = ["preparing", "staging", "backup", "switching", "health"];
+
+  function refreshProgress(run) {
+    if (!progress || !bar || !stepLabel) return;
+    const active = ["queued", "running"].includes(run.state);
+    const index = active ? steps.indexOf(run.step) : -1;
+    const value = run.state === "succeeded" ? 5 : index >= 0 ? index : null;
+    const label = run.state === "succeeded" ? messages.steps.completed : index >= 0
+      ? messages.stepCount.replace("{current}", String(index + 1)).replace("{total}", "5").replace("{phase}", messages.steps[run.step])
+      : run.step === "recovery" ? messages.steps.recovery : messages[run.state] || messages.running;
+    stepLabel.textContent = label;
+    progress.setAttribute("aria-valuetext", label);
+    if (value === null) progress.removeAttribute("aria-valuenow");
+    else progress.setAttribute("aria-valuenow", String(value));
+    bar.style.width = `${value === null ? 100 : value * 20}%`;
+    bar.classList.toggle("progress-bar-striped", value === null && active);
+    bar.classList.toggle("progress-bar-animated", value === null && active);
+    bar.classList.toggle("bg-danger", ["failed", "interrupted"].includes(run.state));
+  }
 
   async function refreshStatus() {
     let retry = true;
@@ -21,6 +43,7 @@ if (panel?.dataset.active === "true") {
       if (status.run) {
         stateLabel.textContent = messages[status.run.state] || messages.running;
         errorLabel.textContent = status.run.error || "";
+        refreshProgress(status.run);
         retry = ["queued", "running"].includes(status.run.state);
       }
     } catch {

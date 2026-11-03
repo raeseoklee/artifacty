@@ -50,6 +50,7 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
   const run = injected.run || ((command, args) => execute(command, args, { timeout: 15000, maxBuffer: 1024 * 1024 }));
   const inspect = injected.inspect || ((options) => inspectWebUpdateService(options));
   const update = injected.update || updateApplication;
+  let unsupportedCheck;
   const read = async () => await readJson(file) || {};
   const currentVersion = async () => JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")).version;
   const publicState = async (state, session) => ({
@@ -73,6 +74,7 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
   async function status(session) {
     if (postgres) return { currentVersion: await currentVersion(), supported: false, reason: POSTGRES_UPDATE_REASON, check: null, run: null };
     if (stateInsideStore) return { currentVersion: await currentVersion(), supported: false, reason: "Update state must be outside the artifact store.", check: null, run: null };
+    if (unsupportedCheck) return publicState({ check: unsupportedCheck }, session);
     const state = await read();
     // An unfinished job is never inferred successful. Keep uncertain jobs locked.
     if (ACTIVE.has(state.run?.state) && now() - Date.parse(state.run.startedAt) > 30000) {
@@ -87,7 +89,7 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
           return await locked(async () => {
             const latest = await read();
             if (latest.run?.id === state.run.id && ACTIVE.has(latest.run.state)) {
-              latest.run = { ...latest.run, state: "interrupted", finishedAt: new Date(now()).toISOString(), errorCode: "UPDATE_INTERRUPTED", error: "The update worker stopped without a final result. Inspect the retained update backup and service before retrying." };
+              latest.run = { ...latest.run, state: "interrupted", step: "interrupted", finishedAt: new Date(now()).toISOString(), errorCode: "UPDATE_INTERRUPTED", error: "The update worker stopped without a final result. Inspect the retained update backup and service before retrying." };
               await writeJson(file, latest);
             }
             return publicState(latest, session);
@@ -99,16 +101,36 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
   }
   async function check(session) {
     if (postgres) return status(session);
+    let eligible = false;
+    let inspectionCode;
+    try { await inspect({ home, pid: process.pid }); eligible = true; } catch (error) { inspectionCode = error.code; }
+    // Unsupported system accounts may have no writable login home. A read-only
+    // release check must not create user-worker state or require a user bus.
+    if (inspectionCode === "SYSTEM_UPDATE_REQUIRES_ADMIN") {
+      let checked;
+      try { checked = await update({ home, packageRoot, check: true }); }
+      catch {
+        unsupportedCheck = { supported: false, errorCode: "UPDATE_CHECK_FAILED", reasonCode: inspectionCode };
+        return publicState({ check: unsupportedCheck }, session);
+      }
+      unsupportedCheck = { currentVersion: await currentVersion(), targetVersion: checked.targetVersion,
+        updateAvailable: checked.updateAvailable, supported: false, reasonCode: inspectionCode,
+        reason: "System services require an administrator to run the system-service CLI updater.", confirmationId: null };
+      return publicState({ check: unsupportedCheck }, session);
+    }
     return locked(async () => {
       const state = await read();
       if (ACTIVE.has(state.run?.state) || needsRecovery(state.run)) throw fail("Resolve the existing update before checking again", "UPDATE_BUSY");
-      let eligible = false;
-      try { await inspect({ home, pid: process.pid }); eligible = true; } catch { /* Read-only version checks also support unmanaged installations. */ }
       let result;
       try {
         const checked = await update({ home, packageRoot, check: true });
         result = { currentVersion: await currentVersion(), targetVersion: checked.targetVersion, supported: eligible && checked.supported, updateAvailable: checked.updateAvailable };
-        if (!result.supported) result.reason = "Web updates require this server to be the non-root Linux systemd user service.";
+        if (!result.supported) {
+          result.reasonCode = inspectionCode === "SYSTEM_UPDATE_REQUIRES_ADMIN" || checked.serviceScope === "system" ? "SYSTEM_UPDATE_REQUIRES_ADMIN" : "UNSUPPORTED_SERVICE";
+          result.reason = result.reasonCode === "SYSTEM_UPDATE_REQUIRES_ADMIN"
+            ? "System services require an administrator to run the system-service CLI updater."
+            : "Web updates require this server to be the non-root Linux systemd user service.";
+        }
       } catch (error) {
         result = { currentVersion: await currentVersion(), supported: eligible, updateAvailable: false, reason: "The latest release could not be checked. Try again later.", errorCode: "UPDATE_CHECK_FAILED" };
       }
@@ -120,6 +142,7 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
   }
   async function start({ session, confirmationId, targetVersion, confirmUpdate }) {
     if (postgres) throw fail(POSTGRES_UPDATE_REASON, "POSTGRES_UPDATE_UNSUPPORTED");
+    if (unsupportedCheck) throw fail("System services require the administrator CLI updater", "UPDATE_CONFIRMATION_REQUIRED", 400);
     return locked(async () => {
       const state = await read();
       if (ACTIVE.has(state.run?.state) || needsRecovery(state.run)) throw fail("An update is already running or needs recovery", "UPDATE_BUSY");
@@ -133,7 +156,7 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
       const requestFile = path.join(root, `${id}.json`);
       await writeJson(requestFile, { id, home, packageRoot, targetVersion, statusFile: file });
       state.check.confirmationId = null;
-      state.run = { id, state: "queued", targetVersion, startedAt: new Date(now()).toISOString(), phase: "Starting an independent update worker." };
+      state.run = { id, state: "queued", step: "queued", targetVersion, startedAt: new Date(now()).toISOString(), phase: "Starting an independent update worker." };
       await writeJson(file, state);
       try {
         await run("systemd-run", ["--user", `--unit=${unitName(id)}`, "--collect", "--property=Type=exec", "--", process.execPath, path.join(packageRoot, "src", "update-runner.js"), id]);
@@ -170,16 +193,19 @@ export async function runWebUpdate(id, injected = {}) {
   const state = await readJson(expectedFile);
   if (state?.run?.id !== id || state.run.state !== "queued") throw fail("Update job was already consumed", "INVALID_UPDATE_JOB");
   const save = async (changes) => { state.run = { ...state.run, ...changes }; await writeJson(expectedFile, state); };
-  await save({ state: "running", phase: "Preparing update." });
+  await save({ state: "running", step: "preparing", phase: "Preparing update." });
   let progressQueue = Promise.resolve();
   try {
     const result = await (injected.update || updateApplication)({ home: request.home, packageRoot: request.packageRoot, targetVersion: request.targetVersion,
-      onProgress: (phase) => { progressQueue = progressQueue.then(() => save({ phase })); }
+      onProgress: (phase, step) => {
+        const known = new Set(["staging", "backup", "switching", "health", "recovery"]);
+        progressQueue = progressQueue.then(() => save({ phase, step: known.has(step) ? step : "unknown" }));
+      }
     });
     await progressQueue;
-    await save({ state: "succeeded", phase: "Update completed.", finishedAt: new Date().toISOString(), result });
+    await save({ state: "succeeded", step: "completed", phase: "Update completed.", finishedAt: new Date().toISOString(), result });
   } catch (error) {
     await progressQueue.catch(() => {});
-    await save({ state: "failed", finishedAt: new Date().toISOString(), errorCode: /^[A-Z_]+$/.test(error.code || "") ? error.code : "SELF_UPDATE_FAILED", error: "Update failed. Inspect the service and retained recovery backup before retrying.", result: { backupId: error.backupId, backupPath: error.backupPath } });
+    await save({ state: "failed", step: "failed", finishedAt: new Date().toISOString(), errorCode: /^[A-Z_]+$/.test(error.code || "") ? error.code : "SELF_UPDATE_FAILED", error: "Update failed. Inspect the service and retained recovery backup before retrying.", result: { backupId: error.backupId, backupPath: error.backupPath } });
   } finally { await rm(requestFile, { force: true }); }
 }

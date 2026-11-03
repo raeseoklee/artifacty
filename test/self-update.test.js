@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm, access, symlink, link, chmod, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { updateApplication } from "../src/lib/self-update.js";
+import { updateApplication, inspectWebUpdateService, secureSystemRelease } from "../src/lib/self-update.js";
 
 async function fixture(t, configuration = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "artifacty-self-update-"));
@@ -18,7 +18,9 @@ async function fixture(t, configuration = {}) {
   for (const name of ["server.js", "cli.js", "mcp-server.js"]) await writeFile(path.join(packageRoot, "src", name), "");
   const args = [process.execPath, path.join(packageRoot, "src", "server.js"), "--host", "127.0.0.1", "--home", home, "--api-token", "private-token", "--mcp-http"];
   const original = `[Service]\nEnvironment=ARTIFACTY_HOME=${home}\nExecStart=${args.map((arg) => JSON.stringify(arg)).join(" ")}\n`;
-  const dropin = path.join(userHome, ".config", "systemd", "user", "com.artifacty.server.service.d", "zz-artifacty-self-update.conf");
+  const dropin = configuration.system
+    ? path.join(root, "system-units", "artifacty.service.d", "zz-artifacty-self-update.conf")
+    : path.join(userHome, ".config", "systemd", "user", "com.artifacty.server.service.d", "zz-artifacty-self-update.conf");
   let active = true;
   let pid = 321;
   let starts = 0;
@@ -28,7 +30,8 @@ async function fixture(t, configuration = {}) {
   const state = async () => writeFile(path.join(home, "server.json"), JSON.stringify({ pid, url: "http://127.0.0.1:8787" }));
   await state();
   const injected = {
-    platform: "linux", uid: 1000, userHome, env: { PATH: "/usr/bin" }, sleep: async () => {},
+    platform: "linux", uid: configuration.system ? 0 : 1000, userHome,
+    ...(configuration.system ? { systemStateRoot: path.join(root, "system-state"), systemUnitRoot: path.join(root, "system-units"), resolveServiceUser: async () => ({ uid: 1001, gid: 1001 }), chown: async () => {}, assertServiceUserOffline: async () => { calls.push("service-account-offline"); }, secureRelease: async () => { calls.push("freeze-release"); } } : {}), env: { PATH: "/usr/bin" }, sleep: async () => {},
     assertNoOtherWriters: async () => { calls.push("writers"); },
     verifyServiceIdentity: async () => { calls.push("identity"); },
     health: async () => !configuration.preflightHealthFailure && !(configuration.healthFailure && starts === 1),
@@ -39,6 +42,10 @@ async function fixture(t, configuration = {}) {
     },
     run: async (command, parameters) => {
       calls.push(`${command}:${parameters.join(" ")}`);
+      if (command === "runuser") {
+        const executable = parameters.findIndex((value) => value === "ARTIFACTY_BACKUP_ON_UPDATE=false") + 1;
+        command = parameters[executable]; parameters = parameters.slice(executable + 1);
+      }
       if (command === "npm" && parameters[0] === "view") return { stdout: JSON.stringify(configuration.target || "0.14.0") };
       if (command === "npm") {
         if (configuration.stageFailure) throw new Error("npm output private-token");
@@ -50,7 +57,7 @@ async function fixture(t, configuration = {}) {
       }
       if (command !== "systemctl") return { stdout: parameters.includes("--version") ? `${configuration.target || "0.14.0"}\n` : "" };
       if (parameters.includes("show") && parameters.includes("--value")) return { stdout: String(active ? pid : 0) };
-      if (parameters.includes("show")) return { stdout: `LoadState=loaded\nActiveState=${active ? "active" : "inactive"}\nMainPID=${active ? pid : 0}\n` };
+      if (parameters.includes("show")) return { stdout: `LoadState=loaded\nActiveState=${active ? "active" : "inactive"}\nMainPID=${active ? pid : 0}\n${configuration.system ? `User=${configuration.serviceUser || "artifacty"}\nGroup=\nDynamicUser=${configuration.dynamic ? "yes" : "no"}\n` : ""}` };
       if (parameters.includes("cat")) return { stdout: original + await readFile(dropin, "utf8").catch(() => "") };
       if (parameters.includes("stop")) {
         stops++;
@@ -61,7 +68,7 @@ async function fixture(t, configuration = {}) {
       return { stdout: "" };
     }
   };
-  return { root, userHome, home, packageRoot, dropin, args, calls, phases, injected, options: { home, packageRoot, onProgress: (phase) => phases.push(phase) }, isActive: () => active };
+  return { root, userHome, home, packageRoot, dropin, args, calls, phases, injected, options: { home, packageRoot, ...(configuration.system ? { serviceScope: "system" } : {}), onProgress: (phase) => phases.push(phase) }, isActive: () => active };
 }
 
 // These fixtures model Linux units and /proc with POSIX paths and symlinks.
@@ -218,4 +225,168 @@ test("Windows application updates reject mutation while read-only checks remain 
   assert.equal(stopped(f.calls), false);
   assert.equal(f.calls.some((call) => call.startsWith("npm:install")), false);
   await assert.rejects(access(path.join(f.userHome, ".local")));
+});
+
+
+systemdTest("system service update uses the system manager and drops privileges for package execution", async (t) => {
+  const f = await fixture(t, { system: true });
+  const result = await updateApplication(f.options, f.injected);
+  assert.equal(result.updated, true);
+  assert.equal(result.service, "artifacty.service");
+  assert.equal(result.serviceScope, "system");
+  assert.equal(result.requiresAdmin, true);
+  assert.ok(f.calls.includes("freeze-release"));
+  assert.ok(f.calls.indexOf("freeze-release") > f.calls.findIndex((call) => call.startsWith("systemctl:stop")));
+  assert.ok(f.calls.indexOf("freeze-release") > f.calls.indexOf("service-account-offline"));
+  assert.match(result.nextCommand, /^sudo .*--service-scope system/);
+  assert.ok(f.calls.some((call) => call.startsWith("systemctl:stop artifacty.service")));
+  assert.ok(f.calls.some((call) => call.startsWith("runuser:--user artifacty -- env -i ") && call.includes("npm install")));
+  assert.equal(f.calls.some((call) => call.startsWith("npm:install")), false);
+  assert.equal(f.calls.some((call) => call.includes("systemctl:--user")), false);
+  assert.match(await readFile(f.dropin, "utf8"), /ExecStart=\nExecStart=/);
+});
+
+systemdTest("system updates recover the old unit and snapshot after failed health", async (t) => {
+  const f = await fixture(t, { system: true, healthFailure: true });
+  await assert.rejects(updateApplication(f.options, f.injected), { code: "SELF_UPDATE_FAILED" });
+  assert.equal(f.isActive(), true);
+  assert.ok(f.calls.includes("restore"));
+  await assert.rejects(access(f.dropin));
+});
+
+systemdTest("system updates refuse non-administrators, root service accounts and dynamic users", async (t) => {
+  for (const configuration of [{ uid: 1000 }, { serviceUser: "root" }, { dynamic: true }]) {
+    const f = await fixture(t, { system: true, ...configuration });
+    if (configuration.uid) f.injected.uid = configuration.uid;
+    await assert.rejects(updateApplication(f.options, f.injected), (error) => ["SYSTEM_UPDATE_REQUIRES_ADMIN", "UNSUPPORTED_SERVICE"].includes(error.code));
+    assert.equal(stopped(f.calls), false);
+    assert.equal(f.calls.some((call) => call.includes("npm install")), false);
+  }
+});
+
+systemdTest("service scope and unit validation fail before discovery or registry access", async (t) => {
+  const f = await fixture(t);
+  for (const options of [{ serviceScope: "unknown" }, { serviceScope: "system", serviceName: "../bad.service" }, { serviceScope: "system", serviceName: "--danger.service" }, { serviceName: "other.service" }]) {
+    await assert.rejects(updateApplication({ ...f.options, ...options }, f.injected));
+  }
+  assert.deepEqual(f.calls, []);
+});
+
+systemdTest("missing user bus is sanitized and system scope is available through environment", async (t) => {
+  const f = await fixture(t);
+  const original = f.injected.run;
+  f.injected.run = async (command, args) => {
+    if (command === "systemctl") throw new Error("Command failed: systemctl private-address private-token");
+    return original(command, args);
+  };
+  const result = await updateApplication({ ...f.options, check: true }, f.injected);
+  assert.equal(result.supported, false);
+  assert.doesNotMatch(result.reason, /private-|Command failed/);
+  const system = await fixture(t, { system: true });
+  delete system.options.serviceScope;
+  system.injected.env.ARTIFACTY_SERVICE_SCOPE = "system";
+  const check = await updateApplication({ ...system.options, check: true }, system.injected);
+  assert.equal(check.supported, true);
+  assert.equal(check.serviceScope, "system");
+  assert.equal(system.calls.some((call) => call.includes(" stop ")), false);
+  await assert.rejects(inspectWebUpdateService({ home: system.home }, system.injected), { code: "SYSTEM_UPDATE_REQUIRES_ADMIN" });
+});
+
+systemdTest("system backup operations run in a separate unprivileged process", async (t) => {
+  const f = await fixture(t, { system: true });
+  const original = f.injected.run;
+  delete f.injected.backups;
+  const backupCalls = [];
+  f.injected.run = async (command, args, extra) => {
+    if (command === "runuser" && args.includes("--input-type=module")) {
+      backupCalls.push(args);
+      const [action] = JSON.parse(args.at(-1));
+      return { stdout: JSON.stringify(action === "create" ? { id: "snapshot-1", path: "private-backup" } : { ok: true }) };
+    }
+    return original(command, args, extra);
+  };
+  const result = await updateApplication(f.options, f.injected);
+  assert.equal(result.updated, true);
+  assert.equal(backupCalls.length, 2);
+  for (const args of backupCalls) assert.deepEqual(args.slice(0, 5), ["--user", "artifacty", "--", "env", "-i"]);
+});
+
+
+systemdTest("remaining service-account processes prevent freezing and the old service is restarted", async (t) => {
+  const f = await fixture(t, { system: true });
+  f.injected.assertServiceUserOffline = async () => { throw Object.assign(new Error("busy"), { code: "SERVICE_USER_BUSY" }); };
+  await assert.rejects(updateApplication(f.options, f.injected), { code: "SELF_UPDATE_FAILED" });
+  assert.equal(f.calls.includes("freeze-release"), false);
+  assert.equal(f.calls.includes("backup"), false);
+  assert.equal(f.isActive(), true);
+});
+
+
+systemdTest("update progress includes stable phase identifiers", async (t) => {
+  const f = await fixture(t, { system: true });
+  const steps = [];
+  await updateApplication({ ...f.options, onProgress: (_message, step) => steps.push(step) }, f.injected);
+  assert.deepEqual(steps, ["staging", "backup", "switching", "health"]);
+});
+
+
+systemdTest("release freeze traverses real files, removes write access, and permits internal npm symlinks", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "artifacty-release-freeze-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const nested = path.join(root, "node_modules", "artifacty", "src");
+  const bin = path.join(root, "node_modules", ".bin");
+  await mkdir(nested, { recursive: true });
+  await mkdir(bin);
+  const cli = path.join(nested, "cli.js");
+  const data = path.join(nested, "data.json");
+  await writeFile(cli, "#!/usr/bin/env node\n", { mode: 0o777 });
+  await writeFile(data, "{}", { mode: 0o666 });
+  await chmod(cli, 0o777);
+  await chmod(data, 0o666);
+  await chmod(nested, 0o777);
+  const alias = path.join(bin, "artifacty");
+  await symlink("../artifacty/src/cli.js", alias);
+  const changes = [];
+  await secureSystemRelease(root, { changeOwner: async (file, uid, gid) => {
+    // Each parent is already frozen before traversal reaches its children.
+    if (file !== root) assert.equal((await lstat(path.dirname(file))).mode & 0o777, 0o755);
+    changes.push({ file, uid, gid });
+  } });
+  assert.equal((await lstat(cli)).mode & 0o777, 0o755);
+  assert.equal((await lstat(data)).mode & 0o777, 0o644);
+  assert.equal((await lstat(nested)).mode & 0o777, 0o755);
+  assert.ok((await lstat(alias)).isSymbolicLink());
+  assert.deepEqual(changes[0], { file: root, uid: 0, gid: 0 });
+  assert.ok(changes.some(({ file }) => file === cli));
+  assert.equal(changes.some(({ file }) => file === alias), false);
+  assert.ok(changes.every(({ uid, gid }) => uid === 0 && gid === 0));
+});
+
+systemdTest("release freeze rejects escaping symlinks without changing the external file", async (t) => {
+  const container = await mkdtemp(path.join(tmpdir(), "artifacty-release-escape-"));
+  t.after(() => rm(container, { recursive: true, force: true }));
+  const root = path.join(container, "release");
+  await mkdir(root);
+  const external = path.join(container, "external.js");
+  await writeFile(external, "private", { mode: 0o600 });
+  await symlink(external, path.join(root, "escape.js"));
+  const changes = [];
+  await assert.rejects(secureSystemRelease(root, { changeOwner: async (file) => changes.push(file) }), { code: "UNSAFE_UPDATE_PACKAGE" });
+  assert.deepEqual(changes, [root]);
+  assert.equal((await lstat(external)).mode & 0o777, 0o600);
+  assert.equal(await readFile(external, "utf8"), "private");
+});
+
+systemdTest("release freeze rejects hardlinks before changing linked file permissions", async (t) => {
+  const container = await mkdtemp(path.join(tmpdir(), "artifacty-release-hardlink-"));
+  t.after(() => rm(container, { recursive: true, force: true }));
+  const root = path.join(container, "release");
+  await mkdir(root);
+  const external = path.join(container, "external.js");
+  await writeFile(external, "private", { mode: 0o600 });
+  await link(external, path.join(root, "linked.js"));
+  const changes = [];
+  await assert.rejects(secureSystemRelease(root, { changeOwner: async (file) => changes.push(file) }), { code: "UNSAFE_UPDATE_PACKAGE" });
+  assert.deepEqual(changes, [root]);
+  assert.equal((await lstat(external)).mode & 0o777, 0o600);
 });

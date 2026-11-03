@@ -181,7 +181,7 @@ Linux에서는 업데이트 도구가 새 릴리스를 설치하고 systemd 사�
 artifacty update
 ```
 
-`artifacty upgrade`도 같은 명령입니다. 아티팩트 ID 없이 `update`를 실행하면 애플리케이션을 업데이트합니다. 기존 `artifacty update <id>` 명령은 아티팩트 내용을 수정합니다. 특정 릴리스를 선택하려면 `--target-version <version>`을 사용하세요. 저장소를 지정하려면 `--home /path/to/store`를 사용하세요. 자동 업데이트는 root 실행과 버전 다운그레이드를 거부합니다. `latest`가 설치된 서비스보다 이전 버전이면 현재의 더 최신 버전을 유지합니다.
+`artifacty upgrade`도 같은 명령입니다. 아티팩트 ID 없이 `update`를 실행하면 애플리케이션을 업데이트합니다. 기존 `artifacty update <id>` 명령은 아티팩트 내용을 수정합니다. 특정 릴리스를 선택하려면 `--target-version <version>`을 사용하세요. 저장소를 지정하려면 `--home /path/to/store`를 사용하세요. 사용자 서비스 업데이트는 root 실행을 거부합니다. 자동 업데이트는 버전 다운그레이드를 거부합니다. `latest`가 설치된 서비스보다 이전 버전이면 현재의 더 최신 버전을 유지합니다.
 
 설치된 버전이 0.14.0 이전이라면 다음 명령어로 업데이트 도구를 시작하세요.
 
@@ -193,9 +193,18 @@ npx --yes artifacty@latest update && export PATH="$HOME/.local/bin:$PATH"
 
 업데이트 도구는 사용자의 `~/.local/share/artifacty/releases` 디렉터리에 릴리스를 준비합니다. systemd 드롭인 설정으로 서비스 인자와 환경 변수를 유지합니다. 릴리스를 전환하기 전에 저장소 스냅샷을 생성하고 검증합니다. 전환이나 재시작에 실패하면 변경한 코드, 서비스 설정, 저장소의 롤백을 시도합니다. 전환 전에 실패하면 현재 릴리스를 그대로 유지합니다.
 
+**시스템 서비스 (0.19.0 이상):** `artifacty.service` 같은 시스템 서비스에는 사용자 로그인 세션이 필요하지 않습니다. 신뢰할 수 있는 Artifacty 0.19.0 이상 설치에서 관리자가 다음 명령으로 확인하고 업데이트할 수 있습니다.
+
+```bash
+sudo /usr/bin/node /path/to/trusted/artifacty/src/cli.js update --check --service-scope system --service-name artifacty.service --home /path/to/store
+sudo /usr/bin/node /path/to/trusted/artifacty/src/cli.js update --service-scope system --service-name artifacty.service --home /path/to/store
+```
+
+실행 전에 두 경로를 실제 경로로 바꾸세요. 시스템 서비스의 실제 업데이트에는 root 권한이 필요하지만, 서버는 고정된 일반 사용자 `User`로 실행해야 합니다. 유닛은 지원하는 절대 경로 Node `ExecStart`를 사용하고, 선택한 저장소의 `--home`을 명시해야 합니다. 서비스 계정이 수정할 수 있는 업데이트 도구를 root로 실행하지 마세요. 업데이트 도구는 릴리스를 준비하고 저장소 스냅샷을 검증한 뒤 서비스를 전환하며, 실패하면 롤백을 시도합니다. 원래 애플리케이션 디렉터리를 덮어쓰지 않습니다. 브라우저 업데이트는 지원하는 사용자 서비스로 제한하며, 시스템 설치 환경에는 관리자 CLI 안내를 표시합니다. PostgreSQL 자동 업데이트는 계속 지원하지 않습니다. 새 옵션은 0.18.1에서 사용할 수 없습니다. 실행 전에 [시스템 서비스 업데이트 조건과 복구](docs/ko/upgrade-backups.md#시스템-서비스-업데이트)를 확인하세요.
+
 실행 중인 서비스를 중지하기 전에 현재 상태를 확인합니다. 바인드 주소나 네트워크 정책 때문에 확인할 수 없으면 서비스를 중지하기 전에 업데이트를 중단합니다. 업데이트 중에는 서비스가 중지됩니다. 먼저 같은 저장소를 사용하는 다른 클라이언트를 중지하세요. 저장소를 롤백하면 스냅샷 이후에 기록한 변경 사항은 사라집니다.
 
-이 자동 업데이트 방식은 Linux의 systemd 사용자 서비스만 지원합니다. macOS, Windows, 포그라운드 서버, 분리된 백그라운드 서버는 자동으로 업데이트하지 않습니다. root 소유의 전역 설치는 그대로 둡니다. 사용자 소유 실행 파일을 사용하려면 필요에 따라 `~/.local/bin`을 `PATH`에 추가하세요. 다른 명령어가 먼저 실행된다면 업데이트 결과의 절대 경로 `nextCommand`를 사용하세요. 셸 설정은 자동으로 변경하지 않습니다. 프로세스나 호스트가 갑자기 종료되면 업데이트 잠금이 남거나 서비스가 중지 상태로 남을 수 있습니다. 다시 시도하기 전에 복구 상태를 확인하세요. 전제 조건과 제한은 [업데이트 운영과 복구](docs/ko/upgrade-backups.md)를 참고하세요.
+기본 자동 업데이트 방식은 Linux의 systemd 사용자 서비스를 지원합니다. macOS, Windows, 포그라운드 서버, 분리된 백그라운드 서버는 자동으로 업데이트하지 않습니다. root 소유의 전역 설치는 그대로 둡니다. 사용자 소유 실행 파일을 사용하려면 필요에 따라 `~/.local/bin`을 `PATH`에 추가하세요. 다른 명령어가 먼저 실행된다면 업데이트 결과의 절대 경로 `nextCommand`를 사용하세요. 셸 설정은 자동으로 변경하지 않습니다. 프로세스나 호스트가 갑자기 종료되면 업데이트 잠금이 남거나 서비스가 중지 상태로 남을 수 있습니다. 다시 시도하기 전에 복구 상태를 확인하세요. 전제 조건과 제한은 [업데이트 운영과 복구](docs/ko/upgrade-backups.md)를 참고하세요.
 
 ## 빠른 시작
 
@@ -746,6 +755,8 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | 변수 | 용도 | 기본값 |
 | --- | --- | --- |
 | `ARTIFACTY_HOME` | 저장소 디렉터리 | `~/.artifacty` |
+| `ARTIFACTY_SERVICE_SCOPE` | 업데이트 대상 서비스 범위: `user` 또는 명시적으로 선택하는 `system`. 시스템 서비스의 실제 업데이트에는 root 권한 필요 (0.19.0 이상) | `user` |
+| `ARTIFACTY_SERVICE_NAME` | 업데이트할 systemd 유닛. 시스템 범위에서는 지원하는 일반 사용자 서비스를 지정 (0.19.0 이상) | 사용자 범위: `com.artifacty.server.service`, 시스템 범위: `artifacty.service` |
 | `ARTIFACTY_CONFIG_HOME` | 원격 연결 프로필의 비공개 설정 디렉터리 | `~/.config/artifacty` |
 | `ARTIFACTY_REMOTE` | 원격 프로필 이름. `active`이면 현재 활성 선택을 따릅니다. | 미설정 |
 | `ARTIFACTY_DATABASE_URL` | PostgreSQL 연결 URL. 설정하지 않으면 SQLite를 사용합니다. | 미설정 |

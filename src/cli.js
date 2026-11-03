@@ -75,16 +75,18 @@ async function main() {
   // Application updates must not initialize or migrate the live store first.
   // Keep `update <id>` as the existing artifact-content command.
   if ((command === "update" && options._.length === 0) || command === "upgrade") {
-    const allowed = new Set(["_", "home", "targetVersion", "check"]);
+    const allowed = new Set(["_", "home", "targetVersion", "check", "serviceScope", "serviceName"]);
     const unknown = Object.keys(options).filter((key) => !allowed.has(key));
     if (options._.length || unknown.length) {
-      throw new Error("Usage: artifacty update [--check] [--target-version <version>] [--home <path>]. To update content, use artifacty update <id> --file <path>.");
+      throw new Error("Usage: artifacty update [--check] [--target-version <version>] [--home <path>] [--service-scope user|system] [--service-name <unit>]. To update content, use artifacty update <id> --file <path>.");
     }
     const { updateApplication } = await import("./lib/self-update.js");
     printJson(await updateApplication({
       packageRoot: PACKAGE_ROOT,
       home: options.home,
       targetVersion: options.targetVersion,
+      serviceScope: options.serviceScope,
+      serviceName: options.serviceName,
       check: Boolean(options.check),
       onProgress: (message) => process.stderr.write(`artifacty update: ${message}\n`)
     }));
@@ -1060,8 +1062,8 @@ Usage:
   artifacty remote migrate <old-url> --to <new-url> [--dry-run] [--agent client --config path] [--api-token token]
   artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--remote active|name] [--mcp-url http://127.0.0.1:8787/mcp] [--api-token token] [--transport local|bridge] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
-  artifacty update [--check] [--target-version <version>] [--home <path>]
-  artifacty upgrade [--check] [--target-version <version>] [--home <path>]
+  artifacty update [--check] [--target-version <version>] [--home <path>] [--service-scope user|system] [--service-name <unit>]
+  artifacty upgrade [--check] [--target-version <version>] [--home <path>] [--service-scope user|system] [--service-name <unit>]
   artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react|sarif|csv|image|video|notebook|collection|explainer] [--expected-version N] [--visibility private|team|public]
   artifacty samples install|remove
   artifacty archive <id>
@@ -1106,6 +1108,8 @@ Upgrade recovery:
   artifacty restore <id> restores an archived artifact, not a store backup.
 
 Environment:
+  ARTIFACTY_SERVICE_SCOPE  Update service scope: user (default) or system (administrator CLI)
+  ARTIFACTY_SERVICE_NAME   Update unit: com.artifacty.server.service (user) or artifacty.service (system)
   ARTIFACTY_CONFIG_HOME    Remote profile directory. Defaults to ~/.config/artifacty
   ARTIFACTY_REMOTE         MCP connection profile name or active; resolved on each request
   ARTIFACTY_HOME           Storage directory. Defaults to ~/.artifacty

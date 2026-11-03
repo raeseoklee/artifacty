@@ -41,6 +41,12 @@ Sign in with an administrator browser session. Open **Administration → Server 
 4. Select **Back up and update**.
 5. Keep the page open while the server restarts. Read the update result after reconnection.
 
+The progress bar reports update stages, such as preparing the release, verifying the snapshot, restarting the service, and checking health. It is not a byte-based download percentage or a time estimate. When progress cannot be determined, the bar remains indeterminate. A failed update, an interrupted worker, or incomplete recovery is not shown as success; read the result before reconnecting clients.
+
+![Administrator update page showing step-based progress](assets/screenshots/update-progress.png)
+
+Administrator view during the backup stage with a fictional target version, `99.0.0`. This UI example shows step progress, not a completed host update. After a successful update, the result appears when the page reconnects. Once a new page load confirms that the installed version matches the target, the completed progress panel is hidden and the page reports that the server is up to date. The stored job history is retained.
+
 The update confirmation expires after ten minutes. Only the browser session that checked the version can use it. If it expires or the installed version changes, check again. Form submissions require the exact same origin as the server. No password re-entry is required.
 
 Browser installation requires this server to be the non-root Linux systemd user service. Other installations can check the latest release, but cannot start the update from this page. The worker runs in an independent systemd transient service, so stopping the Artifacty server does not stop the update worker. Status is stored outside the artifact store under `~/.local/share/artifacty/update-jobs`.
@@ -49,11 +55,43 @@ Opening the page or reading status does not contact npm or install a package. St
 
 ### Automatic installation limits
 
-Automatic installation and restart are supported on Linux with the systemd user service `com.artifacty.server`. Run the updater as the service's user. The unit must use the simple `ExecStart` form produced by Artifacty's installer and must explicitly pass `--home` for the selected store. Unsupported command expansion or quoting stops the update before service shutdown. Automatic updates reject root execution. Do not run the updater as root to replace a root-owned global package.
+By default, automatic installation and restart use the Linux systemd user service `com.artifacty.server`. Run the updater as the service's user. The unit must use the simple `ExecStart` form produced by Artifacty's installer and must explicitly pass `--home` for the selected store. Unsupported command expansion or quoting stops the update before service shutdown. User-service updates reject root execution. Do not run that mode as root to replace a root-owned global package.
 
 The updater stages packages under `~/.local/share/artifacty/releases`. It changes the managed service's executable through a systemd drop-in and preserves its existing arguments and environment. User-owned launchers go under `~/.local/bin`. If that directory is not on `PATH`, add it before using those launchers. Existing unmanaged files in that directory are not overwritten. The existing root-owned global package remains unchanged. If `PATH` selects another command first, the result supplies an absolute `nextCommand`. The updater does not edit shell configuration.
 
-Automatic switching does not support macOS, Windows, foreground servers, detached background servers, or arbitrary service units. Use the manual installation and snapshot procedures for those environments.
+Automatic switching does not support macOS, Windows, foreground servers, detached background servers, or service units that fail the updater’s configuration checks. Use the manual installation and snapshot procedures for those environments.
+
+### System-service updates
+
+System-service updates require Artifacty 0.19.0 or later. Artifacty 0.18.1 and earlier do not recognize these options. Before updating an older server, prepare an administrator-verified installation of 0.19.0 or later and use its CLI for the commands below.
+
+A system service does not need a user login session or a `systemctl --user` bus. An administrator can select the system service explicitly. The server must continue to run as a dedicated non-root service account; root privileges are for the update command, not the HTTP server.
+
+Replace the example CLI path with an absolute, trusted installation path and `/path/to/store` with the service’s store. Check first:
+
+```bash
+sudo /usr/bin/node /path/to/trusted/artifacty/src/cli.js update --check --service-scope system --service-name artifacty.service --home /path/to/store
+```
+
+Review `currentVersion`, `targetVersion`, `supported`, and any `reason` in the result. If the configuration is supported, run the same command without `--check`:
+
+```bash
+sudo /usr/bin/node /path/to/trusted/artifacty/src/cli.js update --service-scope system --service-name artifacty.service --home /path/to/store
+```
+
+System scope defaults to `artifacty.service`; use `--service-name` for another unit. `ARTIFACTY_SERVICE_SCOPE` and `ARTIFACTY_SERVICE_NAME` provide the same defaults, but explicit flags avoid environment filtering by `sudo`. A read-only check can run without root when the account can inspect the system manager. Applying an update requires root.
+
+The unit must name a fixed, non-root `User`, use an absolute Node executable and server path in a simple `ExecStart`, and explicitly pass the selected `--home`. Root services, `DynamicUser`, and unsupported command expansion are rejected. The updater prepares releases under `/var/lib/artifacty-updater/<unit>/releases/` and switches `ExecStart` with `/etc/systemd/system/<unit>.d/zz-artifacty-self-update.conf`. Existing `User`, environment files, and other service settings remain in place. Installation and package checks, snapshot creation, and recovery run as the service account. After stopping the service, the updater requires that no other processes remain under that dedicated account, then makes the prepared release root-owned before switching. A shared account with remaining processes is rejected and the previous service is restarted. The existing application directory is not replaced in place, and no system-wide launcher is changed. Use the absolute `nextCommand` returned after success for later updates.
+
+Use `--target-version "<version>"` to select an exact release. Do not run a service-account-writable copy of the updater with root privileges. The update command validates the service before changing it and uses the same staging, verified snapshot, health-check, and rollback protections described below.
+
+System-service installation cannot start from the browser. The administrator must run the privileged CLI command on the host. The administrator page identifies this installation mode and shows the host command.
+
+![Administrator update page for a system-service installation](assets/screenshots/system-service-update.png)
+
+Administrator view with a fictional target version, `99.0.0`, showing the system-service CLI guidance. This is a UI demonstration; it does not show a completed host update.
+
+Do not grant the web server unrestricted `sudo`, `systemctl`, or package-installation permissions to bypass this limit. PostgreSQL automatic updates remain unsupported; verify the database backup and artifact files together and follow the [PostgreSQL update procedure](postgresql.md).
 
 ### Store protection and rollback
 

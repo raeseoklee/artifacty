@@ -1,4 +1,4 @@
-import { renderCategoryFilter, renderCategoriesBody } from "./category-ui.js";
+import { renderCategoryFilter, renderCategoriesBody, renderCategoryNavigation } from "./category-ui.js";
 import { parseCollection } from "./collections.js";
 import { renderExplainer } from "./render-explainer.js";
 import { uiIcon } from "./ui-icons.js";
@@ -51,7 +51,7 @@ export function renderCategoriesPage({ categories, teams, artifact, user, locale
       }
       @media(max-width:480px){[data-category-manager] .category-row,[data-category-manager] .category-row-membership{grid-template-columns:minmax(0,1fr);gap:.8rem}[data-category-manager] .category-row button{justify-self:start}}
     </style>`,
-    afterBody: '<script src="/assets/categories.js" defer></script>' });
+    afterBody: "" });
 }
 
 export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, locale = DEFAULT_LOCALE, currentPath = "/", user = null, savedViews = [], categories = [], embeddingsAvailable = false }) {
@@ -60,6 +60,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
   const start = artifacts.length ? (pagination?.offset ?? 0) + 1 : 0;
   const end = artifacts.length ? (pagination?.offset ?? 0) + artifacts.length : 0;
   const pager = renderDashboardPager({ pagination: pagination || { total, limit: Number(filters.limit) || 50, offset: 0 }, filters, view });
+  view.categoryUser = Boolean(user);
   const rowsHtml = renderArtifactRows(artifacts, filters.groupBy, view);
   const activeFilters = [
     ["categoryId", "category.filter"], ["tag", "filter.tag"], ["sourceAgent", "filter.source"], ["artifactType", "filter.artifactType"],
@@ -126,6 +127,7 @@ function renderArtifactRow(artifact, view, readOnly = false) {
     ? `<span class="row-snippet">${escapeHtml(artifact.searchSnippet)}</span>`
     : "";
   return `
+    ${view.categoryUser && !readOnly ? `<div class="artifact-row-shell" data-category-artifact-id="${escapeAttribute(artifact.id)}"><input class="form-check-input category-selection" type="checkbox" data-category-selected-artifact="${escapeAttribute(artifact.id)}" aria-label="${view.attr("category.selectArtifact", { title: artifact.title })}">` : ""}
     <${readOnly ? "div" : "a"} class="artifact-row"${readOnly ? "" : ` href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}`)}"`}>
       <span class="row-main">
         <strong>${escapeHtml(artifact.title)}</strong>
@@ -135,7 +137,7 @@ function renderArtifactRow(artifact, view, readOnly = false) {
       <span class="row-agent"><span>${escapeHtml(provenanceLabel(artifact.provenance, artifact.sourceAgent, view))}</span>${artifact.publisherId || artifact.publisherName ? `<span class="publisher-cell" title="${escapeAttribute(publisherTitle(artifact, view))}">${escapeHtml(publisher)}</span>` : ""}</span>
       <span class="row-formats">${typeBadge(artifact.artifactType || "document")}${formatBadge(artifact.format || "text")}<span>v${artifact.latestVersion}</span></span>
       <span class="tags">${status}${visibility}${tags}</span>
-    </${readOnly ? "div" : "a"}>
+    </${readOnly ? "div" : "a"}>${view.categoryUser && !readOnly ? "</div>" : ""}
   `;
 }
 
@@ -934,12 +936,19 @@ export function renderAdminLanguagesPage({ settings, user, baseUrl, locale = DEF
 export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEFAULT_LOCALE, currentPath = "/admin/update" }) {
   const view = viewContext(locale, currentPath);
   const check = status.check;
-  const run = status.run;
+  const run = status.run?.state === "succeeded" && status.currentVersion === status.run.targetVersion ? null : status.run;
   const active = ["queued", "running"].includes(run?.state);
   const hasUpdate = check?.updateAvailable && check.targetVersion && status.currentVersion !== check.targetVersion;
   const canStart = check?.supported && !check.errorCode && check.targetVersion && check.updateAvailable && check.confirmationId && Date.parse(check.expiresAt) > Date.now() && !active && run?.state !== "interrupted" && status.currentVersion !== check.targetVersion;
   const states = Object.fromEntries(["queued", "running", "succeeded", "failed", "interrupted"].map((state) => [state, view.raw(`update.${state}`)]));
-  const messages = { ...states, reconnect: view.raw("update.reconnect"), signIn: view.raw("update.signIn") };
+  const updateSteps = ["preparing", "staging", "backup", "switching", "health"];
+  const step = run?.state === "succeeded" ? "completed" : run?.step;
+  const stepIndex = active ? updateSteps.indexOf(step) : -1;
+  const progressValue = run?.state === "succeeded" ? 5 : stepIndex >= 0 ? stepIndex : null;
+  const progressLabel = run?.state === "succeeded" ? view.raw("update.step.completed") : stepIndex >= 0
+    ? view.raw("update.stepCount", { current: stepIndex + 1, total: 5, phase: view.raw(`update.step.${step}`) })
+    : view.raw(step === "recovery" ? "update.step.recovery" : `update.${run?.state || "queued"}`);
+  const messages = { ...states, steps: Object.fromEntries([...updateSteps, "completed", "recovery"].map((name) => [name, view.raw(`update.step.${name}`)])), stepCount: view.raw("update.stepCount"), reconnect: view.raw("update.reconnect"), signIn: view.raw("update.signIn") };
   return pageShell({
     title: view.text("update.title"), locale: view.locale,
     body: `${workspaceHeader(user, view)}
@@ -951,7 +960,7 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
         </section>
         ${check ? `<section class="meta-card">${hasUpdate ? `<h2>${view.text("update.latest")}</h2><p>${escapeHtml(status.currentVersion || APP_VERSION)} → <strong>${escapeHtml(check.targetVersion)}</strong></p>` : ""}
           ${hasUpdate ? `<p><a href="https://github.com/raeseoklee/artifacty/releases/tag/v${escapeAttribute(encodeURIComponent(check.targetVersion))}" target="_blank" rel="noopener noreferrer">${view.text("update.releaseNotes")}</a></p>` : ""}
-          ${check.errorCode ? `<p role="alert">${view.text("update.checkFailed")}</p>` : !check.supported ? `<p>${view.text("update.unsupported")}</p><p>${view.text("update.manual")}</p>` : !hasUpdate && !check.errorCode && check.targetVersion ? `<p>${view.text("update.current")}</p>` : ""}
+          ${check.errorCode ? `<p role="alert">${view.text("update.checkFailed")}</p>` : !check.supported ? `<p>${view.text("update.unsupported")}</p><p>${view.text(check.reasonCode === "SYSTEM_UPDATE_REQUIRES_ADMIN" ? "update.systemManual" : "update.manual")}</p>` : !hasUpdate && !check.errorCode && check.targetVersion ? `<p>${view.text("update.current")}</p>` : ""}
           ${check.supported && check.updateAvailable && !canStart && !active && !check.errorCode && status.currentVersion !== check.targetVersion ? `<p>${view.text("update.checkAgain")}</p>` : ""}
           ${canStart ? `<p>${view.text("update.available", { version: check.targetVersion })}</p><p>${view.text("update.backup")}</p>
             <form class="editor-form" method="post" action="/admin/update/start">${localeInput(view.locale)}
@@ -965,6 +974,11 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
         ${run ? `<section class="meta-card" data-update-status data-active="${active}" data-messages="${escapeAttribute(JSON.stringify(messages))}"><h2>${view.text("update.progress")}</h2>
           <p>${view.text("update.latest")}: ${escapeHtml(run.targetVersion || "—")}</p>
           <p role="status" aria-live="polite" data-update-state>${escapeHtml(states[run.state] || states.running)}</p>
+          <p data-update-step aria-live="polite">${escapeHtml(progressLabel)}</p>
+          <div class="progress" role="progressbar" data-update-progress aria-label="${view.text("update.progressLabel")}" aria-valuemin="0" aria-valuemax="5"${progressValue === null ? "" : ` aria-valuenow="${progressValue}"`} aria-valuetext="${escapeAttribute(progressLabel)}">
+            <div data-update-bar class="progress-bar${progressValue === null && active ? " progress-bar-striped progress-bar-animated" : ""}${["failed", "interrupted"].includes(run.state) ? " bg-danger" : ""}" style="width: ${progressValue === null ? 100 : progressValue * 20}%"></div>
+          </div>
+          <p class="muted">${view.text("update.progressHelp")}</p>
           <p data-update-error>${escapeHtml(run.error || "")}</p>
           <a href="${view.href("/admin/update")}">${view.text("update.refresh")}</a> <a data-update-login hidden href="${view.href("/login")}">${view.text("nav.signIn")}</a>
         </section>` : ""}
@@ -1486,18 +1500,21 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
         ${version.format === "explainer" && (canArchive || canManageVisibility) ? "</div></details>" : ""}
         ${rendered}
         ${renderRelationsSection(artifact, view)}
-        ${renderCommentsSection(artifact, comments, view, { version: version.version, authToken, canModerate: canManageVisibility, canComment })}
+        ${renderCommentsSection(artifact, comments, view, { version: version.version, authToken, canModerate: canManageVisibility, canComment, sourceContent: ["text", "code", "markdown"].includes(version.format) ? content : null })}
       </main>
     `,
     head: needsViewerScript ? editorHead() : "",
-    afterBody: `${frameResizeScript()}${needsViewerScript ? viewerScript(view.locale) : ""}`,
+    afterBody: `${frameResizeScript()}<script type="module" src="/assets/comment-lines.js"></script>${needsViewerScript ? viewerScript(view.locale) : ""}`,
     locale: view.locale
   });
 }
 
 // --- Comments and review status (roadmap section 5) -----------------------
 
-function renderCommentsSection(artifact, comments, view, { version, authToken, canModerate, canComment = true }) {
+function renderCommentsSection(artifact, comments, view, { version, authToken, canModerate, canComment = true, sourceContent }) {
+  const allSourceLines = sourceContent == null ? [] : String(sourceContent).split(/\r\n|\n|\r/);
+  const sourceLines = allSourceLines.slice(0, 5000);
+  const lineCount = sourceLines.length;
   const grouped = new Map();
   for (const comment of comments) {
     if (!grouped.has(comment.version)) {
@@ -1514,23 +1531,24 @@ function renderCommentsSection(artifact, comments, view, { version, authToken, c
   // with diagrams could still embed N * cap base64 srcdoc payloads.
   const diagramState = createMermaidDiagramState();
   const groups = versions
-    .map((groupVersion) => renderCommentVersionGroup(artifact, grouped.get(groupVersion), groupVersion, view, { activeVersion: version, authToken, canModerate, canComment, diagramState }))
+    .map((groupVersion) => renderCommentVersionGroup(artifact, grouped.get(groupVersion), groupVersion, view, { activeVersion: version, authToken, canModerate, canComment, diagramState, lineCount }))
     .join("");
 
   return `
     <section class="comments">
       <h2>${view.text("comments.title")}</h2>
       <div class="comment-review-status">
-        ${reviewStatusBadge(artifact, view)}
+        ${canModerate ? "" : reviewStatusBadge(artifact, view)}
         ${canModerate ? renderReviewStatusForm(artifact, view, authToken) : ""}
       </div>
+      ${lineCount ? `<details class="comment-source" data-comment-source data-source-version="${version}"><summary>${view.text("comments.sourceLines")}</summary><p class="muted">${view.text("comments.sourceHelp")}</p>${allSourceLines.length > lineCount ? `<p>${view.text("comments.sourceLimit")} <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/raw?version=${version}`)}">${view.text("nav.raw")}</a></p>` : ""}<ol>${sourceLines.map((line, index) => `<li id="source-line-${index + 1}" data-source-line="${index + 1}"><button type="button" data-select-source-line="${index + 1}" aria-pressed="false" aria-label="${view.attr("comments.selectLine", { line: index + 1 })}">${index + 1}</button><code>${escapeHtml(line) || " "}</code></li>`).join("")}</ol></details>` : ""}
       ${comments.length === 0 ? `<p class="comments-empty">${view.text("comments.empty")}</p>` : groups}
-      ${!canComment || versions.includes(version) ? "" : renderCommentForm(artifact, view, { version, authToken })}
+      ${!canComment || versions.includes(version) ? "" : renderCommentForm(artifact, view, { version, authToken, lineCount })}
     </section>
   `;
 }
 
-function renderCommentVersionGroup(artifact, versionComments, groupVersion, view, { activeVersion, authToken, canModerate, canComment, diagramState }) {
+function renderCommentVersionGroup(artifact, versionComments, groupVersion, view, { activeVersion, authToken, canModerate, canComment, diagramState, lineCount }) {
   const roots = versionComments.filter((comment) => !comment.parentId);
   const repliesByParent = new Map();
   for (const comment of versionComments) {
@@ -1543,36 +1561,36 @@ function renderCommentVersionGroup(artifact, versionComments, groupVersion, view
   }
   const isActiveVersion = groupVersion === activeVersion;
   const items = roots
-    .map((root) => renderCommentThread(artifact, root, repliesByParent.get(root.id) || [], view, { authToken, canModerate, allowReply: isActiveVersion && canComment, canComment, diagramState }))
+    .map((root) => renderCommentThread(artifact, root, repliesByParent.get(root.id) || [], view, { authToken, canModerate, allowReply: isActiveVersion && canComment, canComment, diagramState, lineCount }))
     .join("");
 
   return `
     <div class="comment-version-group">
       <h3>${view.text("comments.version", { version: groupVersion })}</h3>
       <ul class="comment-list">${items}</ul>
-      ${isActiveVersion && canComment ? renderCommentForm(artifact, view, { version: groupVersion, authToken }) : ""}
+      ${isActiveVersion && canComment ? renderCommentForm(artifact, view, { version: groupVersion, authToken, lineCount }) : ""}
     </div>
   `;
 }
 
-function renderCommentThread(artifact, root, replies, view, { authToken, canModerate, allowReply, canComment, diagramState }) {
+function renderCommentThread(artifact, root, replies, view, { authToken, canModerate, allowReply, canComment, diagramState, lineCount }) {
   const replyItems = replies
-    .map((reply) => renderCommentEntry(artifact, reply, view, { authToken, canModerate, canComment, isReply: true, diagramState }))
+    .map((reply) => renderCommentEntry(artifact, reply, view, { authToken, canModerate, canComment, isReply: true, diagramState, lineCount }))
     .join("");
   const replyForm = allowReply
-    ? renderCommentForm(artifact, view, { version: root.version, authToken, parentId: root.id, compact: true })
+    ? renderCommentForm(artifact, view, { version: root.version, authToken, parentId: root.id, compact: true, lineCount })
     : "";
 
   return `
     <li class="comment-thread">
-      ${renderCommentEntry(artifact, root, view, { authToken, canModerate, canComment, isReply: false, diagramState })}
+      ${renderCommentEntry(artifact, root, view, { authToken, canModerate, canComment, isReply: false, diagramState, lineCount })}
       ${replyItems ? `<ul class="comment-replies">${replyItems}</ul>` : ""}
       ${replyForm}
     </li>
   `;
 }
 
-function renderCommentEntry(artifact, comment, view, { authToken, canModerate, canComment, isReply, diagramState }) {
+function renderCommentEntry(artifact, comment, view, { authToken, canModerate, canComment, isReply, diagramState, lineCount }) {
   const anchorLabel = commentAnchorLabel(comment.anchor, view);
   const resolved = comment.status === "resolved";
   const resolveForm = !resolved && canComment
@@ -1595,7 +1613,7 @@ function renderCommentEntry(artifact, comment, view, { authToken, canModerate, c
       <div class="comment-header">
         <span class="comment-author">${escapeHtml(comment.authorLabel)}</span>
         <span class="comment-meta">${renderDateTime(comment.createdAt, view)}</span>
-        ${anchorLabel ? `<span class="comment-anchor">${anchorLabel}</span>` : ""}
+        ${anchorLabel ? `<span class="comment-anchor">${comment.anchor?.line && lineCount ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}?version=${encodeURIComponent(comment.version)}#source-line-${encodeURIComponent(comment.anchor.line)}`)}" data-comment-line-link="${escapeAttribute(comment.anchor.line)}" data-comment-line-version="${escapeAttribute(comment.version)}">${anchorLabel}</a>` : anchorLabel}</span>` : ""}
         ${resolved ? `<span class="badge s-archived">${view.text("comments.resolved")}</span>` : ""}
       </div>
       <div class="comment-body">${markdownToHtml(comment.body, diagramState)}</div>
@@ -1623,7 +1641,7 @@ function commentAnchorLabel(anchor, view) {
   return "";
 }
 
-function renderCommentForm(artifact, view, { version, authToken, parentId, compact } = {}) {
+function renderCommentForm(artifact, view, { version, authToken, parentId, compact, lineCount = 0 } = {}) {
   return `
     <form class="comment-form${compact ? " comment-reply-form" : ""}" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/comments">
       ${hiddenToken(authToken)}
@@ -1634,11 +1652,11 @@ function renderCommentForm(artifact, view, { version, authToken, parentId, compa
         <span>${view.text(compact ? "comments.replyLabel" : "comments.bodyLabel")}</span>
         <textarea name="body" required maxlength="16384" class="form-control"></textarea>
       </label>
-      ${compact ? "" : `<label class="comment-line-label">
+      ${compact || !lineCount ? "" : `<label class="comment-line-label">
         <span>${view.text("comments.lineLabel")}</span>
-        <input type="number" name="line" min="1" class="form-control">
+        <input type="number" name="line" min="1" max="${lineCount}" data-comment-line-input class="form-control">
       </label>`}
-      <button type="submit" class="btn btn-primary">${view.text(compact ? "comments.reply" : "comments.submit")}</button>
+      <div class="comment-form-actions"><button type="submit" class="btn btn-primary">${view.text(compact ? "comments.reply" : "comments.submit")}</button></div>
     </form>
   `;
 }
@@ -1646,7 +1664,7 @@ function renderCommentForm(artifact, view, { version, authToken, parentId, compa
 function renderReviewStatusForm(artifact, view, authToken) {
   const current = artifact.reviewStatus || "none";
   return `
-    <form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/review-status">
+    <form class="review-status-form" data-review-status data-saving="${view.text("comments.reviewSaving")}" data-saved="${view.text("comments.reviewSaved")}" data-failed="${view.text("comments.reviewFailed")}" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/review-status">
       ${hiddenToken(authToken)}
       ${localeInput(view.locale)}
       <label>
@@ -1655,7 +1673,7 @@ function renderReviewStatusForm(artifact, view, authToken) {
           ${REVIEW_STATUSES.map((status) => `<option value="${status}"${status === current ? " selected" : ""}>${view.text(`comments.reviewStatus.${status}`)}</option>`).join("")}
         </select>
       </label>
-      <button type="submit" class="btn btn-outline-secondary">${view.text("comments.reviewStatus.change")}</button>
+      <button type="submit" class="btn btn-outline-secondary">${view.text("comments.reviewStatus.change")}</button><span data-review-feedback role="status" aria-live="polite"></span>
     </form>
   `;
 }
@@ -2190,6 +2208,7 @@ export function renderReactFramePage({ title, content }) {
 }
 
 export function pageShell({ title, body, head = "", afterBody = "", locale = DEFAULT_LOCALE }) {
+  if (!afterBody.includes("/assets/categories.js")) afterBody += '<script type="module" src="/assets/categories.js"></script>';
   if (!afterBody.includes("/assets/explainers.js")) afterBody += '<script type="module" src="/assets/explainers.js"></script>';
   if (!afterBody.includes("/assets/collections.js")) afterBody += '<script type="module" src="/assets/collections.js"></script>';
   const darkThemeVariables = `        --bg: #15171b;
@@ -3823,7 +3842,7 @@ function workspaceHeader(user, view) {
     <span class="workspace-identity">${escapeHtml(user.name || user.email || "")}</span>${link("/account", "nav.accountTokens")}${link("/account/password", "nav.password")}
     <form method="post" action="/logout" class="nav-form">${localeInput(view.locale)}<button type="submit" title="${view.attr("nav.signOut")}" aria-label="${view.attr("nav.signOut")}" class="btn btn-ghost">${uiIcon("logout")}<span class="workspace-nav-label">${view.text("nav.signOut")}</span></button></form>
   </div></details>` : user === null ? link("/login", "nav.signIn") : "";
-  const links = `<div class="workspace-primary">${link("/", "nav.artifacts", artifactActive)}${user ? link("/categories", "category.title") + link("/inbox", "inbox.title") : ""}</div><div class="workspace-actions">${link("/new", "nav.new", pathname === "/new", "workspace-create")}${link("/collections/new", "collection.new")}${link("/import", "nav.import")}${adminLinks}${account}${link("/docs/api", "nav.apiDocs")}${languageSwitcher(view)}${themeControls(view)}</div>`;
+  const links = `<div class="workspace-primary">${link("/", "nav.artifacts", artifactActive)}${user ? renderCategoryNavigation({ user, view }) + link("/inbox", "inbox.title") : ""}</div><div class="workspace-actions">${link("/new", "nav.new", pathname === "/new", "workspace-create")}${link("/collections/new", "collection.new")}${link("/import", "nav.import")}${adminLinks}${account}${link("/docs/api", "nav.apiDocs")}${languageSwitcher(view)}${themeControls(view)}</div>`;
   return `<a class="workspace-skip" href="#main-content">${view.text("nav.skip")}</a><header class="workspace-header"><div class="workspace-brand-row"><a class="workspace-brand" aria-label="Artifacty" href="${view.href("/")}">${brandMark()}<span class="workspace-brand-name">artifacty</span></a><button type="button" class="sidebar-toggle btn btn-ghost" data-sidebar-toggle hidden aria-expanded="true" aria-label="${view.attr("nav.collapseSidebar")}" title="${view.attr("nav.collapseSidebar")}" data-collapse-label="${view.attr("nav.collapseSidebar")}" data-expand-label="${view.attr("nav.expandSidebar")}"><span data-sidebar-collapse-icon>${uiIcon("layout-sidebar-left-collapse")}</span><span data-sidebar-expand-icon hidden>${uiIcon("layout-sidebar-left-expand")}</span></button></div>
     <nav class="workspace-desktop" aria-label="${view.attr("dashboard.navigation")}">${links}</nav>
     <details class="workspace-mobile"><summary>${view.text("dashboard.more")}</summary><nav aria-label="${view.attr("dashboard.navigation")}">${links}</nav></details>
