@@ -55,3 +55,11 @@ test('CLI add, use and list remote profiles preserve existing tokens when omitte
  const run=args=>exec(process.execPath,['src/cli.js','remote',...args],{env});
  await run(['add','company',next,'--api-token','test-new-secret']);await run(['add','company',next]);const used=await run(['use','company']);assert.doesNotMatch(used.stdout,/test-new-secret/);const listed=await run(['list']);assert.match(listed.stdout,/company/);assert.match(listed.stdout,/"hasToken": true/);assert.doesNotMatch(listed.stdout,/test-new-secret/);assert.ok(!(await readdir(root)).includes('no-store'));
 });
+
+
+test('migration removes environment-derived HTTP header credentials too',async t=>{
+ const root=await fixture(t),file=path.join(root,'headers.toml');
+ await writeFile(file,`[mcp_servers.artifacty]\nurl = "${old}/mcp"\n[mcp_servers.artifacty.env_http_headers]\nAuthorization = "OLD_TOKEN_ENV"\n[other]\nkeep = true\n`);
+ await migrateRemote(old,next,{agent:'codex',configPath:file,checkEndpoint:async()=>({ok:true})});
+ const changed=await readFile(file,'utf8');assert.doesNotMatch(changed,/OLD_TOKEN_ENV|env_http_headers/);assert.match(changed,/keep = true/);
+});

@@ -30,7 +30,7 @@ function jsonMigration(text,oldUrl,newUrl,apiToken) {
   if(!changed)return null;
   for(const key of Object.keys(target))if(secretKey(key))delete target[key];
   for(const section of [target.env])if(section&&typeof section==='object')for(const key of Object.keys(section))if(secretKey(key))delete section[key];
-  delete target.headers;delete target.http_headers;
+  delete target.headers;delete target.http_headers;delete target.env_http_headers;delete target.httpHeaders;delete target.envHttpHeaders;
   if(target.env?.ARTIFACTY_MCP_URL)target.env.ARTIFACTY_MCP_MODE='bridge';
   if(apiToken){if(target.env)target.env.ARTIFACTY_API_TOKEN=apiToken;else target.headers={...(target.headers||{}),Authorization:`Bearer ${apiToken}`};}
   return JSON.stringify(config,null,2)+'\n';
@@ -68,9 +68,9 @@ function tomlMigration(text,oldUrl,newUrl,apiToken) {
   let tokenAdded=false;
   const result=[];
   for(const entry of prepared){
-    if(['http_headers','headers'].includes(entry.section))continue;
+    if(['http_headers','headers','env_http_headers'].includes(entry.section))continue;
     if(entry.key&&secretKey(entry.key))continue;
-    if(entry.code&&/^\s*(?:http_headers|headers|bearer_token|bearer_token_env_var)\s*=/.test(entry.code))continue;
+    if(entry.code&&/^\s*(?:http_headers|headers|env_http_headers|bearer_token|bearer_token_env_var)\s*=/.test(entry.code))continue;
     if(entry.pairs){const pairs=entry.pairs.filter(pair=>!secretKey(pair.key));if(apiToken){pairs.push({key:'ARTIFACTY_API_TOKEN',value:apiToken});tokenAdded=true;}if(pairs.some(pair=>pair.key==='ARTIFACTY_MCP_URL')){const mode=pairs.find(pair=>pair.key==='ARTIFACTY_MCP_MODE');if(mode)mode.value='bridge';else pairs.push({key:'ARTIFACTY_MCP_MODE',value:'bridge'});}result.push('env = { '+pairs.map(pair=>`${pair.key} = ${JSON.stringify(pair.value)}`).join(', ')+' }'+(entry.comment?' '+entry.comment:''));}
     else result.push(entry.line);
   }
