@@ -385,12 +385,12 @@ function renderProvenance(artifact, version, view) {
     ${["tool", "provider", "model", "userId", "source", "rawSourceAgent"].map(key => `<dt>${view.text(`provenance.${key}`)}</dt><dd>${escapeHtml(author?.[key] || view.raw("provenance.unknown"))}</dd>`).join("")}</dl></details>`;
 }
 
-export function renderExplainerDraftPage({ artifact, draft, user, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", error = "", mode = "new", expectedVersion, conflict = null, draftTitle }) {
+export function renderExplainerDraftPage({ artifact, draft, user, baseUrl, authToken = "", locale = DEFAULT_LOCALE, currentPath = "/", error = "", mode = "new", expectedVersion, conflict = null, draftTitle, baseVersion }) {
   const view = viewContext(locale, currentPath);
   const edit = mode === "edit";
   const content = typeof draft === "string" ? draft : JSON.stringify(draft, null, 2);
   const labels = Object.fromEntries(["flowView", "flowText", "flowChart", "flowDirection", "flowHorizontal", "flowVertical", "flowStart", "goal", "summary", "limitations", "blockTitle", "mode", "steps", "compare", "diagram", "scenarios", "label", "explanation", "basis", "source", "interpretation", "assumption", "reference", "value", "parameter", "unit", "addBlock", "addItem", "remove", "up", "down", "connections", "from", "to", "addConnection", "item", "block", "invalidDraft", "invalidCounts", "missingCitation", "scenarioOrder", "invalidConnections", "invalidLimitations"].map(key => [key, view.raw(`explainer.${key}`)]));
-  const sourceVersion = artifact.version?.version || artifact.latestVersion;
+  const sourceVersion = baseVersion ?? artifact.version?.version ?? artifact.latestVersion;
   const heading = edit ? "explainer.edit" : "explainer.create";
   return pageShell({ title: view.raw(heading), locale: view.locale,
     body: `${workspaceHeader(user, view)}<header class="topbar"><div><h1>${view.text(heading)}</h1><p>${escapeHtml(artifact.title)} · v${Number(sourceVersion)}</p></div></header>
@@ -398,7 +398,7 @@ export function renderExplainerDraftPage({ artifact, draft, user, baseUrl, authT
     ${conflict ? `<p class="conflict-banner" role="alert">${view.text("form.conflict", { latestVersion: conflict.latestVersion })}</p>` : ""}
     ${error ? `<p role="alert" class="conflict-banner">${escapeHtml(error)}</p>` : ""}
     <form method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/${edit ? "edit" : "explain"}" class="editor-form" data-explainer-editor data-explainer-labels="${escapeAttribute(JSON.stringify(labels))}">
-      ${hiddenToken(authToken)}${localeInput(view.locale)}${edit ? `<input type="hidden" name="format" value="explainer"><input type="hidden" name="artifactType" value="${escapeAttribute(artifact.artifactType || "document")}"><input type="hidden" name="tags" value="${escapeAttribute((artifact.tags || []).join(", "))}"><input type="hidden" name="expectedVersion" value="${Number(expectedVersion ?? artifact.latestVersion)}">` : `<input type="hidden" name="sourceVersion" value="${Number(sourceVersion)}">`}
+      ${hiddenToken(authToken)}${localeInput(view.locale)}${edit ? `<input type="hidden" name="format" value="explainer"><input type="hidden" name="baseVersion" value="${Number(sourceVersion)}"><input type="hidden" name="artifactType" value="${escapeAttribute(artifact.artifactType || "document")}"><input type="hidden" name="tags" value="${escapeAttribute((artifact.tags || []).join(", "))}"><input type="hidden" name="expectedVersion" value="${Number(expectedVersion ?? artifact.latestVersion)}">` : `<input type="hidden" name="sourceVersion" value="${Number(sourceVersion)}">`}
       <label class="field"><span>${view.text("form.title")}</span><input class="form-control" name="title" required maxlength="500" value="${escapeAttribute(draftTitle ?? (edit ? artifact.title : `${artifact.title} — ${view.raw("explainer.title")}`))}"></label>
       <label class="field" data-explainer-json><span>${view.text("explainer.structuredContent")}</span><textarea class="form-control" name="content" rows="20" required>${escapeHtml(content)}</textarea></label>
       <div data-explainer-editor-fields></div>${edit ? "" : `<p class="muted">${view.text("explainer.privateHelp")}</p>`}
@@ -1480,7 +1480,7 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
         <nav>
 
           ${user ? `<a href="${view.href(`/categories?artifactId=${encodeURIComponent(artifact.id)}`)}">${view.text("category.title")}</a>` : ""}
-          ${canEdit ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit`)}">${view.text("nav.edit")}</a>` : ""}
+          ${canEdit ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit?version=${version.version}`)}">${view.text("nav.edit")}</a>` : ""}
           ${(user || canEdit) && version.format !== "explainer" ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/explain?version=${version.version}`)}">${view.text("explainer.create")}</a>` : ""}
           <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
           ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
@@ -3749,13 +3749,27 @@ function mermaidFrameContent(content) {
   <style>
     html, body { margin: 0; min-height: 100%; background: #fff; color: #111827; }
     body { padding: 16px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    #artifacty-mermaid { display: grid; place-items: center; min-height: 240px; }
-    #artifacty-mermaid svg { max-width: 100%; height: auto; }
+    .diagram-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .diagram-controls[hidden] { display: none; }
+    .diagram-controls button { min-width: 36px; min-height: 36px; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #111827; cursor: pointer; }
+    .diagram-controls button:focus-visible, #artifacty-mermaid-viewport:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .diagram-controls button:disabled { opacity: .45; cursor: default; }
+    .diagram-controls output { min-width: 4ch; text-align: center; font-variant-numeric: tabular-nums; }
+    #artifacty-mermaid-viewport { overflow: auto; max-height: 560px; min-height: 240px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    #artifacty-mermaid { width: max-content; min-width: 100%; }
+    #artifacty-mermaid svg { display: block; max-width: none !important; margin: 0 auto; }
     .error { white-space: pre-wrap; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; }
   </style>
 </head>
 <body>
-  <div id="artifacty-mermaid"></div>
+  <div class="diagram-controls" aria-label="Diagram zoom" hidden>
+    <button type="button" id="diagram-zoom-out" aria-label="Zoom out">−</button>
+    <output id="diagram-zoom-level" aria-live="polite">100%</output>
+    <button type="button" id="diagram-zoom-in" aria-label="Zoom in">+</button>
+    <button type="button" id="diagram-fit">Fit</button>
+    <button type="button" id="diagram-actual">100%</button>
+  </div>
+  <div id="artifacty-mermaid-viewport" tabindex="0" role="region" aria-label="Diagram"><div id="artifacty-mermaid"></div></div>
   <script type="application/json" id="artifacty-mermaid-source">${source}</script>
   <script type="module">
     import mermaid from "/vendor/npm/mermaid/dist/mermaid.esm.min.mjs";
@@ -3771,6 +3785,45 @@ function mermaidFrameContent(content) {
       mermaid.initialize({ startOnLoad: false, securityLevel: "strict", layout: "dagre", theme: "default", look: "classic" });
       const result = await mermaid.render("artifacty-mermaid-svg", source);
       target.innerHTML = result.svg;
+      const svg = target.querySelector("svg");
+      const viewport = document.getElementById("artifacty-mermaid-viewport");
+      const bounds = svg.viewBox.baseVal;
+      const width = bounds.width || svg.getBoundingClientRect().width;
+      const height = bounds.height || svg.getBoundingClientRect().height;
+      if (width > 0 && height > 0) {
+        const zoomOut = document.getElementById("diagram-zoom-out");
+        const zoomIn = document.getElementById("diagram-zoom-in");
+        const level = document.getElementById("diagram-zoom-level");
+        let scale = 1;
+        let fitting = true;
+        function zoom(nextScale) {
+          const previous = scale;
+          const centerX = (viewport.scrollLeft + viewport.clientWidth / 2) / previous;
+          const centerY = (viewport.scrollTop + viewport.clientHeight / 2) / previous;
+          scale = Math.max(0.01, Math.min(4, nextScale));
+          svg.style.width = width * scale + "px";
+          svg.style.height = height * scale + "px";
+          level.textContent = Math.round(scale * 100) + "%";
+          zoomOut.disabled = scale <= 0.01;
+          zoomIn.disabled = scale >= 4;
+          viewport.scrollLeft = Math.max(0, centerX * scale - viewport.clientWidth / 2);
+          viewport.scrollTop = Math.max(0, centerY * scale - viewport.clientHeight / 2);
+          report();
+        }
+        function fit() {
+          fitting = true;
+          zoom(Math.min(1, (viewport.clientWidth - 2) / width, 540 / height));
+          viewport.scrollLeft = 0;
+          viewport.scrollTop = 0;
+        }
+        zoomOut.addEventListener("click", () => { fitting = false; zoom(scale / 1.25); });
+        zoomIn.addEventListener("click", () => { fitting = false; zoom(scale * 1.25); });
+        document.getElementById("diagram-fit").addEventListener("click", fit);
+        document.getElementById("diagram-actual").addEventListener("click", () => { fitting = false; zoom(1); });
+        document.querySelector(".diagram-controls").hidden = false;
+        window.addEventListener("resize", () => { if (fitting) fit(); });
+        fit();
+      }
     } catch (error) {
       target.innerHTML = "";
       const pre = document.createElement("pre");

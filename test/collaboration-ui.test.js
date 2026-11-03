@@ -65,7 +65,7 @@ test("readers cannot see comment or edit controls; comment grants show only comm
   assert.doesNotMatch(read, /href="\/artifacts\/secret-id\/edit"|action="\/artifacts\/secret-id\/(archive|comments)"/);
   const comment = renderArtifactPage({ ...options, permission: "comment" });
   assert.match(comment, /action="\/artifacts\/secret-id\/comments"/);
-  assert.doesNotMatch(comment, /href="\/artifacts\/secret-id\/edit"/);
+  assert.doesNotMatch(comment, /href="\/artifacts\/secret-id\/edit\?version=1"/);
 });
 
 test("public share previews never execute active artifact source", () => {
@@ -79,7 +79,7 @@ test("public share previews never execute active artifact source", () => {
 test("edit grants enable editing and comments but retain owner-only archival", () => {
   const options = { artifact: { ...artifact, relations: undefined }, version, content: "hello", baseUrl, user: { id: "editor", role: "user" } };
   const edit = renderArtifactPage({ ...options, permission: "edit" });
-  assert.match(edit, /href="\/artifacts\/secret-id\/edit"/);
+  assert.match(edit, /href="\/artifacts\/secret-id\/edit\?version=1"/);
   assert.match(edit, /action="\/artifacts\/secret-id\/comments"/);
   assert.doesNotMatch(edit, /action="\/artifacts\/secret-id\/archive"/);
   const owner = renderArtifactPage({ ...options, user, permission: "owner" });

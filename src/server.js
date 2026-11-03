@@ -1758,6 +1758,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       artifact,
       version: artifact.version,
       content: artifact.content,
+      expectedVersion: artifact.latestVersion,
       authToken,
       locale,
       currentPath
@@ -1778,7 +1779,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     try {
       await assertCollectionEditableReferences(store, editMatch[1], accessContext(request, currentUser), undefined, body.dropUnavailableReferences === "true");
       if (body.format === "collection" && body.dropUnavailableReferences === "true") body.content = await dropUnavailableCollectionReferences(store, body.content, accessContext(request, currentUser));
-      const editingExplainer = body.format === "explainer" ? await getArtifact(store, editMatch[1], { access: accessContext(request, currentUser) }) : null;
+      const editingExplainer = body.format === "explainer" ? await getArtifact(store, editMatch[1], { version: body.baseVersion || undefined, access: accessContext(request, currentUser) }) : null;
       const artifact = await updateArtifact(store, editMatch[1], {
         title: body.title,
         content: body.content,
@@ -1800,7 +1801,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     } catch (error) {
       if (body.format === "explainer" && error.code === "INVALID_EXPLAINER") {
         const current = await getArtifact(store, editMatch[1], { access: accessContext(request, currentUser) });
-        return sendHtml(response, renderExplainerDraftPage({ mode: "edit", artifact: { ...current, title: body.title || current.title }, draft: body.content, expectedVersion, error: error.message, user: currentUser, baseUrl, authToken, locale: bodyLocale, currentPath }), 400, headOnly);
+        return sendHtml(response, renderExplainerDraftPage({ mode: "edit", artifact: { ...current, title: body.title || current.title }, draft: body.content, baseVersion: body.baseVersion || undefined, expectedVersion, error: error.message, user: currentUser, baseUrl, authToken, locale: bodyLocale, currentPath }), 400, headOnly);
       }
       if (error instanceof VersionConflictError) {
         const current = await getArtifact(store, editMatch[1], { access: accessContext(request, currentUser) });
@@ -1812,7 +1813,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
           tags: splitTags(body.tags)
         };
         if (body.format === "explainer") {
-          return sendHtml(response, renderExplainerDraftPage({ mode: "edit", artifact: unsavedArtifact, draft: body.content, expectedVersion: error.latestVersion, conflict: { latestVersion: error.latestVersion }, user: currentUser, baseUrl, authToken, locale: bodyLocale, currentPath }), 409, headOnly);
+          return sendHtml(response, renderExplainerDraftPage({ mode: "edit", artifact: unsavedArtifact, draft: body.content, baseVersion: body.baseVersion || undefined, expectedVersion: error.latestVersion, conflict: { latestVersion: error.latestVersion }, user: currentUser, baseUrl, authToken, locale: bodyLocale, currentPath }), 409, headOnly);
         }
         if (body.format === "collection") {
           const candidates = await listArtifacts(store, { access: accessContext(request, currentUser), limit: 200 });

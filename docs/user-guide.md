@@ -46,11 +46,15 @@ Artifacty 0.17.0 also adds **Explain interactively** on the artifact viewer. Cre
 
 ![English artifact editor](assets/screenshots/edit.png)
 
-To change an existing artifact, open it and select **Edit**. Select **Save Version** when the content is ready. Editing is not auto-saved. Confirm that a new version number appears in the viewer. If another person saved a version while you were editing, inspect the conflict and its diff before submitting again.
+To change an existing artifact, open the version you want and select **Edit**. The editor loads that selected version. Saving creates a new version and preserves the original. Select **Save Version** when the content is ready. Editing is not auto-saved. Confirm that a new version number appears in the viewer. If another person saved a version while you were editing, inspect the conflict and its diff before submitting again.
 
 Visibility and server access mode are separate controls. Public visibility does not bypass a private server's sign-in and sharing rules. Owners and administrators can change visibility from the artifact viewer. See the [README access reference](../README.md) for the complete permission rules.
 
 ## Preview content
+
+Use **Zoom out**, **Zoom in**, **Fit**, and **100%** in a Mermaid preview to read large diagrams. Scroll inside the preview to reach content beyond its visible area.
+
+![Mermaid zoom controls](assets/screenshots/mermaid-zoom.png)
 
 ![English artifact viewer displaying a Mermaid diagram](assets/screenshots/diagram.png)
 

@@ -16,6 +16,7 @@ export const EDITOR_VENDOR_PACKAGES = [
   "@codemirror/lint",
   "@codemirror/search",
   "@codemirror/state",
+  "@codemirror/streamparser",
   "@codemirror/view",
   "@lezer/common",
   "@lezer/css",
