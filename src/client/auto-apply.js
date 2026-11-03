@@ -19,12 +19,12 @@ export function enhanceAutoApply(document) {
 }
 if (typeof document !== 'undefined') enhanceAutoApply(document);
 
-// Review status is the only opt-in mutation; save without navigating away from
-// an unfinished comment. The ordinary submit remains available without JS.
-export function enhanceReviewStatus(document, fetcher = globalThis.fetch) {
-  for (const form of document.querySelectorAll('form[data-review-status]')) {
-    const select = form.querySelector('select[name="status"]');
-    const feedback = form.querySelector('[data-review-feedback]');
+// Only explicitly opted-in single-choice mutations save without navigation.
+// Ordinary submit remains available without JavaScript.
+function enhanceSelectMutation(document, selector, control, feedbackSelector, fetcher) {
+  for (const form of document.querySelectorAll(selector)) {
+    const select = form.querySelector(control);
+    const feedback = form.querySelector(feedbackSelector);
     const submit = form.querySelector('button[type="submit"]');
     if (!select || !feedback || !fetcher) continue;
     let saved = select.value;
@@ -50,4 +50,17 @@ export function enhanceReviewStatus(document, fetcher = globalThis.fetch) {
     if (submit) submit.hidden = true;
   }
 }
-if (typeof document !== 'undefined') enhanceReviewStatus(document);
+export function enhanceReviewStatus(document, fetcher = globalThis.fetch) {
+  enhanceSelectMutation(document, 'form[data-review-status]', 'select[name="status"]', '[data-review-feedback]', fetcher);
+}
+export function enhanceVisibility(document, fetcher = globalThis.fetch) {
+  enhanceSelectMutation(document, 'form[data-visibility]', 'select[name="visibility"]', '[data-visibility-feedback]', fetcher);
+}
+export function enhanceDisplaySettings(document, fetcher = globalThis.fetch) {
+  enhanceSelectMutation(document, 'form[data-display-settings]', 'select[name="timeZone"]', '[data-display-feedback]', fetcher);
+}
+if (typeof document !== 'undefined') {
+  enhanceDisplaySettings(document);
+  enhanceReviewStatus(document);
+  enhanceVisibility(document);
+}

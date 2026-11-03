@@ -69,6 +69,24 @@ Confirm that integrity reports `ok: true`, then start the destination server wit
 
 The full JSON format does not include every local operational secret. Preserve local secret files separately, including `secrets/smtp.key` if SMTP is configured. Existing backup rules still apply: imported sessions are invalidated and some integrations require reconfiguration. Keep the migration JSON private and remove it according to your backup-retention policy after recovery has been verified.
 
+## Upgrade a PostgreSQL schema
+
+This build supports upgrading an existing PostgreSQL store from schema 11 to schema 12 for nested categories. Normal server, CLI, and MCP startup refuses schema 11 rather than changing it automatically. Other older schema versions require their own supported procedure; do not edit version metadata to bypass the check.
+
+1. Stop the server and every direct CLI or MCP writer that uses this store. The command checks managed server process markers, but these cannot identify every writer.
+2. Back up the PostgreSQL database and complete private artifact home at the same stopped state. Use external backup tools and test restoring both into an isolated destination. Preserve `.postgres-store-id` and local secrets with the home.
+3. Prepare a trusted new CLI that includes this command. Keep the old server stopped and select the same `ARTIFACTY_DATABASE_URL`, schema, and home as the server. Set the database URL privately; do not paste credentials into the command or logs.
+4. After verifying both backups, run:
+
+   ```sh
+   artifacty database upgrade --confirm verified-backup --home /path/to/store
+   artifacty integrity --home /path/to/store
+   ```
+
+5. Confirm that the upgrade result reports `backend: "postgres"`, `previousVersion: 11`, `currentVersion: 12`, and `upgraded: true`, and that integrity reports `ok: true`. Start the new server and verify category memberships, users, permissions, and representative artifact content before reconnecting clients.
+
+`--confirm verified-backup` acknowledges that you, the operator, verified the coordinated backups. Artifacty does not create or verify a PostgreSQL backup through this command. It does not update the application package or restart the server. On a store already at schema 12, it reports `upgraded: false`; unsupported schema versions are rejected. Keep the database and matching artifact-home backup until recovery is no longer needed. An older binary cannot open schema 12. Recovery to the old version requires restoring the coordinated backup, not changing the schema marker.
+
 ## Back up, move, and update
 
 Stop the server and all writers before taking a coordinated operational backup. Use your PostgreSQL tools, such as `pg_dump`, to back up the database, and back up the complete private Artifacty directory at the same stopped state. Include the artifact files, `.postgres-store-id`, and any local secret files. Store backups privately and test recovery into an isolated destination.

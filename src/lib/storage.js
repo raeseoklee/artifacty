@@ -11,7 +11,7 @@ import { isUnknownSourceAgent, normalizeSourceAgent } from "./agents.js";
 import { normalizeProvenance } from "./provenance.js";
 import { parseCollection } from "./collections.js";
 import { parseExplainer, explainerSearchText } from "./explainers.js";
-import { initializeCategorySchema, categoryArtifactPredicate } from "./category-schema.js";
+import { initializeCategorySchema, categoryArtifactPredicate, validateCategoryHierarchy } from "./category-schema.js";
 import { assertNoSecrets, normalizeTokenScopes, securityConfig } from "./security.js";
 import { EVENT_TYPES, eventFromAudit, eventHistoryLimit, eventVisibleTo, matchesFilter, publish as publishEvent } from "./events.js";
 import { assertPublicWebhookUrl } from "./webhooks.js";
@@ -24,7 +24,8 @@ import {
   vectorToBlob
 } from "./embeddings.js";
 
-export const STORE_VERSION = 11;
+export const STORE_VERSION = 12;
+const postgresSchemaMigrations = new WeakMap();
 const APPLICATION_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
 // Not exported: no caller outside this file reads the constant itself, only
 // the numeric schemaVersion field it seeds on artifacts.
@@ -570,6 +571,33 @@ export function createStore(options = {}) {
   };
   Object.defineProperty(store, "database", { value: database });
   return store;
+}
+
+/** Explicit PostgreSQL schema upgrade after the operator verifies external backups. */
+export async function upgradePostgresStoreSchema(options = {}, { confirm } = {}) {
+  if (confirm !== "verified-backup") throw Object.assign(new Error('Database upgrade requires --confirm verified-backup after verifying the database and artifact-home backups'), { code: "DATABASE_UPGRADE_CONFIRMATION_REQUIRED", statusCode: 400 });
+  const store = createStore(options);
+  if (store.database.kind !== "postgres") throw Object.assign(new Error("Explicit database upgrades require PostgreSQL"), { code: "INVALID_DATABASE_BACKEND", statusCode: 400 });
+  for (const filename of ["server.pid", "server.json"]) {
+    const marker = path.join(store.home, filename);
+    if (!existsSync(marker)) continue;
+    let pid;
+    try {
+      const text = readFileSync(marker, "utf8");
+      pid = filename.endsWith(".json") ? JSON.parse(text).pid : Number(text.trim());
+      if (!Number.isInteger(pid) || pid <= 0) throw new Error("Invalid process marker");
+    } catch { throw Object.assign(new Error("Stop the server and repair its process marker before upgrading"), { code: "STORE_NOT_OFFLINE" }); }
+    try { process.kill(pid, 0); }
+    catch (error) { if (error.code === "ESRCH") continue; }
+    throw Object.assign(new Error("Stop the managed Artifacty server before upgrading the database"), { code: "STORE_NOT_OFFLINE" });
+  }
+  const report = {};
+  postgresSchemaMigrations.set(store, report);
+  try {
+    const db = openPostgresStore(store);
+    db.close();
+    return { backend: "postgres", previousVersion: report.previousVersion, currentVersion: STORE_VERSION, upgraded: Boolean(report.upgraded) };
+  } finally { postgresSchemaMigrations.delete(store); }
 }
 
 export async function ensureStore(store = createStore()) {
@@ -3542,6 +3570,7 @@ export async function importFullStoreTables(store = createStore(), tables = {}, 
       for (const [key, table] of [["teams", "teams"], ["teamMembers", "team_members"], ["artifactShares", "artifact_shares"], ["notifications", "notifications"], ["categories", "categories"], ["categoryArtifacts", "category_artifacts"]]) {
         if (Array.isArray(tables[key])) counts[key] = replaceTableRows(db, table, tables[key]);
       }
+      if (Array.isArray(tables.categories)) validateCategoryHierarchy(db);
       counts.meta = replaceMetaRows(db, tables.meta);
       if (previousAccessMode === "private") db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('access_mode', 'private')").run();
       if (previousNetworkPolicy) db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('network_policy', ?)").run(previousNetworkPolicy.value);
@@ -3797,11 +3826,17 @@ function openPostgresStore(store) {
     inTransaction = true;
     const hasMeta = tableExistsInDb(db, "meta");
     const version = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'store_version'").get()?.value : undefined;
-    if ((hasMeta && version === undefined) || (version !== undefined && String(version) !== String(STORE_VERSION))) {
+    const migration = postgresSchemaMigrations.get(store);
+    const canMigrate = Boolean(migration && String(version) === "11" && STORE_VERSION === 12);
+    if (migration) {
+      migration.previousVersion = Number(version);
+      if (!canMigrate && String(version) !== String(STORE_VERSION)) throw Object.assign(new Error("Only PostgreSQL schema 11 can upgrade to schema 12 with this build"), { code: "POSTGRES_MIGRATION_REQUIRED" });
+    }
+    if (!canMigrate && ((hasMeta && version === undefined) || (version !== undefined && String(version) !== String(STORE_VERSION)))) {
       throw Object.assign(new Error("PostgreSQL store schema differs from this build. Back up the remote database and artifact files before a supported migration."), { code: Number(version) > STORE_VERSION ? "NEWER_STORE_VERSION" : "POSTGRES_MIGRATION_REQUIRED" });
     }
     const appVersion = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'application_version'").get()?.value : undefined;
-    if (hasMeta && process.env.ARTIFACTY_BACKUP_ON_UPDATE === "true" && appVersion !== APPLICATION_VERSION) {
+    if (hasMeta && !canMigrate && process.env.ARTIFACTY_BACKUP_ON_UPDATE === "true" && appVersion !== APPLICATION_VERSION) {
       throw Object.assign(new Error("PostgreSQL application updates require a verified database backup and artifact-home backup. Stop all writers, create and verify both backups, then unset ARTIFACTY_BACKUP_ON_UPDATE for the manually managed update."), { code: "POSTGRES_BACKUP_REQUIRED" });
     }
     const binding = hasMeta ? db.prepare("SELECT value FROM meta WHERE key = 'postgres_home_binding'").get()?.value : undefined;
@@ -3821,6 +3856,7 @@ function openPostgresStore(store) {
     db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('application_version', ?)").run(APPLICATION_VERSION);
     db.exec("COMMIT");
     inTransaction = false;
+    if (migration) migration.upgraded = canMigrate;
     backfillProvenance(db);
     normalizeStoredSourceAgents(db, store);
     syncSearchIndexIfEmpty(db, store);

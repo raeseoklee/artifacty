@@ -1,27 +1,68 @@
+export function categoryPathLabel(category, categories) {
+  const byId = new Map(categories.map(item => [item.id, item]));
+  const names = [category.name];
+  const visited = new Set([category.id]);
+  let parent = byId.get(category.parentId);
+  while (parent && parent.scope === category.scope && (category.scope !== "team" || parent.teamId === category.teamId) && !visited.has(parent.id)) {
+    names.unshift(parent.name); visited.add(parent.id); parent = byId.get(parent.parentId);
+  }
+  return names.join(" / ");
+}
+
+export function categoryParentCandidates(categories, category) {
+  const byId = new Map(categories.map(item => [item.id, item]));
+  return categories.filter(candidate => {
+    if (candidate.scope !== category.scope || (candidate.scope === "team" && candidate.teamId !== category.teamId)) return false;
+    const visited = new Set();
+    let current = candidate;
+    while (current && !visited.has(current.id)) {
+      if (current.id === category.id) return false;
+      visited.add(current.id); current = byId.get(current.parentId);
+    }
+    return true;
+  });
+}
+
 const manager = typeof document === "undefined" ? null : document.querySelector("[data-category-manager]");
 if (manager) {
   const messages = JSON.parse(document.getElementById("category-messages").textContent);
   const status = manager.querySelector("[data-category-status]");
   const createForm = manager.querySelector("[data-category-create]");
+  const categoryData = JSON.parse(document.getElementById("category-data")?.textContent || "[]");
+  function refreshCreateParents() {
+    const select = createForm.elements.parentId;
+    if (!select) return;
+    const previous = select.value;
+    select.replaceChildren();
+    const top = document.createElement("option"); top.value = ""; top.textContent = messages.root; select.append(top);
+    const category = { scope: createForm.elements.scope.value, teamId: createForm.elements.teamId?.value };
+    for (const item of categoryParentCandidates(categoryData, category)) {
+      const option = document.createElement("option"); option.value = item.id; option.textContent = categoryPathLabel(item, categoryData); select.append(option);
+    }
+    select.value = [...select.options].some(option => option.value === previous) ? previous : "";
+  }
   const showStatus = (key, error) => { status.textContent = messages[key] + (error ? `: ${error.message}` : ""); status.setAttribute("role", error ? "alert" : "status"); };
   async function mutate(url, method, body) {
     showStatus("saving");
     const response = await fetch(url, { method, headers: { "content-type": "application/json" }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || response.statusText);
+    if (!response.ok) throw new Error(result.code === "CATEGORY_HAS_CHILDREN" ? messages.hasChildren : result.error || response.statusText);
     showStatus("saved");
     return result;
   }
   createForm.elements.scope.addEventListener("change", () => {
     createForm.querySelector("[data-category-team-field]").hidden = createForm.elements.scope.value !== "team";
+    refreshCreateParents();
   });
+  createForm.elements.teamId?.addEventListener("change", refreshCreateParents);
+  refreshCreateParents();
   createForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const button = createForm.querySelector("button");
     button.disabled = true;
     try {
       const data = new FormData(createForm);
-      await mutate("/api/categories", "POST", { name: data.get("name"), scope: data.get("scope"), ...(data.get("scope") === "team" ? { teamId: data.get("teamId") } : {}) });
+      await mutate("/api/categories", "POST", { name: data.get("name"), scope: data.get("scope"), parentId: data.get("parentId") || null, ...(data.get("scope") === "team" ? { teamId: data.get("teamId") } : {}) });
       location.reload();
     } catch (error) { showStatus("error", error); button.disabled = false; }
   });
@@ -36,6 +77,15 @@ if (manager) {
       try { const result = await mutate(endpoint, "PATCH", { name: name.value }); savedName = result.name; name.value = savedName; }
       catch (error) { name.value = savedName; showStatus("error", error); }
       finally { name.disabled = false; }
+    });
+    const parent = row.querySelector("[data-category-parent]");
+    let savedParent = parent?.value || "";
+    parent?.addEventListener("change", async () => {
+      if (parent.value === savedParent) return;
+      parent.disabled = true;
+      try { await mutate(endpoint, "PATCH", { parentId: parent.value || null }); savedParent = parent.value; location.reload(); }
+      catch (error) { parent.value = savedParent; showStatus("error", error); }
+      finally { parent.disabled = false; }
     });
     const checkbox = row.querySelector("[data-category-membership]");
     checkbox?.addEventListener("change", async () => {
@@ -119,9 +169,28 @@ export function enhanceCategoryNavigation(document, fetcher = globalThis.fetch, 
     const checked = [...document.querySelectorAll("[data-category-selected-artifact]:checked")].map(input => input.dataset.categorySelectedArtifact);
     return categoryArtifactIds(checked.includes(dragged) ? checked : [dragged]);
   };
-  for (const checkbox of document.querySelectorAll("[data-category-selected-artifact]")) {
+  const checkboxes = [...document.querySelectorAll("[data-category-selected-artifact]")];
+  let selectionAnchor = null;
+  for (const [index, checkbox] of checkboxes.entries()) {
+    checkbox.addEventListener("click", event => {
+      if (event.shiftKey && selectionAnchor !== null) {
+        const first = Math.min(index, selectionAnchor);
+        const last = Math.max(index, selectionAnchor);
+        const range = checkboxes.slice(first, last + 1);
+        const outsideCount = checkboxes.filter((input, position) =>
+          input.checked && (position < first || position > last)).length;
+        if (outsideCount + range.length > 100) {
+          event.preventDefault();
+          status.textContent = text("selectionLimit");
+          return;
+        }
+        for (const input of range) input.checked = true;
+        return;
+      }
+      selectionAnchor = index;
+    });
     checkbox.addEventListener("change", () => {
-      if (checkbox.checked && document.querySelectorAll("[data-category-selected-artifact]:checked").length > 100) {
+      if (checkbox.checked && checkboxes.filter(input => input.checked).length > 100) {
         checkbox.checked = false;
         status.textContent = text("selectionLimit");
       }
@@ -205,6 +274,27 @@ export function enhanceCategoryNavigation(document, fetcher = globalThis.fetch, 
       });
     }
     parent.append(link);
+    return link;
+  }
+  function nestedCategories(items, parent) {
+    const byId = new Map(items.map(item => [item.id, item]));
+    const visited = new Set();
+    function append(category, target) {
+      if (visited.has(category.id)) return;
+      visited.add(category.id);
+      const children = items.filter(item => item.parentId === category.id);
+      if (!children.length) { categoryLink(category, target); return; }
+      const details = document.createElement("details");
+      details.className = "category-tree-node";
+      const summary = document.createElement("summary");
+      details.append(summary); target.append(details);
+      remember(details, `category:${category.id}`);
+      categoryLink(category, summary);
+      for (const child of children) append(child, details);
+    }
+    for (const category of items) if (!category.parentId || !byId.has(category.parentId)) append(category, parent);
+    // Defensive rendering: a malformed API response must not hide all nodes.
+    for (const category of items) if (!visited.has(category.id)) append(category, parent);
   }
   async function load() {
     try {
@@ -212,18 +302,17 @@ export function enhanceCategoryNavigation(document, fetcher = globalThis.fetch, 
       if (!response.ok) throw new Error("Categories unavailable");
       const result = await response.json();
       categories = Array.isArray(result.categories) ? result.categories : [];
+      if (categories.some(category => category.id === selected)) for (const node of navigations) node.open = true;
       for (const currentTree of trees) {
         tree = currentTree;
         const personal = branch(text("personal"), "personal");
         const teams = branch(text("teams"), "teams");
         const grouped = new Map();
-        for (const category of categories) {
-          if (category.scope === "personal") categoryLink(category, personal);
-          else {
-            if (!grouped.has(category.teamId)) grouped.set(category.teamId, branch(category.teamName, `team:${category.teamId}`, teams));
-            categoryLink(category, grouped.get(category.teamId));
-          }
+        nestedCategories(categories.filter(category => category.scope === "personal"), personal);
+        for (const category of categories.filter(category => category.scope === "team")) {
+          if (!grouped.has(category.teamId)) grouped.set(category.teamId, branch(category.teamName, `team:${category.teamId}`, teams));
         }
+        for (const [teamId, group] of grouped) nestedCategories(categories.filter(category => category.scope === "team" && category.teamId === teamId), group);
         if (!categories.length) { const empty = document.createElement("p"); empty.textContent = text("empty"); tree.append(empty); }
       }
       for (const row of rows) {
@@ -234,7 +323,7 @@ export function enhanceCategoryNavigation(document, fetcher = globalThis.fetch, 
         const caption = document.createElement("span"); caption.textContent = text("choose");
         const select = document.createElement("select"); select.className = "form-select"; select.setAttribute("aria-label", text("choose"));
         const initial = document.createElement("option"); initial.value = ""; initial.textContent = text("choose"); select.append(initial);
-        for (const category of choices) { const option = document.createElement("option"); option.value = category.id; option.textContent = category.scope === "team" ? `${category.teamName} / ${category.name}` : category.name; select.append(option); }
+        for (const category of choices) { const option = document.createElement("option"); option.value = category.id; option.textContent = category.scope === "team" ? `${category.teamName} / ${categoryPathLabel(category, categories)}` : categoryPathLabel(category, categories); select.append(option); }
         label.append(caption, select); row.append(label);
         select.addEventListener("change", async () => {
           const category = choices.find(item => item.id === select.value);

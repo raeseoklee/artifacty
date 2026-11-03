@@ -110,3 +110,57 @@ test('the 101st selected artifact is rejected with an explicit limit message', a
   assert.equal(checkboxes.filter(input=>input.checked).length,100);
   for (const nav of fixture.navigations) assert.equal(nav.fields['[data-category-nav-status]'].textContent,'Select up to 100 artifacts.');
 });
+
+test('nested categories display full paths and exclude self, descendants and other scopes as parents', async () => {
+  const client = await import('../src/client/categories.js');
+  const server = await import('../src/lib/category-ui.js');
+  const categories = [
+    {id:'root',name:'Research',scope:'personal',parentId:null},
+    {id:'child',name:'Sources',scope:'personal',parentId:'root'},
+    {id:'leaf',name:'Notes',scope:'personal',parentId:'child'},
+    {id:'other',name:'Projects',scope:'personal',parentId:null},
+    {id:'team',name:'Work',scope:'team',teamId:'t',parentId:null},
+    {id:'another-team',name:'Other team',scope:'team',teamId:'t2',parentId:null}
+  ];
+  assert.equal(client.categoryPathLabel(categories[2],categories),'Research / Sources / Notes');
+  assert.equal(server.categoryPathLabel(categories[2],categories),'Research / Sources / Notes');
+  assert.deepEqual(client.categoryParentCandidates(categories,categories[0]).map(item=>item.id),['other']);
+  assert.deepEqual(client.categoryParentCandidates(categories,categories[1]).map(item=>item.id),['root','other']);
+  assert.deepEqual(client.categoryParentCandidates(categories,{scope:'team',teamId:'t'}).map(item=>item.id),['team']);
+});
+
+test('nested sidebar renders parents and children in both menus, opens selected ancestors and uses full quick-add paths', async () => {
+  const { enhanceCategoryNavigation } = await import('../src/client/categories.js');
+  const {document,navigations,row}=navigationFixture();
+  for (const nav of navigations) nav.dataset.categorySelected='leaf';
+  const categories=[{id:'root',name:'Research',scope:'personal',parentId:null},{id:'child',name:'Sources',scope:'personal',parentId:'root'},{id:'leaf',name:'Notes',scope:'personal',parentId:'child'}];
+  const storage={getItem:()=>JSON.stringify({root:false,'category:root':false,'category:child':false}),setItem(){}};
+  await enhanceCategoryNavigation(document,async()=>({ok:true,json:async()=>({categories})}),storage);
+  for (const nav of navigations) {
+    assert.equal(nav.open,true);
+    const group=nav.fields['[data-category-tree]'].children[0];
+    const root=group.children[1];
+    const child=root.children[1];
+    const leaf=child.children[1];
+    assert.equal(root.className,'category-tree-node');
+    assert.equal(child.className,'category-tree-node');
+    assert.equal(root.open,true);
+    assert.equal(child.open,true);
+    assert.equal(leaf.attributes['aria-current'],'page');
+  }
+  assert.equal(row.children[0].children[1].children[3].textContent,'Research / Sources / Notes');
+});
+
+test('manager parent fields escape source data and omit cyclic parent choices', async () => {
+  const {renderCategoriesBody}=await import('../src/lib/category-ui.js');
+  const view={text:key=>key,attr:key=>key,raw:key=>key,href:value=>value};
+  const categories=[{id:'a',name:'Root<script>',scope:'personal',parentId:null,artifactCount:0},{id:'b',name:'Child',scope:'personal',parentId:'a',artifactCount:0}];
+  const html=renderCategoriesBody({categories,teams:[],artifact:null,view,user:{id:'u',role:'admin'}});
+  assert.match(html,/name="parentId"/);
+  assert.match(html,/data-category-parent/);
+  const rootSection=html.split('data-category-id="a"')[1].split('</section>')[0];
+  assert.doesNotMatch(rootSection,/<option value="[ab]"/);
+  assert.doesNotMatch(html,/<script>/);
+  const encoded=html.match(/id="category-data">([^<]*)<\/script>/)[1];
+  assert.equal(JSON.parse(encoded)[0].name,'Root<script>');
+});

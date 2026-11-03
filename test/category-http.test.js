@@ -50,6 +50,12 @@ test("category HTTP and browser flows isolate personal lists, share by team and 
     assert.match(dashboard, /Reading/);
     assert.doesNotMatch(dashboard, /Private notes/);
     assert.match(await (await request(`/artifacts/${artifact.id}`)).text(), /\/categories\?artifactId=/);
+    const child = await (await request("/api/categories", "owner", "POST", { name: "Child", parentId: personal.id })).json();
+    assert.equal(child.parentId, personal.id);
+    assert.equal((await request(`/api/categories/${personal.id}`, "owner", "DELETE")).status, 409);
+    const moved = await (await request(`/api/categories/${child.id}`, "owner", "PATCH", { parentId: null })).json();
+    assert.equal(moved.parentId, null);
+    assert.equal(moved.name, "Child");
     const teams = await (await request("/api/category-teams", "member")).json();
     assert.deepEqual(teams.teams, [{ id: team.id, name: "Documentation" }]);
     assert.deepEqual((await (await request("/api/category-teams", "outsider")).json()).teams, []);

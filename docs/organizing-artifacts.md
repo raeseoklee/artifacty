@@ -72,11 +72,29 @@ Sign in with an active account before using categories. Categories do not provid
 2. Under **Create category**, enter a name and select **Personal** or **Team**. For a team category, select one of your available teams and create the category.
 3. Open an artifact and follow its **Categories** link. Select **Included** for each category you want. Membership changes apply immediately; wait for **Saved**.
 4. Return to **Artifacts** and use the **Category** filter, or follow a category’s artifact-count link, to view its members.
-5. To rename a category, edit its name and leave the input. Wait for **Saved**. To delete a category, use **Delete category** and confirm; the artifacts remain.
+5. To rename a category, edit its name and leave the input. Wait for **Saved**. To delete a category, use **Delete category** and confirm; the artifacts remain. With the nested-category changes below, move or delete its children first.
 
 ![Artifact list filtered to the personal Research library category](assets/screenshots/manual-category-filter.png)
 
 Selecting the category narrows the list to its readable members without changing their tags or access.
+
+### Nest categories
+
+![Personal category hierarchy with Embeddings selected under Research and Search](assets/screenshots/category-hierarchy.png)
+
+The signed-in administrator selected **Research / Search / Embeddings** in an isolated example store. The sidebar shows the real parent relationships, and the list shows the selected category’s direct artifact membership.
+
+In **Manage categories**, choose a **Parent category** when creating a category. To move an existing category, change its parent selector and wait for **Saved**. Select **Top level** to return it to the root. Moving a category keeps its artifact memberships and existing children.
+
+![Administrator category management with parent selectors and direct membership counts](assets/screenshots/category-hierarchy-management.png)
+
+The signed-in administrator’s fictional **Embeddings** category has **Research / Search** selected as its parent and retains one direct artifact membership. Use the **Parent category** selector to move a category; **Top level** removes its parent relationship.
+
+A parent must belong to the same personal owner or the same team. You cannot move a personal category into a team or between teams. A category cannot be its own parent or a descendant of itself. Trees support at most five levels, including the root; moving a whole branch must keep every child within that limit.
+
+The sidebar and category dropdowns show the hierarchy. A parent’s artifact count and filter include only its direct memberships, not those of its children. Add an artifact to both categories if you want both lists to contain it. Hierarchy does not grant artifact access or change category ownership.
+
+Category names are unique among siblings in one personal or team scope. The same name can exist under different parents. A parent with child categories cannot be deleted: move or delete the children first. Deleting a leaf category removes its memberships, not its artifacts.
 
 ### Add artifacts from the list
 
@@ -84,7 +102,7 @@ Selecting the category narrows the list to its readable members without changing
 
 The signed-in administrator added two fictional artifacts to **Release review** under **Product team**. The sidebar reports the result and offers **Undo**; the row dropdowns provide an alternative to dragging.
 
-The sidebar groups categories under **Personal** and **Teams**, with a separate branch for each team. Expand or collapse a branch to browse your categories. The browser remembers these choices for your account on that browser. These are navigation groups, not nested category memberships. Select a category to filter the artifact list, or use **All artifacts** to return to the full list you can read.
+The sidebar groups categories under **Personal** and **Teams**, with a separate branch for each team. Expand or collapse a branch to browse your categories. The browser remembers these choices for your account on that browser. Personal and team groups identify the category’s scope; the nested category structure described below is a separate relationship. Select a category to filter the artifact list, or use **All artifacts** to return to the full list you can read.
 
 1. On **Artifacts**, drag an artifact row onto a writable category in the sidebar.
 2. To add several artifacts, select their checkboxes first, then drag one of the selected rows. Select up to 100 artifacts for one action; the page prevents selecting a 101st artifact and displays a limit message.
@@ -102,7 +120,7 @@ Categories reuse existing teams. The page shows the teams available to you. Admi
 - Team members still need access to each artifact. Membership counts and filtered results exclude artifacts the reader cannot access. Archived artifacts are excluded unless the view includes them.
 - Removing an item from a category keeps the artifact. Deleting a category removes its memberships, not the artifacts.
 
-Names contain 1–120 characters after trimming. Names must be unique within one personal owner or team. Duplicate checks ignore ASCII letter case; they do not perform Unicode case folding. Each personal or team scope supports up to 200 categories. A category’s scope cannot change after creation; create a separate category when you need a different audience.
+Names contain 1–120 characters after trimming. With the nested-category changes, names must be unique among siblings within one personal owner or team. Duplicate checks ignore ASCII letter case; they do not perform Unicode case folding. Each personal or team scope supports up to 200 categories. A category’s scope cannot change after creation; create a separate category when you need a different audience.
 
 A saved view stores a set of search filters. A category stores explicit artifact memberships. Use a category for a hand-picked working set, and a saved view for results that should follow filter conditions.
 
@@ -184,11 +202,11 @@ artifacty publish --title "Review notes" --content "# Review notes" --format mar
 
 This example intentionally omits a model because it does not know the running model ID. Add `--model` only when you know the actual value.
 
-Category HTTP endpoints are `GET`/`POST /api/categories`, `PATCH`/`DELETE /api/categories/{id}`, and `PUT`/`DELETE /api/categories/{id}/artifacts/{artifactId}`. `GET /api/category-teams` lists teams available for category creation. Create a personal category with `{ "name": "My references", "scope": "personal" }`; a team category also needs `"scope": "team"` and the selected `teamId`. The artifact list accepts `categoryId`, including the `artifacty_list` MCP tool. API token scopes and current user permissions both apply.
+Category HTTP endpoints are `GET`/`POST /api/categories`, `PATCH`/`DELETE /api/categories/{id}`, and `PUT`/`DELETE /api/categories/{id}/artifacts/{artifactId}`. `GET /api/category-teams` lists teams available for category creation. Create a personal category with `{ "name": "My references", "scope": "personal" }`; a team category also needs `"scope": "team"` and the selected `teamId`. The nested-category changes add optional `parentId` to category create and patch requests and responses; use `null` to move a category to the root. The artifact list accepts `categoryId`, including the `artifacty_list` MCP tool. API token scopes and current user permissions both apply.
 
 ## Store migration
 
-This build uses store schema 11; the public artifact record remains schema version 1. Opening an older store requires the normal verified upgrade snapshot before migration. Older binaries refuse the newer store. Full-store JSON backups include categories and their memberships. Preserve the snapshot before switching builds, and use the [recovery procedure](upgrade-backups.md) if you need to return to the old build. Reinstalling sample manuals does not replace edits or existing installed manual versions.
+The nested-category changes use store schema 12; the public artifact record remains schema version 1. Existing flat categories become root categories. SQLite stores at schema 11 require the normal verified upgrade snapshot before the 11 → 12 migration. PostgreSQL does not migrate on ordinary startup: follow the explicit [PostgreSQL schema upgrade procedure](postgresql.md#upgrade-a-postgresql-schema) after externally verifying a database-and-files backup. Older binaries refuse the newer store. Full-store JSON backups include categories, their parent relationships, and artifact memberships. Preserve the snapshot before switching builds, and use the [recovery procedure](upgrade-backups.md) if you need to return to the old build. Reinstalling sample manuals does not replace edits or existing installed manual versions.
 
 ## Check your result
 

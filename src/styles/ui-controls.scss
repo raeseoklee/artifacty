@@ -203,3 +203,32 @@ form[data-auto-apply] [hidden] { display: none !important; }
   .category-quick-add { grid-column: 3; grid-row: 1; min-width: 0; }
   .category-quick-add > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 }
+.visibility-form { display: grid; gap: .5rem; max-width: 24rem; margin-block: 1rem; }
+.visibility-form > label { display: grid; gap: .4rem; }
+.visibility-form [hidden] { display: none !important; }
+.visibility-form [data-visibility-feedback] { min-height: 1.25rem; font-size: .85rem; color: var(--muted); }
+.display-settings-form { display: grid; gap: .75rem; max-width: 30rem; }
+.display-settings-form > label { display: grid; gap: .4rem; }
+.display-settings-form [hidden] { display: none !important; }
+.display-settings-form [data-display-feedback] { min-height: 1.25rem; color: var(--muted); font-size: .85rem; }
+.category-tree-node { margin-inline-start: .5rem; }
+.category-tree-node > summary { display: flex; align-items: center; gap: .25rem; list-style-position: inside; }
+.category-tree-node > summary::before { content: '▸'; flex: 0 0 .7rem; }
+.category-tree-node[open] > summary::before { content: '▾'; }
+.category-tree-node > summary .category-tree-link { flex: 1; }
+.category-tree-node > .category-tree-node, .category-tree-node > .category-tree-link { margin-inline-start: .9rem; }
+.category-parent { min-width: 0; }
+[data-category-manager] .category-row > .category-parent { grid-column: 1 / -1; width: min(100%, 26rem); }
+@media (min-width: 1001px) {
+  [data-category-manager] .category-row, [data-category-manager] .category-row-membership { grid-template-columns: minmax(160px, 1fr) minmax(190px, 1fr) minmax(90px, max-content) max-content; align-items: end; }
+  [data-category-manager] .category-row > .category-name { grid-column: 1; grid-row: 1; }
+  [data-category-manager] .category-row > .category-parent { grid-column: 2; grid-row: 1; width: 100%; }
+  [data-category-manager] .category-row > [data-category-count] { grid-column: 3; grid-row: 1; }
+  [data-category-manager] .category-row > button { grid-column: 4; grid-row: 1; justify-self: end; min-width: max-content; }
+  [data-category-manager] .category-row > .muted { grid-column: 1; grid-row: 2; margin: 0; }
+  [data-category-manager] .category-row > .checkbox-field { grid-column: 2; grid-row: 2; margin: 0; }
+}
+@media (max-width: 1000px) {
+  [data-category-manager] .category-row > .category-parent { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+  [data-category-manager] .category-row > button { min-width: max-content; }
+}

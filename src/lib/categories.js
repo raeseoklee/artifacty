@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createStore, insertAuditRow, openDatabase, transaction, visibilityClause } from "./storage.js";
-import { categoryAccessClause, currentCategoryAccess as currentAccess } from "./category-schema.js";
-export { categoryArtifactPredicate } from "./category-schema.js";
+import { categoryAccessClause, currentCategoryAccess as currentAccess, MAX_CATEGORY_DEPTH } from "./category-schema.js";
+export { categoryArtifactPredicate, MAX_CATEGORY_DEPTH } from "./category-schema.js";
 
 export const MAX_CATEGORIES_PER_SCOPE = 200;
 export const MAX_CATEGORY_NAME_LENGTH = 120;
@@ -29,11 +29,58 @@ function categoryInDb(db, id, access) {
   return row;
 }
 
+function parentIdentifier(value) {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string" || !value.trim() || value.length > 80) throw invalid("parentId must be a category ID or null");
+  return value.trim();
+}
+
+function placement(db, category, parentId, access) {
+  const scopeColumn = category.scope === "personal" ? "owner_user_id" : "team_id";
+  const scopeId = category.owner_user_id || category.team_id;
+  const rows = db.prepare(`SELECT id, parent_id FROM categories WHERE ${scopeColumn} = ?`).all(scopeId);
+  const byId = new Map(rows.map(row => [row.id, row]));
+  if (parentId) {
+    const parent = categoryInDb(db, parentId, access);
+    if (parent.scope !== category.scope || (parent.owner_user_id || parent.team_id) !== scopeId) {
+      throw invalid("Parent categories must belong to the same personal or team scope");
+    }
+  }
+  const seen = new Set([category.id]);
+  let ancestors = 0;
+  for (let id = parentId; id; id = byId.get(id)?.parent_id) {
+    if (seen.has(id)) throw invalid("A category cannot be its own ancestor");
+    if (!byId.has(id)) throw invalid("The parent hierarchy is unavailable");
+    seen.add(id);
+    ancestors++;
+  }
+  const children = new Map();
+  for (const row of rows) {
+    if (!children.has(row.parent_id)) children.set(row.parent_id, []);
+    children.get(row.parent_id).push(row.id);
+  }
+  function height(id, path = new Set()) {
+    if (path.has(id)) throw invalid("Category hierarchy contains a cycle");
+    const next = new Set(path).add(id);
+    return 1 + Math.max(0, ...(children.get(id) || []).map(child => height(child, next)));
+  }
+  if (ancestors + height(category.id) > MAX_CATEGORY_DEPTH) throw invalid(`Categories can be at most ${MAX_CATEGORY_DEPTH} levels deep`);
+  return parentId;
+}
+
+function duplicateName(db, category, name, parentId, excludeId = "") {
+  const selector = category.scope === "personal" ? "owner_user_id = ?" : "team_id = ?";
+  const parent = parentId ? "parent_id = ?" : "parent_id IS NULL";
+  return db.prepare(`SELECT 1 FROM categories WHERE ${selector} AND ${parent} AND name = ? COLLATE NOCASE AND id != ?`)
+    .get(category.owner_user_id || category.team_id, ...(parentId ? [parentId] : []), name, excludeId);
+}
+
 function categoryResult(row, artifactCount = 0) {
   return {
     id: row.id,
     name: row.name,
     scope: row.scope,
+    parentId: row.parent_id || null,
     ownerUserId: row.owner_user_id,
     teamId: row.team_id,
     teamName: row.team_name || null,
@@ -63,7 +110,7 @@ function auditMutation(db, action, category, access, audit, artifactId = "") {
     action,
     artifactId,
     audit: { ...audit, userId: access.userId },
-    metadata: { categoryId: category.id, scope: category.scope, teamId: category.team_id || null }
+    metadata: { categoryId: category.id, scope: category.scope, teamId: category.team_id || null, parentId: category.parent_id || null }
   });
 }
 
@@ -95,8 +142,11 @@ export async function listCategories(store = createStore(), { access, artifactId
   } finally { db.close(); }
 }
 
-export async function createCategory(store = createStore(), { name, scope = "personal", teamId } = {}, { access, audit } = {}) {
+export async function createCategory(store = createStore(), input = {}, { access, audit } = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid("Category input must be an object");
+  let { name, scope = "personal", teamId, parentId = null } = input;
   name = categoryName(name);
+  parentId = parentIdentifier(parentId);
   if (!["personal", "team"].includes(scope)) throw invalid("Category scope must be personal or team");
   if (scope === "personal" && teamId) throw invalid("Personal categories cannot have a team");
   if (scope === "team" && (typeof teamId !== "string" || !teamId)) throw invalid("Team categories require teamId");
@@ -111,16 +161,18 @@ export async function createCategory(store = createStore(), { name, scope = "per
       const scopedTeamId = scope === "team" ? teamId : null;
       const selector = scope === "personal" ? "owner_user_id = ?" : "team_id = ?";
       const scopeId = ownerUserId || scopedTeamId;
-      if (db.prepare(`SELECT 1 FROM categories WHERE ${selector} AND name = ? COLLATE NOCASE`).get(scopeId, name)) {
-        throw Object.assign(new Error("Category name already exists in this scope"), { code: "CATEGORY_EXISTS", statusCode: 409 });
+      const id = randomUUID();
+      const candidate = { id, scope, owner_user_id: ownerUserId, team_id: scopedTeamId };
+      placement(db, candidate, parentId, access);
+      if (duplicateName(db, candidate, name, parentId)) {
+        throw Object.assign(new Error("Category name already exists under this parent"), { code: "CATEGORY_EXISTS", statusCode: 409 });
       }
       if (db.prepare(`SELECT COUNT(*) AS count FROM categories WHERE ${selector}`).get(scopeId).count >= MAX_CATEGORIES_PER_SCOPE) {
         throw invalid(`A personal or team scope can have at most ${MAX_CATEGORIES_PER_SCOPE} categories`);
       }
-      const id = randomUUID();
       const now = new Date().toISOString();
-      db.prepare(`INSERT INTO categories (id, name, scope, owner_user_id, team_id, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, name, scope, ownerUserId, scopedTeamId, access.userId, now, now);
+      db.prepare(`INSERT INTO categories (id, name, scope, owner_user_id, team_id, parent_id, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, name, scope, ownerUserId, scopedTeamId, parentId, access.userId, now, now);
       const row = categoryInDb(db, id, access);
       auditMutation(db, "category-create", row, access, audit);
       return categoryResult(row);
@@ -128,22 +180,30 @@ export async function createCategory(store = createStore(), { name, scope = "per
   } finally { db.close(); }
 }
 
-export async function updateCategory(store = createStore(), id, { name, scope, teamId } = {}, { access, audit } = {}) {
-  name = categoryName(name);
+export async function updateCategory(store = createStore(), id, input = {}, { access, audit } = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw invalid("Category update must be an object");
+  const { name, scope, teamId } = input;
   if (scope !== undefined || teamId !== undefined) throw invalid("Category scope cannot be changed; create another category instead");
+  const hasName = name !== undefined;
+  const hasParent = Object.hasOwn(input, "parentId");
+  if (!hasName && !hasParent) throw invalid("Provide a category name or parentId");
+  const nextName = hasName ? categoryName(name) : undefined;
+  const requestedParent = hasParent ? parentIdentifier(input.parentId) : undefined;
   const db = openDatabase(store);
   try {
     return transaction(db, () => {
       access = currentAccess(db, access);
       const row = categoryInDb(db, id, access);
-      const selector = row.scope === "personal" ? "owner_user_id = ?" : "team_id = ?";
-      if (db.prepare(`SELECT 1 FROM categories WHERE ${selector} AND name = ? COLLATE NOCASE AND id != ?`)
-        .get(row.owner_user_id || row.team_id, name, id)) {
-        throw Object.assign(new Error("Category name already exists in this scope"), { code: "CATEGORY_EXISTS", statusCode: 409 });
+      const parentId = hasParent ? requestedParent : row.parent_id || null;
+      const name = nextName ?? row.name;
+      placement(db, row, parentId, access);
+      if (duplicateName(db, row, name, parentId, id)) {
+        throw Object.assign(new Error("Category name already exists under this parent"), { code: "CATEGORY_EXISTS", statusCode: 409 });
       }
-      db.prepare("UPDATE categories SET name = ?, updated_at = ? WHERE id = ?").run(name, new Date().toISOString(), id);
-      auditMutation(db, "category-rename", row, access, audit);
-      return categoryResult(categoryInDb(db, id, access), visibleArtifactIds(db, id, access).length);
+      db.prepare("UPDATE categories SET name = ?, parent_id = ?, updated_at = ? WHERE id = ?").run(name, parentId, new Date().toISOString(), id);
+      const updated = categoryInDb(db, id, access);
+      auditMutation(db, parentId !== (row.parent_id || null) ? "category-move" : "category-rename", updated, access, audit);
+      return categoryResult(updated, visibleArtifactIds(db, id, access).length);
     });
   } finally { db.close(); }
 }
@@ -154,6 +214,9 @@ export async function deleteCategory(store = createStore(), id, { access, audit 
     return transaction(db, () => {
       access = currentAccess(db, access);
       const row = categoryInDb(db, id, access);
+      if (db.prepare("SELECT 1 FROM categories WHERE parent_id = ?").get(id)) {
+        throw Object.assign(new Error("Move or delete child categories before deleting their parent"), { code: "CATEGORY_HAS_CHILDREN", statusCode: 409 });
+      }
       db.prepare("DELETE FROM categories WHERE id = ?").run(id);
       auditMutation(db, "category-delete", row, access, audit);
       return { id, deleted: true };

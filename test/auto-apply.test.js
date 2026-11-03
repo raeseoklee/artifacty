@@ -34,3 +34,24 @@ test('review dropdown saves without navigation and restores the selection on fai
   assert.equal(select.disabled, false);
   assert.equal(feedback.textContent, 'failed');
 });
+
+test('visibility uses the same explicit autosave boundary and keeps its fallback submit', async (t) => {
+  const { enhanceVisibility } = await import('../src/client/auto-apply.js');
+  t.mock.method(globalThis, 'FormData', function () { return [['visibility', 'private'], ['_token', 'fixture-token']]; });
+  const select = { value: 'team', disabled: false, addEventListener(type, fn) { this[type] = fn; } };
+  const feedback = {}, button = { hidden: false };
+  const form = { action: '/artifacts/demo/visibility', dataset: { saving: 'saving', saved: 'saved', failed: 'unconfirmed' }, reportValidity: () => true,
+    querySelector: selector => selector.startsWith('select') ? select : selector.startsWith('button') ? button : feedback,
+    addEventListener(type, fn) { this[type] = fn; } };
+  let failed = false;
+  enhanceVisibility({ querySelectorAll: selector => { assert.equal(selector, 'form[data-visibility]'); return [form]; } }, async (_, options) => {
+    assert.equal(options.body.get('_token'), 'fixture-token');
+    assert.equal(options.credentials, 'same-origin');
+    if (failed) throw new Error('Connection lost');
+    return { ok: true, json: async () => ({ ok: true }) };
+  });
+  select.value = 'private'; await select.change(); assert.equal(feedback.textContent, 'saved');
+  failed = true; select.value = 'public'; await select.change();
+  assert.equal(select.value, 'private'); assert.equal(feedback.textContent, 'unconfirmed'); assert.equal(select.disabled, false);
+  assert.equal(button.hidden, true);
+});

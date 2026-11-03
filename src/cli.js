@@ -72,6 +72,17 @@ async function main() {
     return;
   }
 
+  // Explicit PostgreSQL schema upgrades run before regular store initialization.
+  if (command === "database") {
+    const allowed = new Set(["_", "home", "confirm"]);
+    if (options._.length !== 1 || options._[0] !== "upgrade" || Object.keys(options).some(key => !allowed.has(key))) {
+      throw new Error("Usage: artifacty database upgrade --confirm verified-backup [--home <path>]");
+    }
+    const { upgradePostgresStoreSchema } = await import("./lib/storage.js");
+    printJson(await upgradePostgresStoreSchema({ home: options.home }, { confirm: options.confirm }));
+    return;
+  }
+
   // Application updates must not initialize or migrate the live store first.
   // Keep `update <id>` as the existing artifact-content command.
   if ((command === "update" && options._.length === 0) || command === "upgrade") {
@@ -1062,6 +1073,7 @@ Usage:
   artifacty remote migrate <old-url> --to <new-url> [--dry-run] [--agent client --config path] [--api-token token]
   artifacty install claude|codex|gemini|copilot|cursor|all [--dry-run] [--config <path>] [--server-path <path>] [--url http://127.0.0.1:8787] [--remote active|name] [--mcp-url http://127.0.0.1:8787/mcp] [--api-token token] [--transport local|bridge] [--timeout 30000]
   artifacty check [--server-path <path>] [--timeout 5000]
+  artifacty database upgrade --confirm verified-backup [--home <path>]
   artifacty update [--check] [--target-version <version>] [--home <path>] [--service-scope user|system] [--service-name <unit>]
   artifacty upgrade [--check] [--target-version <version>] [--home <path>] [--service-scope user|system] [--service-name <unit>]
   artifacty update <id> (--file <path> | --content <text>) [--title <title>] [--format html|markdown|text|json|code|svg|mermaid|react|sarif|csv|image|video|notebook|collection|explainer] [--expected-version N] [--visibility private|team|public]

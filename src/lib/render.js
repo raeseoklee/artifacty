@@ -1,4 +1,5 @@
-import { renderCategoryFilter, renderCategoriesBody, renderCategoryNavigation } from "./category-ui.js";
+import { currentDisplayTimeZone, supportedDisplayTimeZones } from "./display-settings.js";
+import { renderCategoryFilter, renderCategoriesBody, renderCategoryNavigation, categoryPathLabel } from "./category-ui.js";
 import { parseCollection } from "./collections.js";
 import { renderExplainer } from "./render-explainer.js";
 import { uiIcon } from "./ui-icons.js";
@@ -103,7 +104,7 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
                 <div class="dashboard-filter-actions"><button type="submit" class="btn btn-outline-secondary">${view.text("filter.submit")}</button></div>
               </div>
             </details>
-            ${activeFilters.length ? `<p class="dashboard-active-filters">${activeFilters.map(([key, label]) => `<span>${view.text(label)}${key === "includeArchived" ? "" : `: ${escapeHtml(key === "categoryId" ? categories.find((category) => category.id === filters[key])?.name || filters[key] : filters[key])}`}</span>`).join("")}</p>` : ""}
+            ${activeFilters.length ? `<p class="dashboard-active-filters">${activeFilters.map(([key, label]) => `<span>${view.text(label)}${key === "includeArchived" ? "" : `: ${escapeHtml(key === "categoryId" ? (categories.find((category) => category.id === filters[key]) ? categoryPathLabel(categories.find((category) => category.id === filters[key]), categories) : filters[key]) : filters[key])}`}</span>`).join("")}</p>` : ""}
           </form>
           ${renderSavedViewsSidebar({ savedViews, filters, view })}
           <section class="toolbar dashboard-results">
@@ -150,7 +151,7 @@ function renderArtifactRows(artifacts, groupBy, view, readOnly = false) {
 
   const groups = new Map();
   for (const artifact of artifacts) {
-    const key = groupKeyFor(artifact, groupBy);
+    const key = groupKeyFor(artifact, groupBy, view.timeZone);
     if (!groups.has(key)) {
       groups.set(key, []);
     }
@@ -899,6 +900,22 @@ export function renderAdminEmailPage({ settings = {}, user, baseUrl, locale = DE
       </main>` });
 }
 
+export function renderAdminDisplayPage({ settings = { timeZone: "UTC" }, user, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/admin/display", error = "" }) {
+  const view = viewContext(locale, currentPath);
+  const zones = [...new Set([settings.timeZone, ...supportedDisplayTimeZones()])];
+  return pageShell({ title: view.raw("display.title"), locale: view.locale,
+    body: `${workspaceHeader(user, view)}<header class="topbar"><div><h1>${view.text("display.title")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
+      <main id="main-content" class="settings-page artifact-view">
+        ${error ? `<p role="alert" class="auth-error">${escapeHtml(error)}</p>` : ""}
+        <section class="meta-card"><h2>${view.text("display.timeZone")}</h2><p>${view.text("display.help")}</p>
+          <form class="display-settings-form" data-display-settings data-saving="${view.text("display.saving")}" data-saved="${view.text("display.saved")}" data-failed="${view.text("display.failed")}" method="post" action="/admin/display">${localeInput(view.locale)}
+            <label><span>${view.text("display.timeZone")}</span><select name="timeZone" class="form-select">${zones.map(zone => `<option value="${escapeAttribute(zone)}"${zone === settings.timeZone ? " selected" : ""}>${escapeHtml(zone)}</option>`).join("")}</select></label>
+            <button type="submit" class="btn btn-primary">${view.text("display.save")}</button><span data-display-feedback role="status" aria-live="polite"></span>
+          </form><p class="muted">${view.text("display.utcHelp")}</p>
+        </section>
+      </main>` });
+}
+
 export function renderAdminLanguagesPage({ settings, user, baseUrl, locale = DEFAULT_LOCALE, currentPath = "/admin/languages", error = "", success = "" }) {
   const view = viewContext(locale, currentPath);
   const installed = availableLanguages();
@@ -967,7 +984,7 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
               <input type="hidden" name="confirmationId" value="${escapeAttribute(check.confirmationId)}">
               <input type="hidden" name="targetVersion" value="${escapeAttribute(check.targetVersion)}">
               <label><input type="checkbox" name="confirmUpdate" value="true" required class="form-check-input"> ${view.text("update.confirm")}</label>
-              ${check.expiresAt ? `<p class="muted">${view.text("update.expires")}: ${`<time datetime="${escapeAttribute(check.expiresAt)}" title="${escapeAttribute(check.expiresAt)}">${escapeHtml(new Intl.DateTimeFormat(view.locale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(new Date(check.expiresAt)))} UTC</time>`}</p>` : ""}
+              ${check.expiresAt ? `<p class="muted">${view.text("update.expires")}: ${renderDateTime(check.expiresAt, view)}</p>` : ""}
               <button type="submit" class="btn btn-primary">${view.text("update.start")}</button>
             </form>` : ""}
         </section>` : ""}
@@ -1440,14 +1457,14 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
   const publisher = publisherDisplay(artifact, view);
   const canManageVisibility = !user || user.role === "admin" || (artifact.ownerUserId && user.id === artifact.ownerUserId);
   const visibilityForm = canManageVisibility
-    ? `<form class="inline-action" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/visibility">
+    ? `<form class="visibility-form" data-visibility data-saving="${view.text("artifact.visibility.saving")}" data-saved="${view.text("artifact.visibility.saved")}" data-failed="${view.text("artifact.visibility.failed")}" method="post" action="/artifacts/${encodeURIComponent(artifact.id)}/visibility">
         ${hiddenToken(authToken)}
         ${localeInput(view.locale)}
         <label>
           <span>${view.text("artifact.visibility.label")}</span>
           ${visibilitySelect(artifact.visibility || "team", view)}
         </label>
-        <button type="submit" class="btn btn-outline-secondary">${view.text("artifact.visibility.change")}</button>
+        <button type="submit" class="btn btn-outline-secondary">${view.text("artifact.visibility.change")}</button><span data-visibility-feedback role="status" aria-live="polite"></span>
       </form><p class="muted">${view.text("artifact.visibility.help")}</p>`
     : "";
 
@@ -1719,7 +1736,7 @@ function renderRelationGroup(entries, label, view) {
 function renderRelationEntry(entry, view) {
   const pinnedSourceVersion = Number.isSafeInteger(entry.sourceVersion) && entry.sourceVersion > 0 ? entry.sourceVersion : undefined;
   const relationLabel = escapeHtml(entry.relation);
-  const createdAt = escapeHtml(view.text("relations.createdAt", { date: entry.createdAt }));
+  const createdAt = `${view.text("relations.createdAt", { date: "" })} ${renderDateTime(entry.createdAt, view)}`;
   if (entry.restricted) {
     return `
       <li class="relation-item relation-missing">
@@ -3637,14 +3654,15 @@ function editorScript(locale) {
 function renderDateTime(value, view) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return escapeHtml(value);
-  const label = new Intl.DateTimeFormat(view.locale, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(date);
-  return `<time datetime="${escapeAttribute(value)}" title="${escapeAttribute(value)}">${escapeHtml(label)} UTC</time>`;
+  const label = new Intl.DateTimeFormat(view.locale, { dateStyle: "medium", timeStyle: "short", timeZone: view.timeZone || currentDisplayTimeZone() }).format(date);
+  return `<time datetime="${escapeAttribute(value)}" title="${escapeAttribute(value)}">${escapeHtml(label)} ${escapeHtml(view.timeZone || currentDisplayTimeZone())}</time>`;
 }
 
 function viewContext(locale, currentPath) {
   const i18n = createI18n(locale);
   return {
     locale: i18n.locale,
+    timeZone: currentDisplayTimeZone(),
     currentPath,
     href(href) {
       return localizedHref(href, i18n.locale);
@@ -3832,11 +3850,11 @@ function languageSwitcher(view) {
 
 function workspaceHeader(user, view) {
   const pathname = new URL(view.currentPath, "http://artifacty.local").pathname;
-  const icons = { "/": "files", "/inbox": "inbox", "/new": "plus", "/import": "upload", "/admin/access": "settings", "/admin/users": "users", "/admin/backup": "database-export", "/admin/retention": "archive", "/admin/webhooks": "webhook", "/admin/update": "refresh", "/admin/languages": "language", "/admin/email": "mail", "/account": "user-circle", "/account/password": "key", "/login": "login", "/docs/api": "code" };
+  const icons = { "/": "files", "/inbox": "inbox", "/new": "plus", "/import": "upload", "/admin/access": "settings", "/admin/users": "users", "/admin/backup": "database-export", "/admin/retention": "archive", "/admin/webhooks": "webhook", "/admin/update": "refresh", "/admin/languages": "language", "/admin/email": "mail", "/admin/display": "settings", "/account": "user-circle", "/account/password": "key", "/login": "login", "/docs/api": "code" };
   const link = (href, key, active = pathname === href, className = "") => `<a href="${view.href(href)}" title="${view.attr(key)}" aria-label="${view.attr(key)}"${active ? ' aria-current="page"' : ""}${className ? ` class="${className}"` : ""}>${uiIcon(icons[href] || "files")}<span class="workspace-nav-label">${view.text(key)}</span></a>`;
   const artifactActive = pathname === "/" || pathname.startsWith("/artifacts/");
   const adminLinks = user?.role === "admin" ? `<details class="workspace-dropdown"${pathname.startsWith("/admin/") ? " open" : ""}><summary${pathname.startsWith("/admin/") ? ' class="is-current"' : ""} title="${view.attr("nav.administration")}" aria-label="${view.attr("nav.administration")}">${uiIcon("settings")}<span class="workspace-nav-label">${view.text("nav.administration")}</span><span class="workspace-chevron">${uiIcon("chevron-down", { size: 14 })}</span></summary><div class="workspace-dropdown-content">
-    ${link("/admin/access", "access.title")}${link("/admin/users", "nav.users")}${link("/admin/backup", "nav.backup")}${link("/admin/retention", "retention.navLabel")}${link("/admin/webhooks", "nav.webhooks")}${link("/admin/update", "update.title")}${link("/admin/languages", "languageAdmin.title")}${link("/admin/email", "smtp.title")}<span class="workspace-version">Artifacty v${escapeHtml(APP_VERSION)}<a class="workspace-help" href="https://github.com/raeseoklee/artifacty" target="_blank" rel="noopener noreferrer" aria-label="${view.attr("nav.repositoryHelp")}" title="${view.attr("nav.repositoryHelp")}"><span aria-hidden="true">?</span></a></span>
+    ${link("/admin/access", "access.title")}${link("/admin/users", "nav.users")}${link("/admin/backup", "nav.backup")}${link("/admin/retention", "retention.navLabel")}${link("/admin/webhooks", "nav.webhooks")}${link("/admin/update", "update.title")}${link("/admin/display", "display.title")}${link("/admin/languages", "languageAdmin.title")}${link("/admin/email", "smtp.title")}<span class="workspace-version">Artifacty v${escapeHtml(APP_VERSION)}<a class="workspace-help" href="https://github.com/raeseoklee/artifacty" target="_blank" rel="noopener noreferrer" aria-label="${view.attr("nav.repositoryHelp")}" title="${view.attr("nav.repositoryHelp")}"><span aria-hidden="true">?</span></a></span>
   </div></details>` : "";
   const account = user ? `<details class="workspace-dropdown"${pathname.startsWith("/account") ? " open" : ""}><summary${pathname.startsWith("/account") ? ' class="is-current"' : ""} title="${view.attr("nav.account")}" aria-label="${view.attr("nav.account")}">${uiIcon("user-circle")}<span class="workspace-nav-label">${view.text("nav.account")}</span><span class="workspace-chevron">${uiIcon("chevron-down", { size: 14 })}</span></summary><div class="workspace-dropdown-content">
     <span class="workspace-identity">${escapeHtml(user.name || user.email || "")}</span>${link("/account", "nav.accountTokens")}${link("/account/password", "nav.password")}

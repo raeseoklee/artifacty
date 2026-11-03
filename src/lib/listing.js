@@ -8,12 +8,17 @@ export const GROUP_BY_VALUES = ["artifactType", "sourceAgent", "day"];
 // `--group-by`/`groupBy` value. Purely presentational: it never changes
 // which artifacts were fetched, only how an already-fetched page is
 // labeled/bucketed.
-export function groupKeyFor(artifact, groupBy) {
+export function groupKeyFor(artifact, groupBy, timeZone = "UTC") {
   if (groupBy === "sourceAgent") {
     return artifact.sourceAgent || "unknown";
   }
   if (groupBy === "day") {
-    return (artifact.createdAt || "").slice(0, 10) || "unknown";
+    if (!artifact.createdAt) return "unknown";
+    const date = new Date(artifact.createdAt);
+    if (!Number.isFinite(date.getTime())) return "unknown";
+    const parts = new Intl.DateTimeFormat("en", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+    const part = type => parts.find(item => item.type === type).value;
+    return `${part("year")}-${part("month")}-${part("day")}`;
   }
   return artifact.artifactType || "document";
 }

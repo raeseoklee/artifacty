@@ -89,6 +89,7 @@ import { getShareLinkPolicy, setShareLinkPolicy, createShareLink, listShareLinks
 import { installSamples, removeSamples } from "./lib/samples.js";
 import { createWebUpdater } from "./lib/web-update.js";
 import { getLanguageSettings, saveLanguageSettings, importLanguagePack } from "./lib/language-settings.js";
+import { getDisplaySettings, saveDisplaySettings, runWithDisplaySettings } from "./lib/display-settings.js";
 import { getSmtpSettings, getSmtpDeliveryConfig, saveSmtpSettings } from "./lib/smtp-settings.js";
 import { sendSmtpMail } from "./lib/smtp-client.js";
 import { MAX_BACKUP_BYTES, buildStoreBackup, exportStoreToString, importStoreBundle, importStoreFromString } from "./lib/backup.js";
@@ -131,6 +132,7 @@ import {
   renderAccessModePreviewPage,
   renderAdminUpdatePage,
   renderAdminLanguagesPage,
+  renderAdminDisplayPage,
   renderAdminEmailPage,
   renderArtifactSharingPage,
   renderSharedArtifactPage,
@@ -355,8 +357,8 @@ async function handleRequestWithContext(args) {
   args = { ...args, networkSharedArtifact };
   const pathname = decodeURIComponent(new URL(request.url, "http://artifacty.local").pathname);
   if (!isBrowserPath(pathname)) return handleScopedRequest(args);
-  const settings = await getLanguageSettings(store);
-  return runWithLanguageSettings(settings, () => handleScopedRequest(args));
+  const [settings, display] = await Promise.all([getLanguageSettings(store), getDisplaySettings(store)]);
+  return runWithDisplaySettings(display, () => runWithLanguageSettings(settings, () => handleScopedRequest(args)));
 }
 
 async function handleScopedRequest({ request, response, store, host, port, security = securityConfig(), mcpHttp = false, webUpdater, smtpSender = sendSmtpMail, networkSharedArtifact, publicBaseUrl }) {
@@ -685,6 +687,32 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       } catch (error) {
         if (error.statusCode !== 400) throw error;
         return sendHtml(response, await emailPage({ error: createI18n(locale).t("smtp.invalidSettings") }), 400);
+      }
+    }
+    return sendJson(response, { error: "Method not allowed" }, 405, headOnly);
+  }
+  if (pathname === "/admin/display") {
+    if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
+    requireAdmin(currentUser);
+    response.setHeader("cache-control", "no-store");
+    const renderDisplay = async (extra = {}) => renderAdminDisplayPage({
+      baseUrl, user: currentUser, locale, currentPath: "/admin/display", settings: await getDisplaySettings(store), ...extra
+    });
+    if (method === "GET") return sendHtml(response, await renderDisplay(), 200, headOnly);
+    if (method === "POST") {
+      assertSameOrigin(request);
+      await enforceRateLimit({ store, host, request, bucket: "write" });
+      try {
+        const body = await readFormBody(request, 4096);
+        const settings = await saveDisplaySettings(store, { timeZone: body.timeZone }, {
+          audit: { surface: "web", actor: currentUser.email, userId: currentUser.id }
+        });
+        if (request.headers.accept === "application/json") return sendJson(response, { ok: true, timeZone: settings.timeZone });
+        return sendRedirect(response, localizedHref("/admin/display", localeFromBodyOrUrl(body, url)));
+      } catch (error) {
+        if (error.statusCode !== 400) throw error;
+        if (request.headers.accept === "application/json") return sendJson(response, { error: error.message, code: error.code }, 400);
+        return sendHtml(response, await renderDisplay({ error: error.message }), 400, headOnly);
       }
     }
     return sendJson(response, { error: "Method not allowed" }, 405, headOnly);
@@ -1298,8 +1326,8 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     if (categoryArtifactMatch) return sendJson(response, await setCategoryArtifact(store, categoryArtifactMatch[1], categoryArtifactMatch[2], method === "PUT", options));
     if (method === "DELETE") return sendJson(response, await deleteCategory(store, categoryMatch[1], options));
     const body = await readJsonBody(request);
-    if (method === "PATCH") return sendJson(response, await updateCategory(store, categoryMatch[1], { name: body.name }, options));
-    return sendJson(response, await createCategory(store, { name: body.name, scope: body.scope, teamId: body.teamId }, options), 201);
+    if (method === "PATCH") return sendJson(response, await updateCategory(store, categoryMatch[1], { ...(Object.hasOwn(body, "name") ? { name: body.name } : {}), ...(Object.hasOwn(body, "parentId") ? { parentId: body.parentId } : {}) }, options));
+    return sendJson(response, await createCategory(store, { name: body.name, scope: body.scope, teamId: body.teamId, ...(Object.hasOwn(body, "parentId") ? { parentId: body.parentId } : {}) }, options), 201);
   }
 
   if (method === "GET" && pathname === "/health") {
@@ -1889,6 +1917,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       access: accessContext(request, currentUser),
       audit: auditContext(request, "web")
     });
+    if (request.headers.accept === "application/json") return sendJson(response, { ok: true, visibility: artifact.visibility });
     return sendRedirect(response, localizedHref(`/artifacts/${encodeURIComponent(artifact.id)}`, bodyLocale));
   }
 

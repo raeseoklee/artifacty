@@ -77,6 +77,16 @@ Opening an older version does not restore it or remove newer versions. **Version
 
 On a shared server, an artifact owner or administrator can open **Sharing**. Select users or teams, set their read, comment, or edit permission, and save the sharing settings. Verify access with the intended recipient's account; your own administrator account does not prove that recipient access works.
 
+### Change visibility
+
+![Artifact viewer showing a saved visibility selection](assets/screenshots/visibility-autosave.png)
+
+An administrator changed the fictional artifact to **Public** and received **Visibility saved** without a separate submit button. Server access mode still applies.
+
+In the artifact viewer, an owner or administrator can change **Visibility**. With JavaScript enabled, selecting a value saves it without leaving the page; the separate **Change visibility** button is hidden. Wait for **Visibility saved** before treating the change as complete. If the result cannot be confirmed, the dropdown returns to its previous selection and displays an error. This does not prove that the server rejected the change: the server may have saved it before the response was lost. Reload to check the saved value before trying again. Unsaved comment text remains in the form during this operation. Without JavaScript, choose the value and submit **Change visibility**.
+
+Visibility remains subject to the server’s access mode and sharing policy. Selecting **Public** does not bypass a private server’s login or permission requirements. Verify access with the intended recipient’s account.
+
 A share link provides read-only access to the selected version or the latest version. Choose an expiry and create the link. Copy it immediately: the complete token is shown only when the link is created. Revoke a link when it is no longer needed. Private servers disable share links by default unless an administrator allows them.
 
 IP restrictions still apply unless an administrator enables the specific shared-link exception. That exception permits valid share links and their raw content; it does not open the dashboard, API, or MCP to the blocked IP range. See [network sharing](network-sharing.md).
@@ -91,7 +101,7 @@ The source panel shows at most the first 5,000 lines, and its line field accepts
 
 A comment’s line link opens its recorded artifact version and identifies the source row when that row is within the displayed range. If you are reading an older version, the link stays with that version; it does not attach the comment to the latest content.
 
-**Review status** records the workflow state: **No review**, **Pending review**, **Changes requested**, or **Approved**. With JavaScript enabled, the artifact owner or administrator changes the dropdown and waits for the save result; there is no separate **Change status** button. If saving fails, read the error and retry. Without JavaScript, select the status and submit **Change status**. Review status helps people find work that needs attention; it does not grant access or make content public. Confirm the saved status in the viewer or dashboard filter. Comment and review controls preserve the existing access permissions.
+**Review status** records the workflow state: **No review**, **Pending review**, **Changes requested**, or **Approved**. With JavaScript enabled, the artifact owner or administrator changes the dropdown and waits for the save result; there is no separate **Change status** button. If the result cannot be confirmed, read the error and reload to check the saved status before trying again. A lost response can occur after the server has saved the change. Without JavaScript, select the status and submit **Change status**. Review status helps people find work that needs attention; it does not grant access or make content public. Confirm the saved status in the viewer or dashboard filter. Comment and review controls preserve the existing access permissions.
 
 ## Administration and preferences
 
@@ -102,6 +112,7 @@ The sidebar groups server controls under **Administration** for administrators. 
 | Manage public/private mode, IP restrictions, and shared-link policy | Access settings; [network sharing](network-sharing.md) and the [README](../README.md) |
 | Manage users, roles, and password resets | Users; [SMTP and password reset](smtp.md) |
 | Check or update the server, inspect backups, or recover data | Update and Backup; [upgrade snapshots and recovery](upgrade-backups.md) |
+| Set the store-wide browser display time zone | **Display settings** (`/admin/display`) |
 | Choose enabled UI languages and the default language | [Language packs](language-packs.md) |
 | Explore HTTP endpoints and examples | **API docs** in the sidebar |
 | Connect a local agent through MCP | [Agent integrations](integrations.md) |
@@ -109,6 +120,18 @@ The sidebar groups server controls under **Administration** for administrators. 
 ![English appearance controls and sidebar](assets/screenshots/appearance.png)
 
 The theme control offers light, dark, and system modes. The interface remembers your choice in that browser. The sidebar can also collapse to leave more room for content.
+
+### Display time zone
+
+![Administrator display settings with Asia/Seoul saved](assets/screenshots/display-settings.png)
+
+An administrator saved `Asia/Seoul` on the isolated example server. The result applies to new pages for everyone using that store.
+
+Administrators open **Administration → Display settings** (`/admin/display`) and choose an IANA **Display time zone**, such as `Asia/Seoul` or `America/New_York`. The default is `UTC`.
+
+With JavaScript enabled, the choice saves automatically. Wait for **Saved. New pages use this time zone.** If the result cannot be confirmed, the dropdown returns to its previous choice. Reload to check the saved value; a lost response does not mean that the server rolled back the change. Without JavaScript, select **Save display settings**. This is a store-wide administrator setting, not an individual browser preference. It applies to browser timestamps and day-based grouping when anyone opens a new page; already open pages do not update in place.
+
+Stored timestamps, API and CLI output, and retention calculations remain in UTC. Changing the display time zone does not rewrite stored dates or alter retention deadlines. Open a new artifact or list page to verify the displayed time and day grouping.
 
 ### Import content
 
