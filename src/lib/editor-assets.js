@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 export const EDITOR_CLIENT_PATH = "/assets/editor.js";
@@ -67,16 +68,20 @@ export function editorVendorPath(specifier, packageRoot) {
   if (!EDITOR_VENDOR_SET.has(packageName)) {
     return null;
   }
-  if (subpath) {
-    const packageDir = path.join(packageRoot, "node_modules", packageName);
-    const candidate = path.normalize(path.join(packageDir, subpath));
+  const entry = subpath || EDITOR_VENDOR_ENTRY_OVERRIDES[packageName] || path.join("dist", "index.js");
+  let directory = path.resolve(packageRoot);
+  while (true) {
+    const packageDir = path.join(directory, "node_modules", packageName);
+    const candidate = path.normalize(path.join(packageDir, entry));
     if (!candidate.startsWith(packageDir + path.sep)) {
       return null;
     }
-    return candidate;
+    const parent = path.dirname(directory);
+    if (existsSync(path.join(packageDir, "package.json")) || parent === directory) {
+      return existsSync(candidate) ? candidate : null;
+    }
+    directory = parent;
   }
-  const entry = EDITOR_VENDOR_ENTRY_OVERRIDES[packageName] || path.join("dist", "index.js");
-  return path.join(packageRoot, "node_modules", packageName, entry);
 }
 
 function splitPackageSpecifier(specifier) {
