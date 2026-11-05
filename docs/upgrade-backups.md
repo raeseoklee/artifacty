@@ -65,7 +65,7 @@ Automatic switching does not support macOS, Windows, foreground servers, detache
 
 System-service updates require Artifacty 0.19.0 or later. Artifacty 0.18.1 and earlier do not recognize these options. Before updating an older server, prepare an administrator-verified installation of 0.19.0 or later and use its CLI for the commands below.
 
-A system service does not need a user login session or a `systemctl --user` bus. An administrator can select the system service explicitly. The server must continue to run as a dedicated non-root service account; root privileges are for the update command, not the HTTP server.
+A system service does not need a user login session or a `systemctl --user` bus. An administrator can select the system service explicitly. The server must continue to run as a dedicated non-root service account; root privileges are for the update command, not the HTTP server. The update command installs the release as root with root's npm configuration and with lifecycle scripts disabled, so the service account cannot change the registry or the staged files. Configure any private registry for root, because the updater ignores `.npmrc` files in the service account's store.
 
 Replace the example CLI path with an absolute, trusted installation path and `/path/to/store` with the service’s store. Check first:
 

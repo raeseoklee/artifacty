@@ -169,8 +169,8 @@ async function writableDirectory(directory) {
   await access(directory, constants.W_OK);
 }
 
-// Freeze each directory before visiting its children, so the unprivileged installer
-// cannot swap a parent while the privileged updater adjusts ownership beneath it.
+// Freeze each directory before visiting its children. System updates install as
+// root, so this normalizes modes for the service account and rejects unsafe entries.
 export async function secureSystemRelease(root, { changeOwner = chown } = {}) {
   const canonicalRoot = await realpath(root);
   async function visit(file) {
@@ -301,7 +301,7 @@ export async function updateApplication(options = {}, injected = {}) {
     try { service = await discoverService(run, home, configuration); } catch (error) { unsupported = error.code && error.code !== "SELF_UPDATE_FAILED" ? error.message : "Cannot inspect the configured systemd service. Check the service scope, name, and service-manager access."; }
   } else unsupported = "Automatic updates currently require a Linux systemd user service";
   const current = service?.version || (await packageAt(options.packageRoot || path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url)))))).version;
-  const targetVersion = JSON.parse((await run("npm", ["view", `artifacty@${requested}`, "version", "--json"])).stdout);
+  const targetVersion = JSON.parse((await run("npm", ["view", `artifacty@${requested}`, "version", "--json"], system ? { cwd: "/" } : {})).stdout);
   if (typeof targetVersion !== "string" || !VERSION.test(targetVersion)) throw failure("npm did not resolve one exact Artifacty version");
   const summary = { currentVersion: current, targetVersion, supported: Boolean(service), service: service ? configuration.name : null, serviceScope: configuration.scope, ...(system ? { requiresAdmin: true } : {}) };
   if (options.check) return { ...summary, check: true, updateAvailable: compareVersions(current, targetVersion) < 0, ...(unsupported ? { reason: unsupported } : {}) };
@@ -384,11 +384,20 @@ export async function updateApplication(options = {}, injected = {}) {
   try {
     await lock.writeFile(JSON.stringify({ pid: process.pid, targetVersion }));
     progress(`Staging Artifacty ${targetVersion} before stopping the service.`, "staging");
+    const installArgs = ["install", "--prefix", stage, "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", "--package-lock=false", "--save-exact", `artifacty@${targetVersion}`];
     if (system) {
-      await mkdir(stage, { mode: 0o700 });
-      await (injected.chown || chown)(stage, serviceIdentity.uid, serviceIdentity.gid);
+      // The administrator later runs this release as root, so the service account
+      // must never control it. Its store can hold an .npmrc that selects a registry,
+      // and a writable stage could be edited before ownership changes. Install as
+      // root from a root-owned directory with root's npm configuration, and do not
+      // run any staged code until the release is frozen. Lifecycle scripts stay off.
+      await mkdir(stage, { mode: 0o755 });
+      const insideStore = (candidate) => candidate && !path.relative(home, path.resolve(candidate)).startsWith("..");
+      await run("npm", installArgs, { cwd: stage, env: { ...env, ...(insideStore(env.HOME) ? { HOME: stateRoot } : {}), npm_config_cache: path.join(stateRoot, "npm-cache") } });
+      await (injected.secureRelease || secureSystemRelease)(stage);
+    } else {
+      await asService("npm", installArgs);
     }
-    await asService("npm", ["install", "--prefix", stage, "--ignore-scripts", "--omit=dev", "--no-audit", "--no-fund", "--package-lock=false", "--save-exact", `artifacty@${targetVersion}`]);
     const stagedRoot = path.join(stage, "node_modules", "artifacty");
     if ((await packageAt(stagedRoot)).version !== targetVersion) throw failure("Staged package version does not match the resolved version");
     for (const entry of ["cli.js", "server.js", "mcp-server.js"]) await asService(service.args[0], ["--check", path.join(stagedRoot, "src", entry)]);
@@ -402,10 +411,9 @@ export async function updateApplication(options = {}, injected = {}) {
     await run("systemctl", [...configuration.prefix, "stop", configuration.name]);
     await scanWriters(0);
     if (system) {
-      // Stopping every process of the dedicated account closes writable file
-      // descriptors before ownership changes; chmod alone cannot revoke them.
+      // The dedicated account must hold no process or file descriptor while the
+      // store is snapshotted and the service is switched.
       await (injected.assertServiceUserOffline || assertServiceUserOffline)(serviceIdentity.uid, injected.processRoot);
-      await (injected.secureRelease || secureSystemRelease)(stage);
     }
     snapshot = await effectiveBackups.create({ home }, { reason: "manual", targetAppVersion: targetVersion });
     await effectiveBackups.verify({ home }, snapshot.id);

@@ -26,6 +26,7 @@ async function fixture(t, configuration = {}) {
   let starts = 0;
   let stops = 0;
   const calls = [];
+  const installs = [];
   const phases = [];
   const state = async () => writeFile(path.join(home, "server.json"), JSON.stringify({ pid, url: "http://127.0.0.1:8787" }));
   await state();
@@ -40,8 +41,9 @@ async function fixture(t, configuration = {}) {
       verify: async () => { calls.push("verify"); },
       restore: async () => { calls.push("restore"); if (configuration.restoreFailure) throw Object.assign(new Error("unsafe database"), { code: "UPGRADE_BACKUP_FAILED" }); }
     },
-    run: async (command, parameters) => {
+    run: async (command, parameters, extra = {}) => {
       calls.push(`${command}:${parameters.join(" ")}`);
+      if (command === "npm" && parameters[0] === "install") installs.push(extra);
       if (command === "runuser") {
         const executable = parameters.findIndex((value) => value === "ARTIFACTY_BACKUP_ON_UPDATE=false") + 1;
         command = parameters[executable]; parameters = parameters.slice(executable + 1);
@@ -68,7 +70,7 @@ async function fixture(t, configuration = {}) {
       return { stdout: "" };
     }
   };
-  return { root, userHome, home, packageRoot, dropin, args, calls, phases, injected, options: { home, packageRoot, ...(configuration.system ? { serviceScope: "system" } : {}), onProgress: (phase) => phases.push(phase) }, isActive: () => active };
+  return { root, userHome, home, packageRoot, dropin, args, calls, installs, phases, injected, options: { home, packageRoot, ...(configuration.system ? { serviceScope: "system" } : {}), onProgress: (phase) => phases.push(phase) }, isActive: () => active };
 }
 
 // These fixtures model Linux units and /proc with POSIX paths and symlinks.
@@ -236,12 +238,19 @@ systemdTest("system service update uses the system manager and drops privileges 
   assert.equal(result.serviceScope, "system");
   assert.equal(result.requiresAdmin, true);
   assert.ok(f.calls.includes("freeze-release"));
-  assert.ok(f.calls.indexOf("freeze-release") > f.calls.findIndex((call) => call.startsWith("systemctl:stop")));
-  assert.ok(f.calls.indexOf("freeze-release") > f.calls.indexOf("service-account-offline"));
+  // The service account must never control the release an administrator runs as root.
+  const install = f.calls.findIndex((call) => call.startsWith("npm:install"));
+  const firstStagedRun = f.calls.findIndex((call) => call.startsWith("runuser:") && call.includes("--check"));
+  assert.ok(install >= 0 && install < f.calls.indexOf("freeze-release"));
+  assert.ok(f.calls.indexOf("freeze-release") < firstStagedRun);
+  assert.ok(f.calls.indexOf("service-account-offline") > f.calls.findIndex((call) => call.startsWith("systemctl:stop")));
+  assert.equal(f.installs.length, 1);
+  assert.ok(f.installs[0].cwd.startsWith(path.join(f.root, "system-state")));
+  assert.ok(f.installs[0].env.npm_config_cache.startsWith(path.join(f.root, "system-state")));
   assert.match(result.nextCommand, /^sudo .*--service-scope system/);
   assert.ok(f.calls.some((call) => call.startsWith("systemctl:stop artifacty.service")));
-  assert.ok(f.calls.some((call) => call.startsWith("runuser:--user artifacty -- env -i ") && call.includes("npm install")));
-  assert.equal(f.calls.some((call) => call.startsWith("npm:install")), false);
+  assert.ok(f.calls.some((call) => call.startsWith("runuser:--user artifacty -- env -i ") && call.includes("--version")));
+  assert.equal(f.calls.some((call) => call.startsWith("runuser:") && call.includes("npm install")), false);
   assert.equal(f.calls.some((call) => call.includes("systemctl:--user")), false);
   assert.match(await readFile(f.dropin, "utf8"), /ExecStart=\nExecStart=/);
 });
@@ -312,11 +321,20 @@ systemdTest("system backup operations run in a separate unprivileged process", a
 });
 
 
-systemdTest("remaining service-account processes prevent freezing and the old service is restarted", async (t) => {
+systemdTest("a root install ignores a store-controlled HOME and creates a root-owned stage", async (t) => {
+  const f = await fixture(t, { system: true });
+  f.injected.env = { PATH: "/usr/bin", HOME: f.home };
+  const owners = [];
+  f.injected.chown = async (...args) => { owners.push(args); };
+  await updateApplication(f.options, f.injected);
+  assert.equal(f.installs[0].env.HOME.startsWith(f.home), false);
+  assert.equal(owners.some(([, uid]) => uid === 1001), false);
+});
+
+systemdTest("remaining service-account processes block the switch and the old service is restarted", async (t) => {
   const f = await fixture(t, { system: true });
   f.injected.assertServiceUserOffline = async () => { throw Object.assign(new Error("busy"), { code: "SERVICE_USER_BUSY" }); };
   await assert.rejects(updateApplication(f.options, f.injected), { code: "SELF_UPDATE_FAILED" });
-  assert.equal(f.calls.includes("freeze-release"), false);
   assert.equal(f.calls.includes("backup"), false);
   assert.equal(f.isActive(), true);
 });
