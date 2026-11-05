@@ -25,3 +25,18 @@ test('profile installer pins only the profile selector, not static endpoints or 
  const config=createMcpServerConfig({remote:'active',url:'https://old.example.test',mcpUrl:'https://old.example.test/mcp',apiToken:'old-secret'});
  assert.equal(config.env.ARTIFACTY_REMOTE,'active');assert.equal(config.env.ARTIFACTY_MCP_MODE,'bridge');assert.equal(config.env.ARTIFACTY_API_TOKEN,undefined);assert.equal(config.env.ARTIFACTY_MCP_URL,undefined);assert.equal(config.env.ARTIFACTY_URL,undefined);
 });
+
+test('a bridge entry with a blank token does not forward a token inherited from the shell',async()=>{
+ const seen=[];const server=http.createServer((request,response)=>{seen.push(request.headers.authorization);request.resume();request.on('end',()=>{response.setHeader('content-type','application/json');response.end(JSON.stringify({jsonrpc:'2.0',id:1,result:{}}));});});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const previous=process.env.ARTIFACTY_API_TOKEN;
+ try{
+  const url=`http://127.0.0.1:${server.address().port}/mcp`;
+  process.env.ARTIFACTY_API_TOKEN='';
+  await createRemoteMcpJsonRpcHandler({url})({jsonrpc:'2.0',id:1,method:'ping'});
+  assert.equal(seen[0],undefined);
+ }finally{
+  if(previous===undefined)delete process.env.ARTIFACTY_API_TOKEN;else process.env.ARTIFACTY_API_TOKEN=previous;
+  await new Promise(resolve=>server.close(resolve));
+ }
+});

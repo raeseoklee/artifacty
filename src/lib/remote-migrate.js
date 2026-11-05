@@ -11,7 +11,20 @@ function base(value) {
   return url.href.replace(/\/+$/,'');
 }
 function endpoint(value) { return value.endsWith('/mcp')?value:value+'/mcp'; }
-const secretKey=key=>/^(?:ARTIFACTY_API_TOKEN|authorization|bearer_token|bearer_token_env_var|api_key)$/i.test(key);
+const CREDENTIAL_KEYS=new Set(['artifactyapitoken','authorization','bearertoken','bearertokenenvvar','apikey','xapikey','xartifactytoken','token','accesstoken','headers','httpheaders','envhttpheaders']);
+const secretKey=key=>CREDENTIAL_KEYS.has(String(key).toLowerCase().replace(/[-_]/g,''));
+// Splits a dotted TOML key, honoring quoted segments. Returns null when it is not a key.
+function tomlKeySegments(value){
+  const segments=[];const pattern=/\s*(?:([A-Za-z0-9_-]+)|"((?:\\.|[^"\\])*)"|'([^']*)')\s*(\.|$)/y;let index=0;
+  while(index<value.length){pattern.lastIndex=index;const match=pattern.exec(value);if(!match)return null;segments.push(match[1]??match[2]??match[3]);index=pattern.lastIndex;if(!match[4]&&index<value.length)return null;}
+  return segments.length?segments:null;
+}
+function tomlTablePath(line){const match=/^\s*\[\[?([^\[\]]+)\]\]?\s*(?:#.*)?$/.exec(line);return match?tomlKeySegments(match[1]):null;}
+function tomlAssignmentKey(code){
+  let quote='',escaped=false;
+  for(let i=0;i<code.length;i++){const c=code[i];if(quote){if(escaped)escaped=false;else if(c==='\\'&&quote==='"')escaped=true;else if(c===quote)quote='';}else if(c==='"'||c==="'")quote=c;else if(c==='=')return tomlKeySegments(code.slice(0,i));}
+  return null;
+}
 function replaceUrl(value,oldUrl,newUrl) {
   if(typeof value!=='string')return value;
   let normalized;try{normalized=base(value);}catch{return value;}
@@ -30,29 +43,55 @@ function jsonMigration(text,oldUrl,newUrl,apiToken) {
   if(!changed)return null;
   for(const key of Object.keys(target))if(secretKey(key))delete target[key];
   for(const section of [target.env])if(section&&typeof section==='object')for(const key of Object.keys(section))if(secretKey(key))delete section[key];
-  delete target.headers;delete target.http_headers;delete target.env_http_headers;delete target.httpHeaders;delete target.envHttpHeaders;
-  if(target.env?.ARTIFACTY_MCP_URL)target.env.ARTIFACTY_MCP_MODE='bridge';
+  if(target.requestInit&&typeof target.requestInit==='object')delete target.requestInit.headers;
+  if(target.env?.ARTIFACTY_MCP_URL){
+    target.env.ARTIFACTY_MCP_MODE='bridge';
+    // Blank, not absent: the bridge falls back to an inherited shell variable.
+    if(!apiToken)target.env.ARTIFACTY_API_TOKEN='';
+  }
   if(apiToken){if(target.env)target.env.ARTIFACTY_API_TOKEN=apiToken;else target.headers={...(target.headers||{}),Authorization:`Bearer ${apiToken}`};}
   return JSON.stringify(config,null,2)+'\n';
 }
 function tomlMigration(text,oldUrl,newUrl,apiToken) {
-  const lines=text.split(/\r?\n/);let start=-1,end=lines.length;
-  const table=line=>{const match=/^\s*\[mcp_servers\.(artifacty|"artifacty"|'artifacty')(?:\.([a-z_]+))?\]\s*(?:#.*)?$/.exec(line);return match?match[2]||'root':null;};
-  for(let i=0;i<lines.length;i++){
-    if(table(lines[i])==='root'){if(start>=0)fail('Duplicate Artifacty TOML tables are not supported');start=i;}
-    else if(start>=0&&/^\s*\[/.test(lines[i])&&!table(lines[i])){end=i;break;}
-  }
-  if(start<0)return null;
-  const block=lines.slice(start,end);
+  const lines=text.split(/\r?\n/);let rootSeen=false,current=null,tablePath=[];
+  // Artifacty tables need not be adjacent, so classify every line of the file.
+  const sections=lines.map(line=>{
+    const found=tomlTablePath(line);
+    if(found){
+      tablePath=found;
+      if(found[0]==='mcp_servers'&&found[1]==='artifacty'){
+        current=found.slice(2).join('.')||'root';
+        if(current==='root'){if(rootSeen)fail('Duplicate Artifacty TOML tables are not supported');rootSeen=true;}
+      }else current=null;
+    }else if(current===null&&!/^\s*(?:#|$)/.test(line)){
+      const key=tomlAssignmentKey(line);
+      const dotted=key&&((tablePath.length===0&&key[0]==='mcp_servers'&&key[1]==='artifacty')||(tablePath.length===1&&tablePath[0]==='mcp_servers'&&key[0]==='artifacty'));
+      if(dotted)current=undefined;
+    }
+    const section=current===undefined?'unsupported':current;
+    if(current===undefined)current=null;
+    return section;
+  });
+  if(!rootSeen)return null;
+  if(sections.includes('unsupported'))fail('Dotted Artifacty TOML settings outside its table are not supported; edit this configuration manually');
+  const block=lines.filter((_,index)=>sections[index]!==null);
   if(block.some(line=>line.includes('"""')||line.includes("'''")))fail('Multiline TOML strings are not supported for migration');
   const literal='("(?:\\\\.|[^"\\\\])*"|\'[^\']*\')';
   const decode=value=>{try{return value[0]==='"'?JSON.parse(value):value.slice(1,-1);}catch{fail('Unsupported TOML string in Artifacty settings');}};
   const assignment=new RegExp('^\\s*([A-Za-z_][A-Za-z_0-9]*|"[A-Za-z_][A-Za-z_0-9]*")\\s*=\\s*'+literal+'\\s*$');
   function uncomment(line){let quote='',escaped=false;for(let i=0;i<line.length;i++){const c=line[i];if(quote){if(escaped){escaped=false;continue;}if(c==='\\'&&quote==='"'){escaped=true;continue;}if(c===quote)quote='';}else if(c==='"'||c==="'")quote=c;else if(c==='#')return [line.slice(0,i),line.slice(i)];}return [line,''];}
-  let changed=false,section='root';
-  const prepared=block.map(line=>{
-    const header=table(line);if(header){section=header;return {line,section,header:true};}
+  let changed=false,section='root',envSectionBridge=false;
+  const prepared=lines.map((line,index)=>{
+    if(sections[index]===null)return {line,outside:true};
+    section=sections[index];
+    if(tomlTablePath(line))return {line,section,header:true};
     const [code,comment]=uncomment(line);
+    // Any spelling of a credential key goes, whether bare, quoted or dotted.
+    const keySegments=tomlAssignmentKey(code);
+    if(keySegments){
+      if(section==='root'&&keySegments[0]==='env'&&keySegments.length>1)fail('Dotted TOML env keys cannot be migrated; use an inline or [env] table');
+      if(secretKey(keySegments[0])||secretKey(keySegments[keySegments.length-1]))return {section,drop:true};
+    }
     if(/^\s*env\s*=/.test(code)){
       const inline=/^\s*env\s*=\s*\{(.*)\}\s*$/.exec(code);if(!inline)fail('Only single-line TOML env tables can be migrated');
       // Split commas outside strings, then require every env entry to be a string assignment.
@@ -67,15 +106,26 @@ function tomlMigration(text,oldUrl,newUrl,apiToken) {
   if(!changed)return null;
   let tokenAdded=false;
   const result=[];
+  const secretSection=name=>secretKey(String(name).split('.')[0]);
   for(const entry of prepared){
-    if(['http_headers','headers','env_http_headers'].includes(entry.section))continue;
-    if(entry.key&&secretKey(entry.key))continue;
-    if(entry.code&&/^\s*(?:http_headers|headers|env_http_headers|bearer_token|bearer_token_env_var)\s*=/.test(entry.code))continue;
-    if(entry.pairs){const pairs=entry.pairs.filter(pair=>!secretKey(pair.key));if(apiToken){pairs.push({key:'ARTIFACTY_API_TOKEN',value:apiToken});tokenAdded=true;}if(pairs.some(pair=>pair.key==='ARTIFACTY_MCP_URL')){const mode=pairs.find(pair=>pair.key==='ARTIFACTY_MCP_MODE');if(mode)mode.value='bridge';else pairs.push({key:'ARTIFACTY_MCP_MODE',value:'bridge'});}result.push('env = { '+pairs.map(pair=>`${pair.key} = ${JSON.stringify(pair.value)}`).join(', ')+' }'+(entry.comment?' '+entry.comment:''));}
+    if(entry.outside){result.push(entry.line);continue;}
+    if(entry.drop||secretSection(entry.section))continue;
+    if(entry.section==='env'&&entry.key==='ARTIFACTY_MCP_URL')envSectionBridge=true;
+    if(entry.pairs){
+      const pairs=entry.pairs.filter(pair=>!secretKey(pair.key));
+      if(apiToken){pairs.push({key:'ARTIFACTY_API_TOKEN',value:apiToken});tokenAdded=true;}
+      if(pairs.some(pair=>pair.key==='ARTIFACTY_MCP_URL')){
+        const mode=pairs.find(pair=>pair.key==='ARTIFACTY_MCP_MODE');if(mode)mode.value='bridge';else pairs.push({key:'ARTIFACTY_MCP_MODE',value:'bridge'});
+        // Blank, not absent: the bridge falls back to an inherited shell variable.
+        if(!apiToken)pairs.push({key:'ARTIFACTY_API_TOKEN',value:''});
+      }
+      result.push('env = { '+pairs.map(pair=>`${pair.key} = ${JSON.stringify(pair.value)}`).join(', ')+' }'+(entry.comment?' '+entry.comment:''));
+    }
     else result.push(entry.line);
   }
   if(apiToken&&!tokenAdded)fail('Adding a token requires an installer-generated inline env table; configure authentication separately');
-  return [...lines.slice(0,start),...result,...lines.slice(end)].join('\n');
+  if(envSectionBridge&&!apiToken){const header=result.findIndex(line=>{const found=tomlTablePath(line);return found&&found[0]==='mcp_servers'&&found[1]==='artifacty'&&found[2]==='env'&&found.length===3;});result.splice(header+1,0,'ARTIFACTY_API_TOKEN = ""');}
+  return result.join('\n');
 }
 async function safeFile(filename){
   const info=await lstat(filename);if(!info.isFile()||info.isSymbolicLink())fail('MCP configuration must be a regular file, not a symbolic link');
@@ -99,11 +149,14 @@ export async function migrateRemote(oldValue,newValue,options={}){
   }
   if(!options.dryRun&&plans.length){const check=await (options.checkEndpoint||checkRemoteEndpoint)(newUrl,{apiToken:options.apiToken,timeoutMs:options.timeoutMs});if(!check.ok)fail('Destination MCP verification failed; no configuration was changed');}
   const files=plans.map(({agent,path})=>({agent,path,changed:true,credentialsCleared:!options.apiToken}));
-  if(options.dryRun)return {changed:plans.length>0,dryRun:true,files};
+  // Migration can only change client files. A client that ignores per-server env could still forward this.
+  const warnings=plans.length&&!options.apiToken&&(options.env||process.env).ARTIFACTY_API_TOKEN?['ARTIFACTY_API_TOKEN is set in this environment. Unset it before starting MCP clients so the previous token is not sent to the new server.']:[];
+  const warningFields=warnings.length?{warnings}:{};
+  if(options.dryRun)return {changed:plans.length>0,dryRun:true,files,...warningFields};
   const written=[];
   try{
     for(let i=0;i<plans.length;i++){const plan=plans[i];await safeFile(plan.path);if(await readFile(plan.path,'utf8')!==plan.original)fail('MCP configuration changed during migration');const backup=plan.path+'.artifacty-backup-'+randomUUID();await writeFile(backup,plan.original,{flag:'wx',mode:0o600});files[i].backupPath=backup;}
     for(const plan of plans){await atomicWrite(plan.path,plan.next);written.push(plan);}
   }catch(error){for(const plan of written.reverse())await atomicWrite(plan.path,plan.original);throw error;}
-  return {changed:plans.length>0,dryRun:false,files,reconnectRequired:plans.length>0};
+  return {changed:plans.length>0,dryRun:false,files,reconnectRequired:plans.length>0,...warningFields};
 }
