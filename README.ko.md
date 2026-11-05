@@ -800,7 +800,7 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | `ARTIFACTY_MAX_INLINE_DIAGRAMS` | Markdown 아티팩트당 렌더링할 최대 인라인 Mermaid 다이어그램 수 | `20` |
 | `ARTIFACTY_MAX_COMMENTS_PER_ARTIFACT` | 아티팩트당 보관할 최대 댓글 수 | `2000` |
 | `ARTIFACTY_MAX_SAVED_VIEWS_PER_USER` | 사용자당 보관할 최대 저장 뷰 수 | `100` |
-| `ARTIFACTY_RATE_LIMIT` | `always` 또는 `off`. 기본값(루프백에서는 비활성화, 나머지는 활성화)을 재정의 | — |
+| `ARTIFACTY_RATE_LIMIT` | `always` 또는 `off`. 기본값(`ARTIFACTY_TRUSTED_PROXIES` 없는 루프백에서는 비활성화, 나머지는 활성화)을 재정의 | — |
 | `ARTIFACTY_RATE_WRITE_PER_MIN` | 변경 요청의 횟수 제한 | `120`/분 |
 | `ARTIFACTY_RATE_AUTH_PER_MIN` | 주소별 `/login` 요청의 횟수 제한 | `10`/분 |
 | `ARTIFACTY_RATE_SEARCH_PER_MIN` | `GET /api/artifacts?q=` 검색 요청의 횟수 제한 | `300`/분 |

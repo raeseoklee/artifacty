@@ -886,7 +886,7 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | `ARTIFACTY_MAX_INLINE_DIAGRAMS` | Max inline Mermaid diagrams rendered per Markdown artifact | `20` |
 | `ARTIFACTY_MAX_COMMENTS_PER_ARTIFACT` | Max comments retained per artifact | `2000` |
 | `ARTIFACTY_MAX_SAVED_VIEWS_PER_USER` | Max saved views retained per user | `100` |
-| `ARTIFACTY_RATE_LIMIT` | `always` or `off`; overrides the default (disabled on loopback, enabled otherwise) | — |
+| `ARTIFACTY_RATE_LIMIT` | `always` or `off`; overrides the default (disabled on loopback without `ARTIFACTY_TRUSTED_PROXIES`, enabled otherwise) | — |
 | `ARTIFACTY_RATE_WRITE_PER_MIN` | Rate limit for mutating routes | `120`/min |
 | `ARTIFACTY_RATE_AUTH_PER_MIN` | Rate limit for `/login` per address | `10`/min |
 | `ARTIFACTY_RATE_SEARCH_PER_MIN` | Rate limit for `GET /api/artifacts?q=` searches | `300`/min |

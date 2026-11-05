@@ -339,8 +339,9 @@ export function createRateLimiter({ windowMs = 60000, limits = {} } = {}) {
 
 // Rate limiting is disabled by default on loopback binds (local, single-user
 // use should not be throttled) unless explicitly forced on, and can always
-// be disabled outright.
-export function rateLimitEnabled({ host, env = process.env } = {}) {
+// be disabled outright. A configured trusted proxy means remote clients reach
+// the server through that bind, so a loopback address no longer implies local use.
+export function rateLimitEnabled({ host, env = process.env, behindTrustedProxy = false } = {}) {
   const mode = env.ARTIFACTY_RATE_LIMIT;
   if (mode === "off") {
     return false;
@@ -348,7 +349,7 @@ export function rateLimitEnabled({ host, env = process.env } = {}) {
   if (mode === "always") {
     return true;
   }
-  return !isLoopbackHost(host);
+  return behindTrustedProxy || !isLoopbackHost(host);
 }
 
 export function rateLimitFromEnv(env = process.env) {

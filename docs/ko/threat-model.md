@@ -165,7 +165,7 @@ Artifacty는 LLM 에이전트가 아티팩트를 주고받는 로컬 도구입�
   `auth`는 `POST /login`에 적용하며, 기본값은 주소당 분당 10회입니다(`ARTIFACTY_RATE_AUTH_PER_MIN`).
 
   `search`는 `q` 쿼리가 있는 `GET /api/artifacts`에 적용하며, 기본값은 분당 300회입니다(`ARTIFACTY_RATE_SEARCH_PER_MIN`).
-- 루프백에 바인딩하면 기본적으로 제한하지 않습니다. 따라서 단일 사용자의 로컬 사용에는 요청 속도 제한이 없습니다. `ARTIFACTY_RATE_LIMIT=always`를 설정하면 루프백에서도 제한합니다. `ARTIFACTY_RATE_LIMIT=off`는 조건에 관계없이 제한을 비활성화합니다.
+- 루프백에 바인딩하면 기본적으로 제한하지 않습니다. 따라서 단일 사용자의 로컬 사용에는 요청 속도 제한이 없습니다. `ARTIFACTY_RATE_LIMIT=always`를 설정하면 루프백에서도 제한합니다. `ARTIFACTY_TRUSTED_PROXIES`를 설정해도 제한합니다. 원격 클라이언트가 프록시를 거쳐 해당 주소로 접속하기 때문입니다. `ARTIFACTY_RATE_LIMIT=off`는 조건에 관계없이 제한을 비활성화합니다.
 - 구분별 제한을 초과하면 초 단위의 `Retry-After` 헤더와 `code: "rate_limited"`를 포함해 `429`를 반환합니다. 또한 `rate-limited` 감사 행을 기록하되, `(bucket, principal)` 구간당 한 번으로 제한합니다. Streamable HTTP 전송을 사용하는 MCP 변경 도구 호출이 `write` 제한을 초과하면 HTTP 오류 대신 `structuredContent.code: "rate_limited"`를 포함한 `isError` 도구 결과를 반환합니다.
 - 제한 상태는 각 프로세스의 메모리에 저장되므로 프로세스를 재시작하면 초기화됩니다. 같은 저장소를 사용하는 여러 서버 프로세스 사이에서 제한 상태를 공유하지 않습니다.
 

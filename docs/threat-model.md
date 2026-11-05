@@ -179,8 +179,10 @@ Controls:
   (`GET /api/artifacts` with a `q` query; default 300/min,
   `ARTIFACTY_RATE_SEARCH_PER_MIN`).
 - Disabled by default on a loopback bind (single-user local use is not
-  throttled) unless `ARTIFACTY_RATE_LIMIT=always`; `ARTIFACTY_RATE_LIMIT=off`
-  disables it unconditionally.
+  throttled) unless `ARTIFACTY_RATE_LIMIT=always` or
+  `ARTIFACTY_TRUSTED_PROXIES` is set, because remote clients then reach that
+  bind through the proxy; `ARTIFACTY_RATE_LIMIT=off` disables it
+  unconditionally.
 - Exceeding a bucket's limit returns `429` with a `Retry-After` header (in
   seconds) and `code: "rate_limited"`, and writes a `rate-limited` audit
   row, throttled to one per `(bucket, principal)` window. A mutating MCP

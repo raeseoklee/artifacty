@@ -339,8 +339,11 @@ function isBrowserPath(pathname) {
 }
 
 export async function handleRequest(args) {
-  const address = clientAddress(args.request, args.trustedProxies ?? trustedProxyNetworks());
+  const trustedProxies = args.trustedProxies ?? trustedProxyNetworks();
+  const address = clientAddress(args.request, trustedProxies);
   args.request.artifactyClientAddress = address;
+  args.request.artifactyBehindTrustedProxy = trustedProxies.length > 0;
+  args.request.artifactyPublicOrigin = configuredPublicOrigin(args.publicBaseUrl || process.env.ARTIFACTY_URL);
   return runWithRequestContext({ clientAddress: address }, () => handleRequestWithContext(args));
 }
 
@@ -381,7 +384,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     response.setHeader("cache-control", "no-store");
     response.setHeader("vary", "Cookie");
     if (enabled.includes(explicit)) {
-      response.setHeader("set-cookie", `artifacty_locale=${explicit}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${request.socket.encrypted ? "; Secure" : ""}`);
+      response.setHeader("set-cookie", `artifacty_locale=${explicit}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${usesSecureCookies(request) ? "; Secure" : ""}`);
     }
   }
   const headOnly = request.method === "HEAD";
@@ -530,7 +533,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     }
     const session = await createSession(store, user.id);
     return sendRedirect(response, localizedHref(user.passwordResetRequired ? "/account/password?required=1" : "/account", bodyLocale), {
-      "set-cookie": sessionCookie(session.token)
+      "set-cookie": sessionCookie(session.token, usesSecureCookies(request))
     });
   }
 
@@ -538,7 +541,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     assertBrowserFormOrigin(request);
     await revokeSession(store, sessionTokenFromRequest(request));
     return sendRedirect(response, "/login", {
-      "set-cookie": clearSessionCookie()
+      "set-cookie": clearSessionCookie(usesSecureCookies(request))
     });
   }
 
@@ -767,8 +770,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     }
     if (method === "POST" && ["/admin/update/check", "/admin/update/start"].includes(pathname)) {
       assertLocalOrigin(request);
-      const expectedOrigin = `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`;
-      if (request.headers.origin !== expectedOrigin) throw Object.assign(new Error("An exact same-origin request is required"), { statusCode: 403, code: "UPDATE_ORIGIN_REQUIRED" });
+      if (!isExpectedOrigin(request)) throw Object.assign(new Error("An exact same-origin request is required"), { statusCode: 403, code: "UPDATE_ORIGIN_REQUIRED" });
       await enforceRateLimit({ store, host, request, bucket: "write" });
       const body = await readFormBody(request);
       if (pathname.endsWith("/check")) {
@@ -1076,7 +1078,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     if (!currentUser) throw Object.assign(new Error("An administrator browser session is required"), { statusCode: 401 });
     requireAdmin(currentUser);
     assertLocalOrigin(request);
-    if (request.headers.origin !== `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`) {
+    if (!isExpectedOrigin(request)) {
       throw Object.assign(new Error("An exact same-origin request is required"), { statusCode: 403, code: "ROLE_ORIGIN_REQUIRED" });
     }
     await enforceRateLimit({ store, host, request, bucket: "write" });
@@ -2406,9 +2408,31 @@ function assertBrowserFormOrigin(request) {
   if (request.headers.origin !== undefined) assertSameOrigin(request);
 }
 
+function configuredPublicOrigin(value) {
+  if (!value) return undefined;
+  try { return new URL(value).origin; } catch { return undefined; }
+}
+
+// The socket cannot see TLS that a reverse proxy terminates, so the operator's
+// ARTIFACTY_URL is also an accepted origin. Direct access through the listening
+// address keeps working, and request headers can never add a trusted origin.
+function isExpectedOrigin(request) {
+  const origin = request.headers.origin;
+  return origin === `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`
+    || (origin !== undefined && origin === request.artifactyPublicOrigin);
+}
+
+// Only mark cookies Secure for requests that arrive through the HTTPS address.
+// A browser would discard them on a direct plain-HTTP LAN address.
+function usesSecureCookies(request) {
+  if (request.socket.encrypted) return true;
+  const publicOrigin = request.artifactyPublicOrigin;
+  if (!publicOrigin?.startsWith("https://")) return false;
+  return request.headers.origin === publicOrigin || request.headers.host === new URL(publicOrigin).host;
+}
+
 function assertSameOrigin(request) {
-  const expected = `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`;
-  if (request.headers.origin !== expected) {
+  if (!isExpectedOrigin(request)) {
     throw Object.assign(new Error("An exact same-origin request is required"), { statusCode: 403, code: "SAME_ORIGIN_REQUIRED" });
   }
 }
@@ -2435,7 +2459,8 @@ export function assertLocalOrigin(request) {
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
     hostname === "::1" ||
-    (host && parsed.host.toLowerCase() === host && (parsed.protocol === "http:" || parsed.protocol === "https:"));
+    (host && parsed.host.toLowerCase() === host && (parsed.protocol === "http:" || parsed.protocol === "https:")) ||
+    origin === request.artifactyPublicOrigin;
   if (!allowed) {
     throw Object.assign(new Error(`Rejected untrusted origin: ${origin}`), {
       statusCode: 403,
@@ -3006,7 +3031,7 @@ function rateLimitPrincipal(request) {
 // and the MCP-over-HTTP tool call path (which needs to turn a limit into an
 // isError tool result rather than a JSON-RPC/HTTP error).
 function checkRateLimit({ store, host, request, bucket }) {
-  if (!rateLimitEnabled({ host })) {
+  if (!rateLimitEnabled({ host, behindTrustedProxy: request.artifactyBehindTrustedProxy })) {
     return { allowed: true };
   }
   const principal = rateLimitPrincipal(request);
@@ -3248,12 +3273,12 @@ function parseCookies(header) {
   return cookies;
 }
 
-function sessionCookie(token) {
-  return `artifacty_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}`;
+function sessionCookie(token, secure = false) {
+  return `artifacty_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${7 * 24 * 60 * 60}${secure ? "; Secure" : ""}`;
 }
 
-function clearSessionCookie() {
-  return "artifacty_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+function clearSessionCookie(secure = false) {
+  return `artifacty_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`;
 }
 
 function isMain(metaUrl) {
