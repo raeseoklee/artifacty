@@ -14,6 +14,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The declared minimum. Earlier 22.x releases lack FTS5 in node:sqlite,
+          # and 22.12 also needs a flag to load it at all.
+          - os: ubuntu-latest
+            node-version: 22.16.0
+            smoke: true
           - os: ubuntu-latest
             node-version: 22.x
             smoke: true

@@ -20,7 +20,7 @@ The index uses artifact titles, tags, metadata, and supported text content. `ART
 
 ## Verify and index an existing store
 
-Use Node 24 for the commands below. Node 22.12 requires `NODE_OPTIONS=--experimental-sqlite` for Artifacty’s SQLite imports.
+Use Node 24 for the commands below. Node 22.16.0 or newer also works.
 
 Run these commands with the same environment and `ARTIFACTY_HOME` as the server:
 

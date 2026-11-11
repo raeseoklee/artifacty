@@ -13,12 +13,12 @@ For English and Korean documentation, follow the [writing style guide](docs/writ
 - `npm test` — run all tests with `node --test`.
 - `npm run lint` — syntax-check source and tests with `node --check`.
 - `npm run smoke` — start a temporary token-protected server and verify core HTTP, backup, and MCP behavior.
-- `npm run release:check` — run lint, tests, and smoke together.
+- `npm run release:check` — run lint, tests, the documentation check, the dependency audit, and smoke together.
 - `npm start` — run the HTTP dashboard. It prefers `127.0.0.1:8787` and falls back when the default port is busy.
 - `node src/mcp-server.js` or `npm run mcp` — run the MCP stdio server.
 - `node src/cli.js help` — inspect CLI usage.
 
-Run `npm run release:check` before claiming a release-ready change. The server runs plain ESM directly on Node `>=22.12.0`. Generated UI assets are committed, so ordinary startup needs no build. After changing `src/styles/ui-controls.scss` or the icon set in `scripts/build-ui.mjs`, run `npm run build:ui` and include the generated assets.
+Run `npm run release:check` before claiming a release-ready change. The server runs plain ESM directly on Node `>=22.16.0`. Generated UI assets are committed, so ordinary startup needs no build. After changing `src/styles/ui-controls.scss` or the icon set in `scripts/build-ui.mjs`, run `npm run build:ui` and include the generated assets.
 
 ## Architecture
 
@@ -36,7 +36,7 @@ Shared behavior belongs in `src/lib/*`. Use `src/lib/storage.js` for storage, `s
 
 The store lives at `ARTIFACTY_HOME` or `~/.artifacty` by default.
 
-- SQLite metadata is stored in `artifacty.sqlite`.
+- Metadata is stored in SQLite (`artifacty.sqlite`) by default, or in PostgreSQL when `ARTIFACTY_DATABASE_URL` selects it. See [PostgreSQL](docs/postgresql.md). Physical upgrade snapshots cover SQLite only; PostgreSQL needs a separately verified database backup.
 - Immutable version files are stored under `artifacts/<id>/v<n>.<ext>`.
 - `server.json` records the currently running browser server URL so CLI and MCP responses keep working when the default port falls back.
 - Legacy `index.json` stores migrate automatically on first access.

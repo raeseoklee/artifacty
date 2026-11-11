@@ -22,7 +22,7 @@ Artifacty에는 `intfloat/multilingual-e5-small`의 INT8 ONNX 가중치와 토�
 
 ## 기존 저장소 확인과 색인
 
-아래 명령은 Node 24에서 실행하는 것을 권장합니다. Node 22.12에서는 Artifacty의 SQLite 모듈을 불러오려면 `NODE_OPTIONS=--experimental-sqlite` 설정이 필요합니다.
+아래 명령은 Node 24에서 실행하는 것을 권장합니다. Node 22.16.0 이상에서도 실행할 수 있습니다.
 
 서버와 같은 환경 설정 및 `ARTIFACTY_HOME`으로 다음 명령을 실행하세요.
 

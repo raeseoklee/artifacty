@@ -7,7 +7,7 @@ English | [한국어](README.ko.md)
 [![Publish](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml/badge.svg)](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml)
 [![npm version](https://img.shields.io/npm/v/artifacty.svg)](https://www.npmjs.com/package/artifacty)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js >=22.12.0](https://img.shields.io/badge/node-%3E%3D22.12.0-339933.svg)](package.json)
+[![Node.js >=22.16.0](https://img.shields.io/badge/node-%3E%3D22.16.0-339933.svg)](package.json)
 
 Artifacty stores AI-generated artifacts locally so agents can share them. Claude, Codex, Gemini, GitHub Copilot, Cursor, and other MCP tools can publish artifacts to the same store. Other agents can find, read, and update them without copying content through chat.
 
@@ -47,7 +47,7 @@ Artifacty 0.18.1 adds [remote connection profiles and MCP settings migration](do
 
 ## Installation
 
-Artifacty requires Node.js 22.12.0 or newer. Node 24 is recommended. On Node 22.12, enable its experimental SQLite support with `NODE_OPTIONS=--experimental-sqlite`.
+Artifacty requires Node.js 22.16.0 or newer. Node 24 is recommended. Earlier Node 22 releases lack the SQLite full-text search that Artifacty uses, and some features, such as retention purges, fail on them.
 
 The optional React renderer uses Babel 8. Its supported Node.js versions are
 `^22.18.0 || >=24.11.0`. Use a compatible version if you enable that renderer.

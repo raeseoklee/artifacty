@@ -8,9 +8,9 @@ Use this checklist before publishing or distributing Artifacty.
 
 Ordinary pushes, pull requests, releases, and weekly schedules do not start these workflows. Run local checks during development. When a release candidate is ready:
 
-1. Run the **Release candidate** workflow (`verify.yml`) manually on the candidate branch or tag. This runs the Linux, macOS, and Windows matrix, CodeQL, and Scorecard. It does not publish to npm.
+1. Run the **Release candidate** workflow (`verify.yml`) manually on `main`. Publish rejects verification from any other branch, because a branch can carry a reduced `verify.yml`. This runs the Linux, macOS, and Windows matrix, CodeQL, and Scorecard. It does not publish to npm.
 2. Wait for the entire run to succeed. The final job saves the npm tarball and checksum for 14 days. Record the run ID and commit SHA from its summary.
-3. Run **Publish** (`publish.yml`) separately on a branch or tag pointing to that same commit. Set `verification_run_id` to the successful candidate run ID.
+3. Run **Publish** (`publish.yml`) separately on `main` while it still points to that commit. The publish job uses the `npm-publish` environment, whose deployment policy admits only `main`. Set `verification_run_id` to the successful candidate run ID.
 4. Publish checks the workflow identity, repository, result, and exact commit. It downloads the package from that successful attempt and publishes it without rebuilding or running package lifecycle scripts. OIDC Trusted Publishing remains in use.
 
 If the selected commit has changed, run candidate verification again. If the artifact expired or was deleted, verify again before publishing. A GitHub Release alone no longer publishes a package. **Security** can also be run manually without a release; its weekly schedule is disabled, and candidate verification calls it automatically. Scorecard results remain in GitHub code scanning; automatic external Scorecard result publication is disabled.
@@ -40,8 +40,8 @@ artifacty doctor
 
 - Verify recovery commands against temporary stores only. See [upgrade snapshots and recovery](upgrade-backups.md).
 - Confirm mandatory schema snapshots complete before migrations change the store.
-- Check the Node.js 22.12.0 minimum. The optional Babel 8 renderer requires Node `^22.18.0 || >=24.11.0`.
-- Check Mermaid 12.2.0 in an ES2024-capable browser. Preserve its `classic` look, `dagre` layout, and `default` theme.
+- Check the Node.js 22.16.0 minimum. The Release candidate matrix runs it. The optional Babel 8 renderer requires Node `^22.18.0 || >=24.11.0`.
+- Check Mermaid 12.2.0 in an ES2024-capable browser. `package.json` pins this exact version, because the published package has no lockfile and a range would install a version CI never tested. Change the pin only as a reviewed update. Preserve its `classic` look, `dagre` layout, and `default` theme.
 
 ## Packaging
 
@@ -81,6 +81,8 @@ artifacty doctor
 - Confirm only the React frame response CSP permits `unsafe-eval`.
 - Confirm CodeQL, Scorecard, and Dependabot configuration changes are intentional.
 - Confirm npm publish still uses OIDC Trusted Publishing rather than a long-lived npm token.
+- In the npm trusted publisher settings for this package, require the `npm-publish` environment. Without it, a workflow edited on another branch can still request a publish token.
+- Consider branch protection for `main`. Without it, anyone with write access can change the workflows that publication relies on.
 
 ## Operations
 

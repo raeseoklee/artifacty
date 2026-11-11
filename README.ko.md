@@ -11,7 +11,7 @@
 [![Publish](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml/badge.svg)](https://github.com/raeseoklee/artifacty/actions/workflows/publish.yml)
 [![npm version](https://img.shields.io/npm/v/artifacty.svg)](https://www.npmjs.com/package/artifacty)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node.js >=22.12.0](https://img.shields.io/badge/node-%3E%3D22.12.0-339933.svg)](package.json)
+[![Node.js >=22.16.0](https://img.shields.io/badge/node-%3E%3D22.16.0-339933.svg)](package.json)
 
 Artifacty는 AI가 만든 아티팩트를 로컬에 보관하고 에이전트끼리 공유할 수 있는 저장소입니다. Claude, Codex, Gemini, GitHub Copilot, Cursor 등 MCP 도구가 같은 저장소에 아티팩트를 게시할 수 있습니다. 다른 에이전트는 채팅에 내용을 복사하지 않고도 결과물을 찾아 읽고 수정할 수 있습니다.
 
@@ -51,7 +51,7 @@ Mermaid 플로우차트에서 분기를 선택하고, 강조된 경로를 따라
 
 ## 설치
 
-Artifacty를 실행하려면 Node.js 22.12.0 이상이 필요하며 Node 24를 권장합니다. Node 22.12에서는 `NODE_OPTIONS=--experimental-sqlite`로 실험적 SQLite 지원을 활성화해야 합니다.
+Artifacty를 실행하려면 Node.js 22.16.0 이상이 필요하며 Node 24를 권장합니다. 이전 Node 22 버전에는 Artifacty가 사용하는 SQLite 전문 검색 기능이 없어, 보존 정책의 영구 삭제 같은 일부 기능이 실패합니다.
 
 선택적으로 활성화할 수 있는 React 렌더러는 Babel 8을 사용합니다. 지원하는 Node.js 버전은 `^22.18.0 || >=24.11.0`입니다. 이 렌더러를 활성화한다면 호환되는 버전을 사용하세요.
 

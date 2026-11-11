@@ -11,9 +11,9 @@ Artifacty를 게시하거나 배포하기 전에 이 체크리스트를 사용�
 
 일반 푸시, PR, 릴리스 생성, 주간 예약으로는 워크플로를 실행하지 않습니다. 개발 중에는 로컬 검사를 사용하고, 배포 후보가 정해지면 다음 순서로 진행하세요.
 
-1. 후보 브랜치나 태그에서 **Release candidate** 워크플로(`verify.yml`)를 수동 실행하세요. Linux·macOS·Windows 검사와 CodeQL·Scorecard를 실행하며, npm에는 게시하지 않습니다.
+1. `main`에서 **Release candidate** 워크플로(`verify.yml`)를 수동 실행하세요. 다른 브랜치는 축소된 `verify.yml`을 가질 수 있으므로, Publish는 `main`이 아닌 검증을 거부합니다. Linux·macOS·Windows 검사와 CodeQL·Scorecard를 실행하며, npm에는 게시하지 않습니다.
 2. 전체 실행이 성공할 때까지 기다리세요. 마지막 작업에서 npm 패키지와 체크섬을 14일간 보관합니다. 실행 요약의 실행 ID와 커밋 SHA를 기록하세요.
-3. 같은 커밋을 가리키는 브랜치나 태그에서 **Publish**(`publish.yml`)를 별도로 실행하세요. `verification_run_id`에 성공한 후보 검증의 실행 ID를 입력하세요.
+3. `main`이 여전히 그 커밋을 가리킬 때 `main`에서 **Publish**(`publish.yml`)를 별도로 실행하세요. 게시 작업은 `npm-publish` 환경을 사용하며, 이 환경의 배포 정책은 `main`만 허용합니다. `verification_run_id`에 성공한 후보 검증의 실행 ID를 입력하세요.
 4. Publish는 워크플로 종류, 저장소, 성공 여부, 커밋 일치를 확인합니다. 해당 검증 시도의 패키지를 내려받아 재빌드나 패키지 라이프사이클 스크립트 실행 없이 게시합니다. 기존 OIDC Trusted Publishing 인증은 유지합니다.
 
 선택한 커밋이 바뀌면 후보 검증을 다시 실행하세요. 보관된 패키지가 만료되거나 삭제된 경우에도 다시 검증해야 합니다. GitHub Release를 만드는 것만으로는 패키지가 게시되지 않습니다. **Security**는 배포와 별개로 수동 실행할 수도 있습니다. 주간 예약은 해제하며, 후보 검증에서는 자동으로 호출합니다. Scorecard 결과는 GitHub 코드 검사에 남기고, 외부 Scorecard 서비스로의 자동 결과 게시는 비활성화합니다.
@@ -43,8 +43,8 @@ artifacty doctor
 
 - 복구 명령어는 임시 저장소에서만 검증하세요. [업그레이드 스냅샷과 복구](upgrade-backups.md)를 참고하세요.
 - 마이그레이션이 저장소를 변경하기 전에 필수 스키마 스냅샷 생성이 완료되는지 확인하세요.
-- 최소 지원 버전인 Node.js 22.12.0에서 동작하는지 확인하세요. 선택적으로 사용하는 Babel 8 렌더러는 Node `^22.18.0 || >=24.11.0`이 필요합니다.
-- ES2024를 지원하는 브라우저에서 Mermaid 12.2.0을 확인하세요. `classic` 스타일, `dagre` 레이아웃, `default` 테마를 유지하세요.
+- 최소 지원 버전인 Node.js 22.16.0에서 동작하는지 확인하세요. Release candidate 매트릭스가 이 버전을 실행합니다. 선택적으로 사용하는 Babel 8 렌더러는 Node `^22.18.0 || >=24.11.0`이 필요합니다.
+- ES2024를 지원하는 브라우저에서 Mermaid 12.2.0을 확인하세요. 배포 패키지에는 lockfile이 없어 버전 범위를 쓰면 CI가 검증하지 않은 버전이 설치되므로, `package.json`에서 이 버전을 정확히 고정합니다. 고정 버전은 검토를 거친 업데이트로만 바꾸세요. `classic` 스타일, `dagre` 레이아웃, `default` 테마를 유지하세요.
 
 ## 패키징
 
@@ -79,6 +79,8 @@ artifacty doctor
 - React 프레임 응답의 CSP만 `unsafe-eval`을 허용하는지 확인하세요.
 - CodeQL, Scorecard, Dependabot 설정 변경이 의도한 것인지 확인하세요.
 - npm 게시에 장기 유효한 npm 토큰 대신 OIDC Trusted Publishing을 계속 사용하는지 확인하세요.
+- 이 패키지의 npm trusted publisher 설정에서 `npm-publish` 환경을 필수로 지정하세요. 지정하지 않으면 다른 브랜치에서 수정한 워크플로도 게시 토큰을 요청할 수 있습니다.
+- `main`에 브랜치 보호 규칙 적용을 검토하세요. 보호하지 않으면 쓰기 권한이 있는 사람은 누구나 게시에 쓰이는 워크플로를 바꿀 수 있습니다.
 
 ## 운영
 
