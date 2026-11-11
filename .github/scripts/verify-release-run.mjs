@@ -5,6 +5,8 @@ export function assertVerifiedRun(run, { repository, sha, workflowId }) {
   if (run.status !== "completed" || run.conclusion !== "success") throw new Error("Release candidate verification has not succeeded");
   if (run.event !== "workflow_dispatch" || run.workflow_id !== workflowId || run.path !== ".github/workflows/verify.yml") throw new Error("Expected a manual Release candidate workflow run");
   if (run.repository?.full_name !== repository || run.head_repository?.full_name !== repository) throw new Error("Verification must belong to this repository");
+  // A branch can carry its own reduced verify.yml, so only main's verification counts.
+  if (run.head_branch !== "main") throw new Error("Release candidate verification must run on main");
   if (run.head_sha !== sha || !/^[a-f0-9]{40}$/.test(sha)) throw new Error("Selected commit differs from the verified commit; verify this commit first");
   if (!Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1) throw new Error("Invalid verification attempt");
   return `release-${sha}-${run.run_attempt}`;

@@ -8,7 +8,7 @@ import path from "node:path";
 import { assertVerifiedRun, main } from "../.github/scripts/verify-release-run.mjs";
 
 const expected = { repository: "owner/artifacty", sha: "a".repeat(40), workflowId: 42 };
-const successful = { status: "completed", conclusion: "success", event: "workflow_dispatch", workflow_id: 42, path: ".github/workflows/verify.yml", repository: { full_name: expected.repository }, head_repository: { full_name: expected.repository }, head_sha: expected.sha, run_attempt: 2 };
+const successful = { status: "completed", conclusion: "success", event: "workflow_dispatch", workflow_id: 42, path: ".github/workflows/verify.yml", repository: { full_name: expected.repository }, head_repository: { full_name: expected.repository }, head_sha: expected.sha, head_branch: "main", run_attempt: 2 };
 
 test("publication selects the package from the exact successful commit and attempt", () => {
   assert.equal(assertVerifiedRun(successful, expected), `release-${expected.sha}-2`);
@@ -19,7 +19,8 @@ test("publication rejects pending, failed, unrelated, forked and stale verificat
     { status: "in_progress" }, { conclusion: "failure" }, { conclusion: "cancelled" },
     { event: "pull_request" }, { workflow_id: 99 }, { path: ".github/workflows/security.yml" },
     { repository: { full_name: "other/artifacty" } }, { head_repository: { full_name: "fork/artifacty" } },
-    { head_sha: "b".repeat(40) }, { run_attempt: 0 }, { run_attempt: "2" }
+    { head_sha: "b".repeat(40) }, { run_attempt: 0 }, { run_attempt: "2" },
+    { head_branch: "feature" }, { head_branch: undefined }
   ]) assert.throws(() => assertVerifiedRun({ ...successful, ...patch }, expected));
 });
 

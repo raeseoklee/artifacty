@@ -40,6 +40,10 @@ jobs:
     name: Publish verified npm package
     needs: gate
     runs-on: ubuntu-latest
+    # The environment's deployment policy admits only main. Require this
+    # environment in npm's trusted publisher settings so a workflow edited on
+    # another branch cannot publish.
+    environment: npm-publish
     permissions:
       contents: read
       actions: read
