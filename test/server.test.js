@@ -3,6 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+
+// npm skips the optional Babel 8 renderer below Node ^22.18.0 || >=24.11.0, so
+// only require it where npm installs it. Elsewhere it must be absent, not broken.
+const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
+const babelSupported = !((nodeMajor === 22 && nodeMinor < 18) || (nodeMajor === 24 && nodeMinor < 11) || nodeMajor === 23);
 import http from "node:http";
 import test from "node:test";
 import { startServer } from "../src/server.js";
@@ -394,6 +400,9 @@ test("serves HTTP API and browser artifact pages", async () => {
       assert.ok(optionsSource, "expected the frame to embed Babel.transform options");
       const transformOptions = new Function(`return ${optionsSource[1]};`)();
       assert.equal(transformOptions.filename, "artifact.tsx");
+      const babelPath = path.join(process.cwd(), "node_modules", "@babel", "standalone", "babel.min.js");
+      assert.equal(existsSync(babelPath), babelSupported, "the optional Babel renderer is installed exactly where npm supports it");
+      if (babelSupported) {
       const babelModule = await import(
         pathToFileURL(path.join(process.cwd(), "node_modules", "@babel", "standalone", "babel.min.js")).href
       );
@@ -406,6 +415,7 @@ test("serves HTTP API and browser artifact pages", async () => {
       ).code;
       assert.match(transformedSample, /React\.createElement/);
       assert.match(transformedSample, /exports\.default/);
+      }
       assert.doesNotMatch(reactFrameHtml, /allow-same-origin/);
     } finally {
       if (previousReactFlag === undefined) {
@@ -499,8 +509,9 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.match(await reactDomVendorResponse.text(), /ReactDOM/);
 
     const babelVendorResponse = await fetch(`${app.url}/vendor/npm/@babel/standalone/babel.min.js`);
-    assert.equal(babelVendorResponse.status, 200);
-    assert.match(await babelVendorResponse.text(), /Babel/);
+    assert.equal(babelVendorResponse.status, babelSupported ? 200 : 404);
+    if (babelSupported) assert.match(await babelVendorResponse.text(), /Babel/);
+    else await babelVendorResponse.body?.cancel();
 
     const blockedVendorSubpathResponse = await fetch(`${app.url}/vendor/npm/mermaid/../package.json`);
     assert.equal(blockedVendorSubpathResponse.status, 404);
