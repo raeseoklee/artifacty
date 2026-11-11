@@ -179,7 +179,7 @@ Do not copy the damaged database over the new home. The selected snapshot suppli
 
 ## Recover an Interrupted Restore
 
-If a `.restore-<uuid>` directory remains, Artifacty stops with `RESTORE_INCOMPLETE`.
+If a restore stops before it writes `restore.json`, it has not changed the store yet. Artifacty removes that `.restore-<uuid>` directory the next time it opens the store or takes a snapshot, because the directory only holds copies of a snapshot. If a `.restore-<uuid>` directory with `restore.json` remains, Artifacty stops with `RESTORE_INCOMPLETE`.
 
 1. Preserve that directory and the entire affected home.
 2. Read `.restore-<uuid>/restore.json`.

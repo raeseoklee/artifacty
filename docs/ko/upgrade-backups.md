@@ -182,7 +182,7 @@ Artifacty가 현재 저장소를 검증하지 못해 복구 스냅샷을 만들 
 
 ## 중단된 복원 작업의 복구
 
-`.restore-<uuid>` 디렉터리가 남아 있으면 `RESTORE_INCOMPLETE` 오류로 작업을 중단합니다.
+`restore.json`을 쓰기 전에 복원이 중단됐다면 저장소는 아직 바뀌지 않은 상태입니다. 이 `.restore-<uuid>` 디렉터리에는 스냅샷 사본만 있으므로, Artifacty는 다음에 저장소를 열거나 스냅샷을 만들 때 이 디렉터리를 삭제합니다. `restore.json`이 있는 `.restore-<uuid>` 디렉터리가 남아 있으면 `RESTORE_INCOMPLETE` 오류로 작업을 중단합니다.
 
 1. 해당 디렉터리와 영향을 받은 홈 디렉터리 전체를 보존하세요.
 2. `.restore-<uuid>/restore.json`을 읽으세요.

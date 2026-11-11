@@ -322,7 +322,15 @@ function createSnapshot(store, options = {}) {
   }
 }
 
+// Callers hold the store lock, so no restore can be running concurrently.
+// restoreUpgradeBackup writes restore.json before it moves any store file, so a
+// stage without it only holds copies of a snapshot and can be discarded. Before
+// this, a restore stopped during the copy blocked an intact store permanently.
 function assertNoInterruptedRestore(store) {
+  for (const name of readdirSync(store.home).filter((entry) => /^\.restore-[a-f0-9-]{36}$/.test(entry))) {
+    const stage = safePath(store.home, name);
+    if (!existsSync(path.join(stage, "restore.json"))) rmSync(stage, { recursive: true, force: true });
+  }
   const pending = readdirSync(store.home).find((name) => /^\.restore-[a-f0-9-]{36}$/.test(name));
   if (pending) throw error(`Interrupted restore found at ${path.join(store.home, pending)}. Preserve this directory and the damaged store. Use its restore.json recoveryBackupId to restore into a new empty home.`, "RESTORE_INCOMPLETE");
 }

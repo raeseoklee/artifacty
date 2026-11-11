@@ -295,3 +295,19 @@ test("failed migration retries reuse identical backup and never prune existing s
     } finally { if (original === undefined) delete process.env.ARTIFACTY_UPGRADE_BACKUP_KEEP; else process.env.ARTIFACTY_UPGRADE_BACKUP_KEEP = original; }
   });
 });
+
+test("a restore stopped before restore.json is discarded, while one that wrote it still blocks", () => fixture(async (store) => {
+  await createArtifact(store, { title: "Kept", content: "intact", sourceAgent: "test" });
+  reopen(store);
+  const copying = path.join(store.home, `.restore-${randomUUID()}`);
+  fs.mkdirSync(path.join(copying, "artifacts"), { recursive: true });
+  fs.writeFileSync(path.join(copying, "artifacty.sqlite"), "partial copy");
+  createUpgradeBackup(store);
+  assert.equal(fs.existsSync(copying), false, "a stage without restore.json only held snapshot copies");
+
+  const swapping = path.join(store.home, `.restore-${randomUUID()}`);
+  fs.mkdirSync(swapping);
+  fs.writeFileSync(path.join(swapping, "restore.json"), JSON.stringify({ recoveryBackupId: "x" }));
+  assert.throws(() => createUpgradeBackup(store), { code: "RESTORE_INCOMPLETE" });
+  assert.equal(fs.existsSync(swapping), true, "evidence of a restore that may have moved files must stay");
+}));
