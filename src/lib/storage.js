@@ -3851,9 +3851,15 @@ function openPostgresStore(store) {
       try { writeFileSync(marker, `${localId}\n`, { flag: "wx", mode: 0o600 }); }
       catch (error) { if (error.code !== "EEXIST") throw error; localId = readFileSync(marker, "utf8").trim(); }
     }
-    initializeSchema(db);
-    db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('postgres_home_binding', ?)").run(localId);
-    db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('application_version', ?)").run(APPLICATION_VERSION);
+    // Every open re-ran the full schema DDL, about 225 round trips under the
+    // store-wide lock. The version stamp records that this exact build already
+    // initialized the schema, so skip DDL and meta writes when nothing changed.
+    const initialized = hasMeta && !canMigrate && String(version) === String(STORE_VERSION) && appVersion === APPLICATION_VERSION && binding === localId;
+    if (!initialized) {
+      initializeSchema(db);
+      db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('postgres_home_binding', ?)").run(localId);
+      db.prepare("INSERT OR REPLACE INTO meta (key,value) VALUES ('application_version', ?)").run(APPLICATION_VERSION);
+    }
     db.exec("COMMIT");
     inTransaction = false;
     if (migration) migration.upgraded = canMigrate;
@@ -4587,13 +4593,15 @@ function upsertSearchIndex(db, artifact, version, content) {
   if (!searchIndexAvailable(db)) {
     return;
   }
+  // Content can legitimately hold NUL characters; PostgreSQL text cannot.
+  const searchable = (value) => typeof value === "string" ? value.replaceAll("\u0000", " ") : value;
   db.prepare("DELETE FROM artifact_search WHERE artifact_id = ?").run(artifact.id);
   db.prepare(`
     INSERT INTO artifact_search (
       artifact_id, title, source_agent, publisher_id, publisher_name, artifact_type, tags, format, metadata, content
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `).run(...[
     artifact.id,
     artifact.title,
     artifact.sourceAgent,
@@ -4608,6 +4616,7 @@ function upsertSearchIndex(db, artifact, version, content) {
       publisherName: artifact.publisherName || undefined
     }),
     indexableContent(version, content)
+  ].map(searchable)
   );
 }
 
@@ -5341,9 +5350,19 @@ function hasControlCharacters(text) {
   return false;
 }
 
+function assertNoNulCharacters(value, field) {
+  if (typeof value === "string" && value.includes("\u0000")) {
+    throw Object.assign(new Error(`${field} must not contain NUL characters`), { code: "INVALID_TEXT", statusCode: 400 });
+  }
+}
+
 function normalizeArtifactInput(input, options) {
   const title = normalizeOptionalString(input.title);
   const content = typeof input.content === "string" ? input.content : undefined;
+  // PostgreSQL text cannot store NUL, while SQLite can. Reject it in fields
+  // both backends store as text, so behavior and backups match.
+  assertNoNulCharacters(title, "Artifact title");
+  if (Array.isArray(input.tags)) for (const tag of input.tags) assertNoNulCharacters(tag, "Artifact tags");
 
   if (!title && options.requireTitle) {
     throw Object.assign(new Error("Artifact title is required"), {

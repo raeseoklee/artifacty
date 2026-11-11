@@ -48,7 +48,7 @@ Write transactions use a schema-scoped PostgreSQL advisory lock to preserve the 
 
 ## Migrate an existing SQLite store
 
-Stop the source server and all direct writers. Preserve a verified backup of the source before exporting. Use a new PostgreSQL schema and an empty destination directory; these commands replace the destination's contents.
+Stop the source server and all direct writers. Preserve a verified backup of the source before exporting. PostgreSQL text cannot contain NUL characters. Artifact content can still contain them, but an older SQLite store with a NUL character in a title or tag fails the import with `INVALID_TEXT`; edit that title or tag first. Use a new PostgreSQL schema and an empty destination directory; these commands replace the destination's contents.
 
 ```sh
 # Export the existing SQLite store, even if this shell normally selects PostgreSQL.

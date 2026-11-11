@@ -27,6 +27,7 @@ export function openPostgresDatabase(config = {}) {
     }
     const envelope = receiveMessageOnPort(port1)?.message;
     if (!envelope) { dispose(); throw Object.assign(new Error('PostgreSQL worker stopped unexpectedly'), { code: 'POSTGRES_WORKER_FAILED' }); }
+    if (envelope.error?.code === '22021') throw Object.assign(new Error('Text containing NUL characters cannot be stored in PostgreSQL'), { code: 'INVALID_TEXT', statusCode: 400 });
     if (envelope.error) throw Object.assign(new Error(envelope.error.message), { code: envelope.error.code });
     return envelope.result;
   }

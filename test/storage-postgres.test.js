@@ -145,3 +145,33 @@ test("PostgreSQL updates requiring automatic backup fail before changing applica
   try { assert.equal(raw.prepare("SELECT value FROM meta WHERE key = 'application_version'").get().value, "0.0.0"); }
   finally { raw.close(); }
 }));
+
+test("PostgreSQL opens skip schema DDL once this build has initialized the store", options, async () => {
+  await fixture(async (store) => {
+    await createArtifact(store, { title: "Warm", content: "x", sourceAgent: "test" });
+    const raw = () => openPostgresDatabase({ connectionString: databaseUrl, schema: store.database.schema });
+    let db = raw();
+    try { db.exec("DROP INDEX idx_artifacts_updated_at"); } finally { db.close(); }
+    openDatabase(store).close();
+    db = raw();
+    try { assert.equal(db.prepare("SELECT 1 AS present FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_artifacts_updated_at'").get(), undefined); }
+    finally { db.close(); }
+    db = raw();
+    try { db.prepare("UPDATE meta SET value = '0.0.0' WHERE key = 'application_version'").run(); } finally { db.close(); }
+    openDatabase(store).close();
+    db = raw();
+    try {
+      assert.ok(db.prepare("SELECT 1 AS present FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_artifacts_updated_at'").get(), "a different application version reruns initialization");
+      assert.notEqual(db.prepare("SELECT value FROM meta WHERE key = 'application_version'").get().value, "0.0.0");
+    } finally { db.close(); }
+  });
+});
+
+test("PostgreSQL stores content with NUL characters and rejects them in titles like SQLite", options, async () => {
+  await fixture(async (store) => {
+    const created = await createArtifact(store, { title: "Binary-ish", content: "before\u0000after", sourceAgent: "test" });
+    assert.equal((await getArtifact(store, created.id)).content, "before\u0000after");
+    await assert.rejects(createArtifact(store, { title: "bad\u0000title", content: "x", sourceAgent: "test" }), { statusCode: 400, code: "INVALID_TEXT" });
+    await assert.rejects(createArtifact(store, { title: "ok", content: "x", tags: ["bad\u0000tag"], sourceAgent: "test" }), { statusCode: 400 });
+  });
+});
