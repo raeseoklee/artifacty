@@ -88,7 +88,7 @@
     "@codemirror/lang-markdown": "^6.5.0",
     "@huggingface/tokenizers": "0.2.0",
     "codemirror": "^6.0.2",
-    "mermaid": "12.2.0"
+    "mermaid": "12.3.0"
   },
   "optionalDependencies": {
     "@babel/standalone": "^8.0.4",
