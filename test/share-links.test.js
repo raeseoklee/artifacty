@@ -94,3 +94,11 @@ test("deleted artifacts or pinned versions and forged admin roles cannot authori
   finally { remove.close(); }
   await assert.rejects(resolveShareLink(store, latest.token), { statusCode: 404 });
 }));
+
+test("share links cannot outlive the 365-day limit even when expiresAt is passed directly", () => fixture(async ({ store, artifact, owner }) => {
+  const days = (count) => new Date(Date.now() + count * 86400000).toISOString();
+  assert.throws(() => createShareLink(store, artifact.id, { expiresAt: days(366) }, { access: owner }), { statusCode: 400, message: /365 days/ });
+  assert.throws(() => createShareLink(store, artifact.id, { expiresAt: "9999-12-31T00:00:00.000Z" }, { access: owner }), { statusCode: 400 });
+  const link = createShareLink(store, artifact.id, { expiresAt: days(364) }, { access: owner });
+  assert.ok(Date.parse(link.expiresAt) > Date.now());
+}));

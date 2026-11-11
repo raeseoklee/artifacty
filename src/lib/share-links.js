@@ -65,6 +65,8 @@ export function setShareLinkPolicy(store = createStore(), { enabledInPrivate } =
   } finally { db.close(); }
 }
 
+export const MAX_SHARE_LINK_DAYS = 365;
+
 export function createShareLink(store = createStore(), artifactId, { version = null, expiresAt } = {}, { access, audit } = {}) {
   const db = database(store);
   try {
@@ -76,6 +78,8 @@ export function createShareLink(store = createStore(), artifactId, { version = n
     }
     const expiry = expiresAt === undefined ? Date.now() + 7 * 86400000 : typeof expiresAt === "string" ? Date.parse(expiresAt) : NaN;
     if (!Number.isFinite(expiry) || expiry <= Date.now()) throw error("Expiration must be a future date", 400);
+    // Enforce the 365-day limit here: callers may pass expiresAt directly.
+    if (expiry > Date.now() + MAX_SHARE_LINK_DAYS * 86400000 + 60000) throw error(`Expiration must be within ${MAX_SHARE_LINK_DAYS} days`, 400);
     const token = randomBytes(32).toString("base64url");
     const id = randomUUID();
     const createdAt = new Date().toISOString();
