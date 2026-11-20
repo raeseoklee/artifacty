@@ -306,6 +306,9 @@ export const TRANSLATIONS = {
     "inbox.type.review-requested": "Review requested",
 
     "auth.invalidCredentials": "Invalid email or password.",
+    "login.continueHelp": "Sign in to continue. If your account can view this page, it opens after you sign in.",
+    "artifact.unavailableTitle": "Artifact unavailable",
+    "artifact.unavailableHelp": "This artifact does not exist, or your account cannot view it. Ask its owner for access if you expected to see it.",
     "password.mismatch": "New password and confirmation do not match.",
     "password.changed": "Password changed.",
     "viewer.filter": "Filter",
@@ -1049,6 +1052,9 @@ export const TRANSLATIONS = {
     "inbox.type.review-requested": "검토 요청",
 
     "auth.invalidCredentials": "이메일 또는 비밀번호가 올바르지 않습니다.",
+    "login.continueHelp": "계속하려면 로그인하세요. 계정에 이 페이지를 볼 권한이 있으면 로그인 후 바로 열립니다.",
+    "artifact.unavailableTitle": "아티팩트를 열 수 없음",
+    "artifact.unavailableHelp": "이 아티팩트가 없거나 현재 계정에 볼 권한이 없습니다. 볼 수 있어야 한다면 소유자에게 권한을 요청하세요.",
     "password.mismatch": "새 비밀번호와 확인 비밀번호가 일치하지 않습니다.",
     "password.changed": "비밀번호가 변경되었습니다.",
     "viewer.filter": "필터",

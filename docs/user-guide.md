@@ -50,6 +50,8 @@ To change an existing artifact, open the version you want and select **Edit**. T
 
 Visibility and server access mode are separate controls. Public visibility does not bypass a private server's sign-in and sharing rules. Owners and administrators can change visibility from the artifact viewer. See the [README access reference](../README.md) for the complete permission rules.
 
+If you open an artifact link without signing in and the artifact needs an account, Artifacty shows the sign-in page with **Sign in to continue**. After you sign in, the same page opens if your account can view it. If your account cannot view it, the viewer shows **Artifact unavailable** instead. A missing artifact and one you cannot view look the same, so the page does not reveal whether a private artifact exists. API, raw, and export requests still return JSON errors.
+
 ## Preview content
 
 Use **Zoom out**, **Zoom in**, **Fit**, and **100%** in a Mermaid preview to read large diagrams. Scroll inside the preview to reach content beyond its visible area.

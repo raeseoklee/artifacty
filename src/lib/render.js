@@ -632,7 +632,7 @@ export function renderImportArtifactPage({ user, baseUrl, authToken = "", locale
   });
 }
 
-export function renderLoginPage({ baseUrl, setup = false, error = "", locale = DEFAULT_LOCALE, currentPath = "/login" }) {
+export function renderLoginPage({ baseUrl, setup = false, error = "", next = "", locale = DEFAULT_LOCALE, currentPath = "/login" }) {
   const view = viewContext(locale, currentPath);
   const title = setup ? view.raw("login.setup") : view.raw("nav.signIn");
   return pageShell({
@@ -649,7 +649,10 @@ export function renderLoginPage({ baseUrl, setup = false, error = "", locale = D
       <main id="main-content" class="artifact-editor auth-panel">
         ${error ? `<p class="auth-error">${escapeHtml(error)}</p>` : ""}
         ${setup ? `<p class="muted">${view.text("login.setupHelp")}</p>` : ""}
+        ${next && !setup ? `<p class="auth-notice" role="status">${view.text("login.continueHelp")}</p>` : ""}
         <form class="editor-form auth-form" method="post" action="/login">
+          ${next ? `<input type="hidden" name="next" value="${escapeAttribute(next)}">` : ""}
+          ${localeInput(view.locale)}
           <section class="editor-fields">
             <label class="field">
               <span>${view.text("ui.email")}</span>
@@ -668,6 +671,27 @@ export function renderLoginPage({ baseUrl, setup = false, error = "", locale = D
             <button type="submit" class="btn btn-primary">${setup ? view.text("login.create") : view.text("nav.signIn")}</button>
           </footer>
         </form>
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
+export function renderArtifactUnavailablePage({ user = null, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+  const view = viewContext(locale, currentPath);
+  const title = view.raw("artifact.unavailableTitle");
+  return pageShell({
+    title,
+    body: `
+      ${workspaceHeader(user, view)}
+      <header class="topbar">
+        <div>
+          <h1>${escapeHtml(title)}</h1>
+        </div>
+      </header>
+      <main id="main-content" class="artifact-editor auth-panel">
+        <p>${view.text("artifact.unavailableHelp")}</p>
+        <p><a class="btn btn-primary" href="${view.href("/")}">${view.text("nav.artifacts")}</a></p>
       </main>
     `,
     locale: view.locale

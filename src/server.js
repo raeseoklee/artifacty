@@ -147,6 +147,7 @@ import {
   renderDiffPage,
   renderImportArtifactPage,
   renderLoginPage,
+  renderArtifactUnavailablePage,
   renderNewArtifactPage
 } from "./lib/render.js";
 
@@ -344,7 +345,55 @@ export async function handleRequest(args) {
   args.request.artifactyClientAddress = address;
   args.request.artifactyBehindTrustedProxy = trustedProxies.length > 0;
   args.request.artifactyPublicOrigin = configuredPublicOrigin(args.publicBaseUrl || process.env.ARTIFACTY_URL);
-  return runWithRequestContext({ clientAddress: address }, () => handleRequestWithContext(args));
+  try {
+    return await runWithRequestContext({ clientAddress: address }, () => handleRequestWithContext(args));
+  } catch (error) {
+    if (await sendUnavailableArtifactPage(args, error)) return;
+    throw error;
+  }
+}
+
+// Artifact pages return 404 for both missing and unreadable artifacts, so a
+// visitor cannot tell which. A browser should not see the raw JSON error:
+// a signed-out visitor is asked to sign in and returns to the page
+// afterwards, and a signed-in visitor gets a readable page. Both cases look
+// the same for missing and private artifacts. API, raw, and export responses
+// are unchanged.
+async function sendUnavailableArtifactPage({ request, response, store }, error) {
+  const status = error?.statusCode;
+  if (![401, 403, 404].includes(status) || response.headersSent) return false;
+  if (!["GET", "HEAD"].includes(request.method)) return false;
+  const url = new URL(request.url, "http://artifacty.local");
+  const pathname = url.pathname;
+  if (!pathname.startsWith("/artifacts/") || !isBrowserPath(pathname)) return false;
+  if (!String(request.headers.accept || "").includes("text/html")) return false;
+  const locale = request.artifactyLocale || localeFromUrl(url);
+  const signedIn = Boolean(request.artifactyCurrentUser);
+  if (!signedIn && request.artifactyUserCount > 0) {
+    sendRedirect(response, loginHref(url.pathname + url.search, locale));
+    return true;
+  }
+  sendHtml(response, renderArtifactUnavailablePage({ user: request.artifactyCurrentUser || null, locale, currentPath: pathname }), 404, request.method === "HEAD");
+  return true;
+}
+
+// Only same-site paths may follow sign-in, so the parameter cannot send a
+// signed-in user to another site. Pages about signing in are excluded to
+// avoid loops.
+export function safeNextPath(value) {
+  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\") || /[\u0000-\u001f\\]/.test(value)) return null;
+  let parsed;
+  try { parsed = new URL(value, "http://artifacty.local"); } catch { return null; }
+  if (parsed.origin !== "http://artifacty.local") return null;
+  if (["/login", "/logout"].includes(parsed.pathname)) return null;
+  return parsed.pathname + parsed.search;
+}
+
+function loginHref(nextPath, locale) {
+  const next = safeNextPath(nextPath);
+  const target = localizedHref("/login", locale);
+  if (!next) return target;
+  return `${target}${target.includes("?") ? "&" : "?"}next=${encodeURIComponent(next)}`;
 }
 
 async function handleRequestWithContext(args) {
@@ -387,6 +436,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       response.setHeader("set-cookie", `artifacty_locale=${explicit}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${usesSecureCookies(request) ? "; Secure" : ""}`);
     }
   }
+  request.artifactyLocale = locale;
   const headOnly = request.method === "HEAD";
   const method = headOnly ? "GET" : request.method;
 
@@ -494,6 +544,8 @@ async function handleScopedRequest({ request, response, store, host, port, secur
 
   const userCount = await countUsers(store);
   let currentUser = userCount > 0 ? await sessionUserFromRequest(store, request) : null;
+  request.artifactyUserCount = userCount;
+  request.artifactyCurrentUser = currentUser;
   if (currentUser?.passwordResetRequired && !["/account/password", "/logout"].includes(pathname)) {
     return sendRedirect(response, "/account/password?required=1");
   }
@@ -502,6 +554,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     return sendHtml(response, renderLoginPage({
       baseUrl,
       setup: userCount === 0,
+      next: safeNextPath(url.searchParams.get("next")) || "",
       locale,
       currentPath
     }), 200, headOnly);
@@ -522,17 +575,19 @@ async function handleScopedRequest({ request, response, store, host, port, secur
         password
       })
       : await verifyUserPassword(store, email, password);
+    const next = safeNextPath(body.next);
     if (!user) {
       return sendHtml(response, renderLoginPage({
         baseUrl,
         setup: false,
         error: createI18n(bodyLocale).t("auth.invalidCredentials"),
+        next: next || "",
         locale: bodyLocale,
         currentPath
       }), 401);
     }
     const session = await createSession(store, user.id);
-    return sendRedirect(response, localizedHref(user.passwordResetRequired ? "/account/password?required=1" : "/account", bodyLocale), {
+    return sendRedirect(response, user.passwordResetRequired ? localizedHref("/account/password?required=1", bodyLocale) : next || localizedHref("/account", bodyLocale), {
       "set-cookie": sessionCookie(session.token, usesSecureCookies(request))
     });
   }
@@ -1338,7 +1393,8 @@ async function handleScopedRequest({ request, response, store, host, port, secur
 
   if (!currentUser && await getAccessMode(store) === "private" &&
       (["/", "/new", "/collections/new", "/import"].includes(pathname) || pathname.startsWith("/artifacts/"))) {
-    return sendRedirect(response, localizedHref("/login", locale));
+    const requested = new URL(request.url, "http://artifacty.local");
+    return sendRedirect(response, method === "GET" ? loginHref(requested.pathname + requested.search, locale) : localizedHref("/login", locale));
   }
 
   if (method === "GET" && pathname === "/") {
