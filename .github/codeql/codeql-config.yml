@@ -1,0 +1,8 @@
+name: Artifacty CodeQL configuration
+
+# Tests and maintenance scripts parse HTML with deliberately simple regular
+# expressions to assert on rendered output. They never ship or handle
+# untrusted input, and their alerts buried the findings that matter.
+paths-ignore:
+  - test
+  - scripts
