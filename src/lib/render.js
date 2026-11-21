@@ -677,9 +677,17 @@ export function renderLoginPage({ baseUrl, setup = false, error = "", next = "",
   });
 }
 
-export function renderArtifactUnavailablePage({ user = null, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+// The form shows for every signed-in visitor, whether or not the artifact
+// exists, so this page stays identical for missing and private artifacts.
+export function renderArtifactUnavailablePage({ user = null, locale = DEFAULT_LOCALE, currentPath = "/", requestAccessPath = "" }) {
   const view = viewContext(locale, currentPath);
   const title = view.raw("artifact.unavailableTitle");
+  const requestForm = user && requestAccessPath ? `
+        <form method="post" action="${escapeAttribute(requestAccessPath)}" class="access-request-form">
+          ${localeInput(view.locale)}
+          <p>${view.text("access.request.help")}</p>
+          <button type="submit" class="btn btn-outline-secondary">${view.text("access.request.submit")}</button>
+        </form>` : "";
   return pageShell({
     title,
     body: `
@@ -690,7 +698,28 @@ export function renderArtifactUnavailablePage({ user = null, locale = DEFAULT_LO
         </div>
       </header>
       <main id="main-content" class="artifact-editor auth-panel">
-        <p>${view.text("artifact.unavailableHelp")}</p>
+        <p>${view.text("artifact.unavailableHelp")}</p>${requestForm}
+        <p><a class="btn btn-primary" href="${view.href("/")}">${view.text("nav.artifacts")}</a></p>
+      </main>
+    `,
+    locale: view.locale
+  });
+}
+
+export function renderAccessRequestSentPage({ user = null, locale = DEFAULT_LOCALE, currentPath = "/" }) {
+  const view = viewContext(locale, currentPath);
+  const title = view.raw("access.request.sentTitle");
+  return pageShell({
+    title,
+    body: `
+      ${workspaceHeader(user, view)}
+      <header class="topbar">
+        <div>
+          <h1>${escapeHtml(title)}</h1>
+        </div>
+      </header>
+      <main id="main-content" class="artifact-editor auth-panel">
+        <p role="status">${view.text("access.request.sent")}</p>
         <p><a class="btn btn-primary" href="${view.href("/")}">${view.text("nav.artifacts")}</a></p>
       </main>
     `,
@@ -1143,7 +1172,8 @@ export function renderInboxPage({ baseUrl, user, notifications = [], unreadCount
       <header class="topbar"><div><h1>${view.text("inbox.title")}</h1><p>${escapeHtml(baseUrl)}</p></div></header>
       <main id="main-content" class="artifact-view"><section class="meta-card"><p>${view.text("inbox.unread", { count: unreadCount })}</p>
         <form method="post" action="/inbox/read-all">${localeInput(view.locale)}<button type="submit" class="btn btn-outline-secondary">${view.text("inbox.readAll")}</button></form>
-        ${notifications.length ? notifications.map((item) => `<section><h2><a href="${view.href(`/artifacts/${encodeURIComponent(item.artifactId)}`)}">${escapeHtml(item.title)}</a></h2><p>${["shared-with-me", "comment", "new-version", "review-requested"].includes(item.type) ? view.text(`inbox.type.${item.type}`) : escapeHtml(item.type)} · ${renderDateTime(item.createdAt, view)}</p>
+        ${notifications.length ? notifications.map((item) => `<section><h2><a href="${view.href(`/artifacts/${encodeURIComponent(item.artifactId)}`)}">${escapeHtml(item.title)}</a></h2><p>${["shared-with-me", "comment", "new-version", "review-requested", "access-requested"].includes(item.type) ? view.text(`inbox.type.${item.type}`) : escapeHtml(item.type)} · ${renderDateTime(item.createdAt, view)}</p>
+          ${item.type === "access-requested" ? `<p>${view.text("inbox.accessRequested", { name: item.requester?.name || item.requester?.email || "", email: item.requester?.email || "" })}</p><p><a href="${view.href(`/artifacts/${encodeURIComponent(item.artifactId)}/sharing`)}">${view.text("inbox.openSharing")}</a></p>` : ""}
           ${item.readAt ? `<p>${view.text("inbox.read")}</p>` : `<form method="post" action="/inbox/${encodeURIComponent(item.id)}/read">${localeInput(view.locale)}<button type="submit" class="btn btn-outline-secondary">${view.text("inbox.markRead")}</button></form>`}</section>`).join("") : `<p>${view.text("inbox.empty")}</p>`}
       </section></main>` });
 }

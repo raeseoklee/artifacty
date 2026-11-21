@@ -44,6 +44,7 @@ import {
   getArtifactPermission,
   previewAccessMode,
   listNotifications,
+  requestArtifactAccess,
   markNotificationRead,
   markAllNotificationsRead,
   setArtifactSharing,
@@ -150,6 +151,7 @@ import {
   renderLoginPage,
   FAVICON_SVG,
   renderArtifactUnavailablePage,
+  renderAccessRequestSentPage,
   renderNewArtifactPage
 } from "./lib/render.js";
 
@@ -342,6 +344,8 @@ function isPublicStaticPath(pathname) {
   return /^\/(?:favicon\.(?:svg|ico)|assets\/[A-Za-z0-9._-]+|vendor\/npm\/[A-Za-z0-9@._\/-]+)$/.test(pathname) && !pathname.includes("..");
 }
 
+const ACCESS_REQUEST_MIN_MS = 150;
+
 function isBrowserPath(pathname) {
   return !/^\/(?:api(?:\/|$)|mcp(?:\/|$)|assets\/|vendor\/|health$|events$|openapi\.json$)/.test(pathname)
     && !/\/(?:raw|react-frame|export)$/.test(pathname);
@@ -381,7 +385,9 @@ async function sendUnavailableArtifactPage({ request, response, store }, error) 
     sendRedirect(response, loginHref(url.pathname + url.search, locale));
     return true;
   }
-  sendHtml(response, renderArtifactUnavailablePage({ user: request.artifactyCurrentUser || null, locale, currentPath: pathname }), 404, request.method === "HEAD");
+  const idSegment = pathname.split("/")[2];
+  const requestAccessPath = idSegment ? `/artifacts/${idSegment}/request-access` : "";
+  sendHtml(response, renderArtifactUnavailablePage({ user: request.artifactyCurrentUser || null, locale, currentPath: pathname, requestAccessPath }), 404, request.method === "HEAD");
   return true;
 }
 
@@ -906,6 +912,24 @@ async function handleScopedRequest({ request, response, store, host, port, secur
       }
       return sendRedirect(response, localizedHref("/admin/access", localeFromBodyOrUrl(body, url)));
     }
+  }
+
+  // Every outcome returns the same status, page, and (padded) timing, so the
+  // response never shows whether the artifact exists or the owner was told.
+  const accessRequestMatch = /^\/artifacts\/([^/]+)\/request-access$/.exec(pathname);
+  if (accessRequestMatch && method === "POST") {
+    assertSameOrigin(request);
+    const artifactId = accessRequestMatch[1];
+    if (!currentUser && userCount > 0) return sendRedirect(response, loginHref(`/artifacts/${encodeURIComponent(artifactId)}`, locale));
+    request.artifactyAuth = await requireBrowserWriteAuth({ store, request, url, config: security, currentUser });
+    await enforceRateLimit({ store, host, request, bucket: "write" });
+    const startedAt = Date.now();
+    const body = await readFormBody(request, 4 * 1024);
+    const responseLocale = localeFromBodyOrUrl(body, url);
+    if (currentUser) await requestArtifactAccess(store, artifactId, { access: browserAccess, audit: browserAudit });
+    const remaining = ACCESS_REQUEST_MIN_MS - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+    return sendHtml(response, renderAccessRequestSentPage({ user: currentUser, locale: responseLocale, currentPath: "/" }), 200);
   }
 
   const inboxReadMatch = /^\/inbox\/([^/]+)\/read$/.exec(pathname);

@@ -2586,6 +2586,11 @@ export async function listAuditEvents(store = createStore(), filters = {}) {
         const artifact = db.prepare("SELECT owner_user_id FROM artifacts WHERE id = ?").get(event.artifactId);
         if (!isOwnerOrAdmin(filters.access, artifact?.owner_user_id)) event.metadata = { restricted: true };
       }
+      if (event.action === "access-request") {
+        // Only the owner and administrators may learn who asked.
+        const artifact = db.prepare("SELECT owner_user_id FROM artifacts WHERE id = ?").get(event.artifactId);
+        if (!isOwnerOrAdmin(filters.access, artifact?.owner_user_id)) { event.metadata = { restricted: true }; event.actor = null; }
+      }
       return event;
     };
     const bypassVisibility = !filters.access || isSingleUserMode(db);
@@ -4106,6 +4111,7 @@ function initializeSchema(db) {
   ensureColumn(db, "artifact_relations", "metadata_json", "TEXT NOT NULL DEFAULT '{}'");
   ensureColumn(db, "webhooks", "filter_json", "TEXT NOT NULL DEFAULT '{}'");
   ensureColumn(db, "webhooks", "owner_user_id", "TEXT");
+  ensureColumn(db, "notifications", "actor_user_id", "TEXT");
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_publisher_id ON artifacts(publisher_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_visibility ON artifacts(visibility)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_artifacts_owner_user_id ON artifacts(owner_user_id)");
@@ -4906,11 +4912,14 @@ export async function listNotifications(store = createStore(), { access, unreadO
     const params = [userId, ...visibility.params];
     const unreadCount = db.prepare(`SELECT COUNT(*) AS count FROM notifications n JOIN artifacts a ON a.id = n.artifact_id
       WHERE ${where} AND n.read_at IS NULL`).get(...params).count;
-    const notifications = db.prepare(`SELECT n.id, n.type, n.artifact_id, a.title, n.created_at, n.read_at
-      FROM notifications n JOIN artifacts a ON a.id = n.artifact_id WHERE ${where}
+    const notifications = db.prepare(`SELECT n.id, n.type, n.artifact_id, a.title, n.created_at, n.read_at,
+        n.actor_user_id, r.name AS requester_name, r.email AS requester_email
+      FROM notifications n JOIN artifacts a ON a.id = n.artifact_id
+      LEFT JOIN users r ON r.id = n.actor_user_id AND n.type = 'access-requested' WHERE ${where}
       ${unreadOnly ? "AND n.read_at IS NULL" : ""} ORDER BY n.created_at DESC, ${db.kind === "postgres" ? "n.id" : "n.rowid"} DESC LIMIT ?`)
       .all(...params, clampInteger(limit, 1, 200, 50)).map((row) => ({
-        id: row.id, type: row.type, artifactId: row.artifact_id, title: row.title, createdAt: row.created_at, readAt: row.read_at
+        id: row.id, type: row.type, artifactId: row.artifact_id, title: row.title, createdAt: row.created_at, readAt: row.read_at,
+        ...(row.type === "access-requested" ? { requester: { name: row.requester_name || "", email: row.requester_email || "" } } : {})
       }));
     return { notifications, unreadCount };
   } finally { db.close(); }
@@ -4937,6 +4946,40 @@ export async function markAllNotificationsRead(store = createStore(), { access }
       AND artifact_id IN (SELECT a.id FROM artifacts a WHERE ${visibility.sql})`)
       .run(new Date().toISOString(), userId, ...visibility.params);
     return { updated: result.changes };
+  } finally { db.close(); }
+}
+
+// Asks the owner of an artifact for access. The result never says whether the
+// artifact exists: callers show one fixed confirmation for every outcome. An
+// inbox item is created only when the artifact exists, has an active owner
+// other than the requester, and the requester cannot already read it. One
+// unread item per requester and artifact is pending; marking it read lets the
+// requester ask again. Granting access stays a manual step in the sharing UI.
+export async function requestArtifactAccess(store = createStore(), id, { access, audit } = {}) {
+  const db = openDatabase(store);
+  try {
+    return transaction(db, () => {
+      const requesterId = access?.userId;
+      const requester = requesterId ? db.prepare("SELECT id, role FROM users WHERE id = ? AND active = 1").get(requesterId) : null;
+      const row = requester && typeof id === "string" && id.length <= 256
+        ? db.prepare("SELECT id, visibility, owner_user_id FROM artifacts WHERE id = ?").get(id) : null;
+      if (!row || !row.owner_user_id || row.owner_user_id === requester.id) return { requested: false };
+      const artifact = { id: row.id, visibility: row.visibility, ownerUserId: row.owner_user_id };
+      if (canReadArtifactMeta(db, artifact, { userId: requester.id, role: requester.role })) return { requested: false };
+      if (!db.prepare("SELECT id FROM users WHERE id = ? AND active = 1").get(row.owner_user_id)) return { requested: false };
+      const pending = db.prepare(`SELECT id FROM notifications WHERE user_id = ? AND artifact_id = ? AND type = 'access-requested'
+        AND actor_user_id = ? AND read_at IS NULL LIMIT 1`).get(row.owner_user_id, row.id, requester.id);
+      if (pending) return { requested: false };
+      const createdAt = new Date().toISOString();
+      db.prepare("INSERT INTO notifications (id, user_id, artifact_id, type, created_at, actor_user_id) VALUES (?, ?, ?, 'access-requested', ?, ?)")
+        .run(randomUUID(), row.owner_user_id, row.id, createdAt, requester.id);
+      insertAuditRecord(db, {
+        action: "access-request", artifactId: row.id,
+        audit: { ...audit, userId: requester.id },
+        metadata: { requesterUserId: requester.id, ownerUserId: row.owner_user_id }
+      });
+      return { requested: true };
+    });
   } finally { db.close(); }
 }
 
