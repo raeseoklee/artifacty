@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { existsSync } from "node:fs";
+import vm from "node:vm";
 
 // npm skips the optional Babel 8 renderer below Node ^22.18.0 || >=24.11.0, so
 // only require it where npm installs it. Elsewhere it must be absent, not broken.
@@ -388,8 +389,19 @@ test("serves HTTP API and browser artifact pages", async () => {
       assert.equal(reactFrameResponse.status, 200);
       assert.match(reactFrameResponse.headers.get("content-security-policy"), /unsafe-eval/);
       const reactFrameHtml = await reactFrameResponse.text();
-      assert.match(reactFrameHtml, /\/vendor\/npm\/react\/umd\/react\.production\.min\.js/);
-      assert.match(reactFrameHtml, /\/vendor\/npm\/react-dom\/umd\/react-dom\.production\.min\.js/);
+      assert.match(reactFrameHtml, /<script src="\/assets\/react-bundle\.js"><\/script>/);
+      assert.doesNotMatch(reactFrameHtml, /\/umd\//);
+      const reactBundleResponse = await fetch(`${app.url}/assets/react-bundle.js`);
+      assert.equal(reactBundleResponse.status, 200);
+      assert.match(reactBundleResponse.headers.get("content-type"), /javascript/);
+      const reactWindow = {};
+      vm.runInNewContext(await reactBundleResponse.text(), { window: reactWindow, console, setTimeout, clearTimeout });
+      assert.match(reactWindow.React.version, /^19\./);
+      assert.equal(reactWindow.ReactDOM.version, reactWindow.React.version);
+      assert.equal(typeof reactWindow.ReactDOM.createRoot, "function");
+      assert.equal(typeof reactWindow.React.createElement, "function");
+      const legacyReactPackage = await fetch(`${app.url}/vendor/npm/react/umd/react.production.min.js`);
+      assert.equal(legacyReactPackage.status, 404);
       assert.match(reactFrameHtml, /\/vendor\/npm\/@babel\/standalone\/babel\.min\.js/);
 
       // The frame's transform options must stay valid for the Babel build we
@@ -500,13 +512,9 @@ test("serves HTTP API and browser artifact pages", async () => {
     assert.equal(opaqueMermaidVendorResponse.headers.get("access-control-allow-origin"), "null");
     assert.equal(opaqueMermaidVendorResponse.headers.get("vary"), "Origin");
 
-    const reactVendorResponse = await fetch(`${app.url}/vendor/npm/react/umd/react.production.min.js`);
-    assert.equal(reactVendorResponse.status, 200);
-    assert.match(await reactVendorResponse.text(), /React/);
-
-    const reactDomVendorResponse = await fetch(`${app.url}/vendor/npm/react-dom/umd/react-dom.production.min.js`);
-    assert.equal(reactDomVendorResponse.status, 200);
-    assert.match(await reactDomVendorResponse.text(), /ReactDOM/);
+    const reactBundleAsset = await fetch(`${app.url}/assets/react-bundle.js`);
+    assert.equal(reactBundleAsset.status, 200);
+    assert.match(await reactBundleAsset.text(), /^\/\*! artifacty react bundle: react@19\./);
 
     const babelVendorResponse = await fetch(`${app.url}/vendor/npm/@babel/standalone/babel.min.js`);
     assert.equal(babelVendorResponse.status, babelSupported ? 200 : 404);

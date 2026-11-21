@@ -95,7 +95,7 @@ import { sendSmtpMail } from "./lib/smtp-client.js";
 import { MAX_BACKUP_BYTES, buildStoreBackup, exportStoreToString, importStoreBundle, importStoreFromString } from "./lib/backup.js";
 import { convertAgentArtifact, decodeMediaContent, mediaContentType } from "./lib/converters.js";
 import { createLineDiff, createStructuredDiff, diffFormatFor, resolveDiffView } from "./lib/diff.js";
-import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, viewerClientFilePath } from "./lib/editor-assets.js";
+import { EDITOR_CLIENT_PATH, REACT_BUNDLE_PATH, VIEWER_CLIENT_PATH, editorClientFilePath, editorVendorPath, reactBundleFilePath, viewerClientFilePath } from "./lib/editor-assets.js";
 import { createEmbeddingProvider } from "./lib/embeddings.js";
 import { EVENT_TYPES, publish, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
 import { createI18n, localeFromBodyOrUrl, localeFromUrl, localizedHref, enabledLocales, defaultLocale, runWithLanguageSettings, TRANSLATIONS } from "./lib/i18n.js";
@@ -513,6 +513,10 @@ async function handleScopedRequest({ request, response, store, host, port, secur
 
   if (method === "GET" && pathname === EDITOR_CLIENT_PATH) {
     return sendJavaScriptFile(response, editorClientFilePath(PACKAGE_ROOT), headOnly, request);
+  }
+
+  if (method === "GET" && pathname === REACT_BUNDLE_PATH) {
+    return sendJavaScriptFile(response, reactBundleFilePath(PACKAGE_ROOT), headOnly, request);
   }
 
   if (method === "GET" && pathname === VIEWER_CLIENT_PATH) {

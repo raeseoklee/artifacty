@@ -31,6 +31,7 @@
     "lint": "node scripts/lint.mjs",
     "docs:check": "node scripts/check-docs.mjs",
     "build:ui": "node scripts/build-ui.mjs",
+    "build:react": "node scripts/build-react.mjs",
     "smoke": "bash scripts/smoke.sh",
     "release:check": "npm run lint && npm test && npm run docs:check && npm audit --audit-level=high && npm run smoke"
   },
@@ -55,6 +56,7 @@
     "scripts/lint.mjs",
     "scripts/check-docs.mjs",
     "scripts/build-ui.mjs",
+    "scripts/build-react.mjs",
     "scripts/smoke.sh",
     "README.md",
     "LICENSE",
@@ -93,8 +95,8 @@
   "optionalDependencies": {
     "@babel/standalone": "^8.0.4",
     "pg": "8.23.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@tabler/icons": "^3.49.0",

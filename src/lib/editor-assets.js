@@ -3,6 +3,7 @@ import path from "node:path";
 
 export const EDITOR_CLIENT_PATH = "/assets/editor.js";
 export const VIEWER_CLIENT_PATH = "/assets/viewer.js";
+export const REACT_BUNDLE_PATH = "/assets/react-bundle.js";
 
 export const EDITOR_VENDOR_PACKAGES = [
   "@codemirror/autocomplete",
@@ -31,8 +32,6 @@ export const EDITOR_VENDOR_PACKAGES = [
   "codemirror",
   "crelt",
   "mermaid",
-  "react",
-  "react-dom",
   "style-mod",
   "w3c-keyname"
 ];
@@ -43,8 +42,6 @@ const EDITOR_VENDOR_ENTRY_OVERRIDES = {
   "@marijn/find-cluster-break": path.join("src", "index.js"),
   crelt: "index.js",
   mermaid: path.join("dist", "mermaid.esm.min.mjs"),
-  react: path.join("umd", "react.production.min.js"),
-  "react-dom": path.join("umd", "react-dom.production.min.js"),
   "style-mod": path.join("src", "style-mod.js"),
   "w3c-keyname": "index.js"
 };
@@ -105,4 +102,8 @@ export function editorClientFilePath(packageRoot) {
 
 export function viewerClientFilePath(packageRoot) {
   return path.join(packageRoot, "src", "client", "viewer.js");
+}
+
+export function reactBundleFilePath(packageRoot) {
+  return path.join(packageRoot, "src", "client", "react-bundle.js");
 }
