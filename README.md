@@ -51,6 +51,7 @@ Artifacty requires Node.js 22.16.0 or newer. Node 24 is recommended. Earlier Nod
 
 The optional React renderer uses Babel 8. Its supported Node.js versions are
 `^22.18.0 || >=24.11.0`. Use a compatible version if you enable that renderer.
+The renderer runs React 19 from a committed browser bundle, `src/client/react-bundle.js`. After you change the `react` or `react-dom` version, run `npm run build:react` and commit the result. `npm test` fails when the bundle does not match the installed version.
 
 The browser renderer uses Mermaid 12.2.0. Use a current browser with ES2024 support, such as Safari 17.4 or newer. Mermaid keeps the `classic` look, `dagre` layout, and `default` theme.
 

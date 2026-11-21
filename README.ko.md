@@ -54,6 +54,7 @@ Mermaid 플로우차트에서 분기를 선택하고, 강조된 경로를 따라
 Artifacty를 실행하려면 Node.js 22.16.0 이상이 필요하며 Node 24를 권장합니다. 이전 Node 22 버전에는 Artifacty가 사용하는 SQLite 전문 검색 기능이 없어, 보존 정책의 영구 삭제 같은 일부 기능이 실패합니다.
 
 선택적으로 활성화할 수 있는 React 렌더러는 Babel 8을 사용합니다. 지원하는 Node.js 버전은 `^22.18.0 || >=24.11.0`입니다. 이 렌더러를 활성화한다면 호환되는 버전을 사용하세요.
+렌더러는 저장소에 커밋된 브라우저 번들 `src/client/react-bundle.js`로 React 19를 실행합니다. `react` 또는 `react-dom` 버전을 바꾸면 `npm run build:react`를 실행하고 결과를 커밋하세요. 번들이 설치된 버전과 다르면 `npm test`가 실패합니다.
 
 브라우저 렌더러는 Mermaid 12.2.0을 사용합니다. Safari 17.4 이상처럼 ES2024를 지원하는 최신 브라우저를 사용하세요. Mermaid의 `classic` 스타일, `dagre` 레이아웃, `default` 테마는 그대로 유지됩니다.
 
