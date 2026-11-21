@@ -6,7 +6,8 @@ const signal = new Int32Array(workerData.signal);
 let client;
 let inTransaction = false;
 function reply(result, error) {
-  port.postMessage(error ? { error } : { result });
+  // `tx` lets the main thread decide whether a pooled connection is reusable.
+  port.postMessage(error ? { error, tx: inTransaction } : { result, tx: inTransaction });
   Atomics.store(signal, 0, 1); Atomics.notify(signal, 0);
 }
 function safeError(error) {
@@ -34,6 +35,15 @@ try {
   port.on('message', async ({ command, sql, params = [] }) => {
     try {
       if (command === 'close') { await client.end(); reply(true); port.close(); return; }
+      if (command === 'reset') {
+        // Prepares a pooled connection for its next owner: end any open
+        // transaction, release session-level advisory locks, and prove the
+        // connection answers. A failure makes the main thread discard it.
+        if (inTransaction) { await client.query('ROLLBACK'); inTransaction = false; }
+        await client.query('SELECT pg_advisory_unlock_all()');
+        reply(true);
+        return;
+      }
       let result;
       const statements = command === 'exec' ? splitSqlStatements(sql) : [sql];
       for (const statement of statements) {

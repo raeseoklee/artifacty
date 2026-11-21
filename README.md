@@ -848,6 +848,7 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | `ARTIFACTY_DATABASE_URL` | PostgreSQL connection URL; unset uses SQLite | Unset |
 | `ARTIFACTY_DATABASE_SCHEMA` | Dedicated PostgreSQL schema | `artifacty` |
 | `ARTIFACTY_DATABASE_TIMEOUT_MS` | PostgreSQL operation timeout (1,000–120,000 ms) | `15000` |
+| `ARTIFACTY_POSTGRES_POOL_SIZE` | Idle PostgreSQL connections kept for reuse per process (0–32; `0` disables reuse) | `4` |
 | `ARTIFACTY_BACKUP_ON_UPDATE` | Snapshot existing stores before application-version changes; schema-migration snapshots are always required | `false` |
 | `ARTIFACTY_UPGRADE_BACKUP_KEEP` | Automatic upgrade snapshots to retain; integer from 1 to 1000 | `3` |
 | `ARTIFACTY_URL` | Public URL override; otherwise CLI/MCP read the last running server URL | — |

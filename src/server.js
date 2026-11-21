@@ -120,6 +120,7 @@ import { normalizePublicBaseUrl, writeServerState } from "./lib/server-state.js"
 import { generateToken } from "./lib/token.js";
 import { deliverWebhook, registerWebhookDispatcher } from "./lib/webhooks.js";
 import { createMcpJsonRpcHandler } from "./mcp-server.js";
+import { closePostgresPool } from "./lib/postgres-database.js";
 import {
   renderArtifactFormPage,
   renderArtifactPage,
@@ -269,6 +270,8 @@ export async function startServer(options = {}) {
       // restarted against the same store (as tests do repeatedly) doesn't
       // leak one limiter Map per lifecycle.
       rateLimiterRegistry.delete(store.home);
+      // Release idle PostgreSQL connections so a closed server leaves none open.
+      closePostgresPool();
       server.close((error) => (error ? reject(error) : resolve()));
       // Long-lived SSE connections (see handleEventStream) are intentionally
       // kept open with `connection: keep-alive` and would otherwise make
