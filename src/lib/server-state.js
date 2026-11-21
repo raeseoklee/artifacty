@@ -1,5 +1,38 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
+
+const STORE_ID_FILE = ".store-id";
+const STORE_ID = /^[a-f0-9-]{36}$/;
+
+// /health identifies its store with this random ID instead of the store's
+// absolute path, which any allowed client could read. The updater reads the
+// same file to confirm that a URL serves the store it is updating.
+export function readStoreIdentity(home) {
+  try {
+    const value = readFileSync(path.join(path.resolve(home), STORE_ID_FILE), "utf8").trim();
+    return STORE_ID.test(value) ? value : null;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export function storeIdentity(home) {
+  const existing = readStoreIdentity(home);
+  if (existing) return existing;
+  const value = randomUUID();
+  try {
+    writeFileSync(path.join(path.resolve(home), STORE_ID_FILE), `${value}\n`, { flag: "wx", mode: 0o600 });
+    return value;
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    const raced = readStoreIdentity(home);
+    if (!raced) throw new Error("Invalid store identity file");
+    return raced;
+  }
+}
 
 export const DEFAULT_PUBLIC_URL = "http://127.0.0.1:8787";
 const SERVER_STATE_FILE = "server.json";

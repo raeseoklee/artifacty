@@ -20,11 +20,18 @@ test("IP exception admits only valid read-only capabilities and preserves privat
     const request = (url, method = "GET") => fetch(app.url + url, { method, redirect: "manual" });
     setNetworkPolicy(app.store, { allowedCidrs: ["192.0.2.0/24"] }, { access });
     assert.equal((await request(route)).status, 403);
+    assert.equal((await request("/assets/theme.js")).status, 403, "static files stay blocked unless shared links are admitted");
     setNetworkPolicy(app.store, { allowedCidrs: ["192.0.2.0/24"], allowSharedLinks: true }, { access });
     assert.equal((await request(route)).status, 200);
     assert.equal(await (await request(route + "/raw")).text(), "Scoped content");
     assert.equal((await request(route, "HEAD")).status, 200);
-    for (const url of ["/", "/api/artifacts", "/mcp", "/assets/theme.js", route + "/edit", route + "/raw/", `/artifacts/${artifact.id}/raw`]) assert.equal((await request(url)).status, 403, url);
+    for (const url of ["/", "/api/artifacts", "/mcp", "/health", route + "/edit", route + "/raw/", `/artifacts/${artifact.id}/raw`, "/assets/../package.json", "/vendor/npm/../../package.json"]) assert.equal((await request(url)).status, 403, url);
+    // A shared page must render for a blocked viewer, so its public static files load.
+    const page = await (await request(route)).text();
+    for (const asset of [...page.matchAll(/(?:src|href)="(\/(?:assets|vendor)\/[^"]+)"/g)].map((match) => match[1])) {
+      assert.equal((await request(asset)).status, 200, asset);
+    }
+    assert.equal((await request("/favicon.svg")).status, 200);
     for (const method of ["POST", "PUT", "DELETE", "OPTIONS"]) assert.equal((await request(route, method)).status, 403, method);
     assert.equal((await request(`/s/${"A".repeat(43)}`)).status, 404);
     assert.equal((await request("/s/short")).status, 403);

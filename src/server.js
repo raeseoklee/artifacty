@@ -116,7 +116,7 @@ import {
   validateServerExposure,
   createRateLimiter
 } from "./lib/security.js";
-import { normalizePublicBaseUrl, writeServerState } from "./lib/server-state.js";
+import { normalizePublicBaseUrl, storeIdentity, writeServerState } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
 import { deliverWebhook, registerWebhookDispatcher } from "./lib/webhooks.js";
 import { createMcpJsonRpcHandler } from "./mcp-server.js";
@@ -147,6 +147,7 @@ import {
   renderDiffPage,
   renderImportArtifactPage,
   renderLoginPage,
+  FAVICON_SVG,
   renderArtifactUnavailablePage,
   renderNewArtifactPage
 } from "./lib/render.js";
@@ -334,6 +335,10 @@ function closeServer(server) {
   });
 }
 
+function isPublicStaticPath(pathname) {
+  return /^\/(?:favicon\.(?:svg|ico)|assets\/[A-Za-z0-9._-]+|vendor\/npm\/[A-Za-z0-9@._\/-]+)$/.test(pathname) && !pathname.includes("..");
+}
+
 function isBrowserPath(pathname) {
   return !/^\/(?:api(?:\/|$)|mcp(?:\/|$)|assets\/|vendor\/|health$|events$|openapi\.json$)/.test(pathname)
     && !/\/(?:raw|react-frame|export)$/.test(pathname);
@@ -401,10 +406,15 @@ async function handleRequestWithContext(args) {
   let networkSharedArtifact;
   try { assertNetworkAccess(store, request.artifactyClientAddress); }
   catch (cause) {
-    const match = /^\/s\/([A-Za-z0-9_-]{43})(?:\/raw)?$/.exec(new URL(request.url, "http://artifacty.local").pathname);
-    if (cause.code !== "IP_NOT_ALLOWED" || !["GET", "HEAD"].includes(request.method) || !match || !getNetworkPolicy(store).allowSharedLinks) throw cause;
+    const requestedPath = new URL(request.url, "http://artifacty.local").pathname;
+    const match = /^\/s\/([A-Za-z0-9_-]{43})(?:\/raw)?$/.exec(requestedPath);
+    if (cause.code !== "IP_NOT_ALLOWED" || !["GET", "HEAD"].includes(request.method) || !getNetworkPolicy(store).allowSharedLinks) throw cause;
+    // A shared page loads the package's public stylesheets, scripts and icon.
+    // They carry no store data, so admit them without a capability; otherwise
+    // a blocked viewer gets an unstyled page with no viewer script.
+    if (!match && !isPublicStaticPath(requestedPath)) throw cause;
     // Authenticate the capability before admitting an otherwise blocked peer.
-    networkSharedArtifact = await resolveShareLink(store, match[1]);
+    if (match) networkSharedArtifact = await resolveShareLink(store, match[1]);
   }
   args = { ...args, networkSharedArtifact };
   const pathname = decodeURIComponent(new URL(request.url, "http://artifacty.local").pathname);
@@ -440,6 +450,11 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   const headOnly = request.method === "HEAD";
   const method = headOnly ? "GET" : request.method;
 
+  if (method === "GET" && (pathname === "/favicon.svg" || pathname === "/favicon.ico")) {
+    response.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" });
+    response.end(headOnly ? undefined : FAVICON_SVG);
+    return;
+  }
   if (method === "GET" && pathname === "/assets/categories.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "categories.js"), headOnly, request);
   }
@@ -1388,7 +1403,7 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "GET" && pathname === "/health") {
-    return sendJson(response, { ok: true, name: "artifacty", store: store.home, databaseBackend: store.databaseBackend || "sqlite" }, 200, headOnly);
+    return sendJson(response, { ok: true, name: "artifacty", storeId: storeIdentity(store.home), databaseBackend: store.databaseBackend || "sqlite" }, 200, headOnly);
   }
 
   if (!currentUser && await getAccessMode(store) === "private" &&

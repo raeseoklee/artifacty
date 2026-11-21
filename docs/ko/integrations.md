@@ -7,7 +7,7 @@
 
 Artifacty는 여러 에이전트가 함께 사용하는 MCP stdio 서버와 로컬 브라우저 서버를 제공합니다.
 
-Node.js 22.16.0 이상을 사용하세요. 선택 기능인 Babel 8 React 렌더러에는 Node `^22.18.0 || >=24.11.0`이 필요합니다. Mermaid 12.2.0에는 Safari 17.4 이상처럼 ES2024를 지원하는 브라우저가 필요합니다.
+Node.js 22.16.0 이상을 사용하세요. 선택 기능인 Babel 8 React 렌더러에는 Node `^22.18.0 || >=24.11.0`이 필요합니다. Mermaid 12.3.0에는 Safari 17.4 이상처럼 ES2024를 지원하는 브라우저가 필요합니다.
 
 ## 브라우저 서버 시작
 
@@ -51,7 +51,7 @@ node src/cli.js doctor
 node src/cli.js doctor --skip-mcp
 ```
 
-`doctor`는 Node 버전 지원 여부, 로컬 네트워크 노출 설정, 저장소 무결성, 관리 대상 서버 상태, 서비스 정의 생성, MCP 탐색을 확인합니다. 서버가 중지되어 있으면 실패가 아닌 경고로 보고합니다.
+`doctor`는 Node 버전 지원 여부, 로컬 네트워크 노출 설정, 저장소 무결성, 관리 대상 서버 상태, 서비스 정의 생성, MCP 탐색을 확인합니다. 서버가 중지되어 있으면 실패가 아닌 경고로 보고합니다. `ARTIFACTY_ENABLE_REACT_RENDERER=true`인데 선택 패키지인 Babel이 설치되지 않았다면 경고하고, 현재 Node 버전에서 설치할 수 있는지(`^22.18.0 || >=24.11.0`)도 알려 줍니다.
 
 로그인하거나 시스템을 시작할 때 서버를 자동으로 실행하려면 운영체제의 서비스 관리자를 사용하세요. Artifacty의 `service` 명령은 macOS LaunchAgent, Linux systemd 사용자 유닛, Windows 작업 스케줄러 정의를 생성할 수 있습니다.
 
@@ -139,6 +139,7 @@ artifacty users import --file users.csv
 - `--dry-run`은 파일을 쓰지 않고 생성된 설정을 반환합니다.
 - `--mcp-url <url>`은 중앙 Artifacty에 연결하는 stdio 브리지 모드를 설치합니다. URL에 경로가 없으면 `/mcp`를 추가합니다.
 - `--api-token <token>`으로 지정한 토큰은 브리지 모드용 MCP 환경 설정에 기록됩니다. 중앙 서버에서는 `/account`에서 발급한 개인 토큰을 권장합니다.
+- `--mcp-url`을 지정하고 `--api-token`을 생략하면, 셸의 `ARTIFACTY_API_TOKEN`을 설정 파일에 복사하지 않습니다. 그 토큰은 대개 다른 서버의 토큰이기 때문입니다. 결과에는 경고가 포함됩니다. 중앙 서버가 발급한 토큰을 `--api-token`으로 지정하세요.
 - `--url <url>`은 브라우저 링크만 재정의합니다. 이 옵션만으로 중앙 MCP 연결을 활성화하지는 않습니다.
 - `--timeout <ms>`는 Codex의 `startup_timeout_sec`와 Gemini의 `timeout`을 조정합니다. Claude Code의 시작 제한 시간은 변경하지 않습니다. Claude Code의 제한 시간을 늘리려면 실행 전에 `MCP_TIMEOUT`을 설정하세요.
 - `artifacty install all --config <path>`는 사용하지 마세요. MCP 클라이언트마다 설정 파일 구조가 달라서 공통 설정 경로 재정의를 허용하지 않습니다. 한 에이전트만 지정할 때 `artifacty install <agent> --config <path>`를 사용하세요.
@@ -326,7 +327,7 @@ node src/cli.js import --agent gemini --content '{"title":"Options","returnDispl
 - `POST /new`: 브라우저 편집기에서 아티팩트를 생성하고 해당 아티팩트로 이동합니다.
 - `GET /import`: 브라우저 아티팩트 가져오기 폼입니다.
 - `POST /import`: 붙여넣은 에이전트 출력을 변환하고 저장합니다.
-- `GET /health`: 상태 확인입니다.
+- `GET /health`: 상태 확인입니다. `ok`, `name`, 데이터베이스 백엔드, 저장소를 식별하는 불투명 `storeId`를 반환하며, 저장소 경로는 노출하지 않습니다.
 - `POST /mcp`: `--mcp-http` 또는 `ARTIFACTY_MCP_HTTP=true`가 활성화되면 제공하는, 토큰으로 보호된 MCP Streamable HTTP JSON-RPC 엔드포인트입니다.
 - `GET /api/artifacts`: 아티팩트를 나열합니다.
 - `POST /api/artifacts`: 아티팩트를 생성합니다.

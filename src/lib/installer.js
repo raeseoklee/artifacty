@@ -23,24 +23,21 @@ export async function installAgent(agent, options = {}) {
     }
     return {
       agent: "all",
-      results
+      results,
+      ...(inheritedTokenWithheld(options) ? { warnings: [WITHHELD_TOKEN_WARNING] } : {})
     };
   }
 
-  if (normalized === "claude") {
-    return installClaude(options);
-  }
-  if (normalized === "codex") {
-    return installCodex(options);
-  }
-  if (normalized === "gemini") {
-    return installGemini(options);
-  }
-  if (normalized === "copilot") {
-    return installCopilot(options);
-  }
-  return installCursor(options);
+  const install = { claude: installClaude, codex: installCodex, gemini: installGemini, copilot: installCopilot }[normalized] || installCursor;
+  const result = await install(options);
+  return inheritedTokenWithheld(options) ? { ...result, warnings: [WITHHELD_TOKEN_WARNING] } : result;
 }
+
+function inheritedTokenWithheld(options = {}) {
+  return Boolean(!options.apiToken && process.env.ARTIFACTY_API_TOKEN && options.mcpUrl);
+}
+
+const WITHHELD_TOKEN_WARNING = "ARTIFACTY_API_TOKEN from this shell was not written for the --mcp-url endpoint. Pass --api-token with a token issued by that server.";
 
 export function createMcpServerConfig(options = {}) {
   const serverRoot = path.resolve(options.packageDir || options.projectDir || process.cwd());
@@ -58,8 +55,13 @@ export function createMcpServerConfig(options = {}) {
     env.ARTIFACTY_MCP_MODE = normalizeMcpMode(options.transport || process.env.ARTIFACTY_MCP_MODE);
   }
 
-  if (options.apiToken || process.env.ARTIFACTY_API_TOKEN) {
-    env.ARTIFACTY_API_TOKEN = options.apiToken || process.env.ARTIFACTY_API_TOKEN;
+  // A token inherited from the shell belongs to whatever server that shell
+  // targets. Do not write it into a config for an endpoint given on the
+  // command line, which may be a different server; require --api-token there.
+  if (options.apiToken) {
+    env.ARTIFACTY_API_TOKEN = options.apiToken;
+  } else if (process.env.ARTIFACTY_API_TOKEN && !inheritedTokenWithheld(options)) {
+    env.ARTIFACTY_API_TOKEN = process.env.ARTIFACTY_API_TOKEN;
   }
 
   if (options.home || process.env.ARTIFACTY_HOME) {
@@ -176,7 +178,7 @@ export async function installCursor(options = {}) {
 }
 
 export async function installCodex(options = {}) {
-  const targetPath = path.resolve(options.configPath || path.join(homedir(), ".codex", "config.toml"));
+  const targetPath = path.resolve(options.configPath || path.join(options.userHome || homedir(), ".codex", "config.toml"));
   const existing = await readTextFile(targetPath, "");
   const block = codexTomlBlock(createMcpServerConfig(options), {
     timeoutMs: normalizeTimeoutMs(options.timeout)

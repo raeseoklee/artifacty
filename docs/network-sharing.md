@@ -54,7 +54,8 @@ policy on the first access after the deadline.
 
 **Allow shared links outside these IP ranges** is off by default. Enable it to
 let people outside the allowed ranges read an artifact through its valid shared
-link. Only the shared page and its raw content are exempt. The dashboard,
+link. Only the shared page, its raw content, and the public style, script, and
+icon files that the page loads are exempt. The dashboard,
 search, API, MCP, and ordinary artifact URLs remain restricted. Expired or
 revoked links do not grant access. Private mode still requires the separate
 setting that permits shared links in private mode. Saving this option uses the

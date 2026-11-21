@@ -10,6 +10,7 @@ import { databaseConfiguration } from "./database-config.js";
 
 const POSTGRES_UPDATE_REASON = "Automatic updates do not support PostgreSQL. Verify a database backup and the artifact files together, then update manually.";
 import { createUpgradeBackup, verifyUpgradeBackup, restoreUpgradeBackup } from "./upgrade-backup.js";
+import { readStoreIdentity } from "./server-state.js";
 
 const execute = promisify(execFile);
 const UNIT = "com.artifacty.server.service";
@@ -171,6 +172,14 @@ async function writableDirectory(directory) {
 
 // Freeze each directory before visiting its children. System updates install as
 // root, so this normalizes modes for the service account and rejects unsafe entries.
+// Servers report an opaque store ID. Older running servers, which this updater
+// may be replacing, still report the store's path instead.
+export function healthMatchesStore(body, home) {
+  if (!body || body.ok !== true || body.name !== "artifacty") return false;
+  if (typeof body.storeId === "string") return body.storeId === readStoreIdentity(home);
+  return typeof body.store === "string" && path.resolve(body.store) === path.resolve(home);
+}
+
 export async function secureSystemRelease(root, { changeOwner = chown } = {}) {
   const canonicalRoot = await realpath(root);
   async function visit(file) {
@@ -288,7 +297,7 @@ export async function updateApplication(options = {}, injected = {}) {
     try {
       const response = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2000), redirect: "error" });
       const body = await response.json();
-      return response.ok && body.ok === true && body.name === "artifacty" && path.resolve(body.store) === home;
+      return response.ok && healthMatchesStore(body, home);
     } catch { return false; }
   });
   const backups = injected.backups || { create: createUpgradeBackup, verify: verifyUpgradeBackup, restore: restoreUpgradeBackup };

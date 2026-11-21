@@ -8,8 +8,10 @@ import { getRetentionPolicy, isRetentionPolicyInert } from "./retention.js";
 import { securityConfig, validateServerExposure, exposureWarning } from "./security.js";
 import { serviceCommand } from "./service.js";
 import { checkStoreIntegrity, createStore } from "./storage.js";
+import { editorVendorPath } from "./editor-assets.js";
 
-const MIN_NODE_VERSION = "22.12.0";
+// Read the floor from package.json so doctor cannot drift from engines again.
+const FALLBACK_MIN_NODE_VERSION = "22.16.0";
 
 export async function runDoctor(options = {}) {
   const packageRoot = path.resolve(options.packageRoot || process.cwd());
@@ -21,6 +23,7 @@ export async function runDoctor(options = {}) {
   await collect(checks, "storage", () => storageCheck(store));
   await collect(checks, "retention", () => retentionCheck(store));
   await collect(checks, "embeddings", () => embeddingsCheck());
+  await collect(checks, "renderers", () => renderersCheck(packageRoot));
   await collect(checks, "server", () => serverCheck(store));
   await collect(checks, "service", () => serviceCheck(options));
   if (options.skipMcp) {
@@ -64,8 +67,47 @@ async function collect(checks, name, fn) {
   }
 }
 
+async function minimumNodeVersion(packageRoot) {
+  try {
+    const engines = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")).engines?.node;
+    return /^>=\s*(\d+\.\d+\.\d+)$/.exec(String(engines || "").trim())?.[1] || FALLBACK_MIN_NODE_VERSION;
+  } catch {
+    return FALLBACK_MIN_NODE_VERSION;
+  }
+}
+
+// npm installs the optional Babel 8 renderer only on Node ^22.18.0 || >=24.11.0.
+export function babelRendererSupported(nodeVersion = process.versions.node) {
+  const [major, minor] = nodeVersion.split(".").map(Number);
+  if (major === 22) return minor >= 18;
+  if (major === 24) return minor >= 11;
+  return major > 24;
+}
+
+function renderersCheck(packageRoot) {
+  const enabled = process.env.ARTIFACTY_ENABLE_REACT_RENDERER === "true";
+  const installed = Boolean(editorVendorPath("@babel/standalone", packageRoot));
+  const supported = babelRendererSupported();
+  const data = { reactRendererEnabled: enabled, babelInstalled: installed, nodeSupportsBabel: supported };
+  if (enabled && !installed) {
+    return {
+      status: "warn",
+      message: supported
+        ? "ARTIFACTY_ENABLE_REACT_RENDERER=true, but the optional @babel/standalone package is not installed. Reinstall Artifacty without --omit=optional."
+        : `ARTIFACTY_ENABLE_REACT_RENDERER=true, but Node ${process.versions.node} cannot install the optional Babel 8 renderer. Use Node ^22.18.0 or >=24.11.0.`,
+      data
+    };
+  }
+  return {
+    status: "pass",
+    message: enabled ? "React renderer is enabled and its Babel package is installed" : `React renderer is disabled${installed ? "" : "; its optional Babel package is not installed"}`,
+    data
+  };
+}
+
 async function runtimeCheck(packageRoot) {
   const version = await packageVersion(packageRoot);
+  const MIN_NODE_VERSION = await minimumNodeVersion(packageRoot);
   const supported = compareVersions(process.versions.node, MIN_NODE_VERSION) >= 0;
   return {
     status: supported ? "pass" : "fail",

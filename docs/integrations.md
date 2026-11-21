@@ -4,7 +4,7 @@ English | [한국어](ko/integrations.md)
 
 Artifacty exposes one shared MCP stdio server and one local browser server.
 
-Use Node.js 22.16.0 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`. Mermaid 12.2.0 requires an ES2024-capable browser, such as Safari 17.4 or newer.
+Use Node.js 22.16.0 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`. Mermaid 12.3.0 requires an ES2024-capable browser, such as Safari 17.4 or newer.
 
 ## Start the Browser Server
 
@@ -48,7 +48,7 @@ node src/cli.js doctor
 node src/cli.js doctor --skip-mcp
 ```
 
-`doctor` checks Node version support, local exposure settings, store integrity, managed server health, service definition rendering, and MCP discovery. A stopped server is reported as a warning, not a failure.
+`doctor` checks Node version support, local exposure settings, store integrity, managed server health, service definition rendering, and MCP discovery. A stopped server is reported as a warning, not a failure. When `ARTIFACTY_ENABLE_REACT_RENDERER=true` but the optional Babel package is missing, `doctor` warns and states whether the Node version can install it (`^22.18.0 || >=24.11.0`).
 
 To start the server at login or system startup, use the operating system's service manager. Artifacty's `service` command can generate macOS LaunchAgent, Linux systemd user-unit, and Windows Task Scheduler definitions.
 
@@ -143,6 +143,7 @@ Users whose reset is required must change their password before opening
 - `--dry-run` returns the generated config without writing it.
 - `--mcp-url <url>` installs stdio bridge mode for central Artifacty. If the URL has no path, `/mcp` is appended.
 - `--api-token <token>` is written into the generated MCP environment for bridge mode. For central servers, prefer a personal token issued from `/account`.
+- With `--mcp-url` and no `--api-token`, the installer does not copy `ARTIFACTY_API_TOKEN` from your shell into the config, because that token usually belongs to a different server. The result includes a warning. Pass `--api-token` with a token that the central server issued.
 - `--url <url>` remains a browser-link override and does not enable central MCP by itself.
 - `--timeout <ms>` adjusts Codex `startup_timeout_sec` and Gemini `timeout`. It does not change the Claude Code startup timeout. To increase that timeout, set `MCP_TIMEOUT` before launching Claude Code.
 - Do not use `artifacty install all --config <path>`. Each MCP client uses a
@@ -349,7 +350,7 @@ tests verify these examples.
 - `POST /new`: create from the browser editor and redirect to the artifact.
 - `GET /import`: browser artifact import form.
 - `POST /import`: convert and save pasted agent output.
-- `GET /health`: health check.
+- `GET /health`: health check. It returns `ok`, `name`, the database backend, and an opaque `storeId`. It does not reveal the store path.
 - `POST /mcp`: token-protected MCP Streamable HTTP JSON-RPC endpoint when `--mcp-http` or `ARTIFACTY_MCP_HTTP=true` is enabled.
 - `GET /api/artifacts`: list artifacts.
 - `POST /api/artifacts`: create artifact.

@@ -2276,6 +2276,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
   <script src="/assets/theme.js"></script><script type="module" src="/assets/auto-apply.js"></script>
   <script src="/assets/sidebar.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>${escapeHtml(title)}</title>
   ${head}
   <style>
@@ -3706,6 +3707,9 @@ function viewContext(locale, currentPath) {
 function localeInput(locale) {
   return `<input type="hidden" name="lang" value="${escapeAttribute(locale)}">`;
 }
+
+// The same mark as the header, colored for a browser tab icon.
+export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z" stroke="#2f5ea8" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 16.5 12 7.5l4 9" stroke="#2f5ea8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.7 13.3h4.6" stroke="#2f5ea8" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
 function brandMark() {
   return `<span class="brand-mark" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none">
