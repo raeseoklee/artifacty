@@ -6,7 +6,7 @@ Use this checklist before publishing or distributing Artifacty.
 
 ## Manual CI and publication
 
-Ordinary pushes, pull requests, releases, and weekly schedules do not start these workflows. Run local checks during development. When a release candidate is ready:
+Ordinary pushes, releases, and weekly schedules do not start these workflows. A pull request runs only **Pull request checks** (`pull-request.yml`): lint, tests, and the documentation check on Ubuntu with Node 24. It does not replace the release matrix. Run local checks during development. When a release candidate is ready:
 
 1. Run the **Release candidate** workflow (`verify.yml`) manually on `main`. Publish rejects verification from any other branch, because a branch can carry a reduced `verify.yml`. This runs the Linux, macOS, and Windows matrix, CodeQL, and Scorecard. It does not publish to npm.
 2. Wait for the entire run to succeed. The final job saves the npm tarball and checksum for 14 days. Record the run ID and commit SHA from its summary.
@@ -41,7 +41,7 @@ artifacty doctor
 - Verify recovery commands against temporary stores only. See [upgrade snapshots and recovery](upgrade-backups.md).
 - Confirm mandatory schema snapshots complete before migrations change the store.
 - Check the Node.js 22.16.0 minimum. The Release candidate matrix runs it. The optional Babel 8 renderer requires Node `^22.18.0 || >=24.11.0`.
-- Check Mermaid 12.2.0 in an ES2024-capable browser. `package.json` pins this exact version, because the published package has no lockfile and a range would install a version CI never tested. Change the pin only as a reviewed update. Preserve its `classic` look, `dagre` layout, and `default` theme.
+- Check Mermaid 12.3.0 in an ES2024-capable browser. `package.json` pins this exact version, because the published package has no lockfile and a range would install a version CI never tested. Change the pin only as a reviewed update. Preserve its `classic` look, `dagre` layout, and `default` theme.
 
 ## Packaging
 
