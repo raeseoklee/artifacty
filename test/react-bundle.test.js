@@ -16,8 +16,8 @@ test("committed React bundle declares a React 19 version that package.json allow
   assert.match(banner[1], /^19\./);
   assert.equal(banner[2], banner[1], "react and react-dom versions must match");
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-  assert.match(manifest.optionalDependencies.react, /^\^19\./);
-  assert.match(manifest.optionalDependencies["react-dom"], /^\^19\./);
+  assert.match(manifest.devDependencies.react, /^\^19\./);
+  assert.match(manifest.devDependencies["react-dom"], /^\^19\./);
   assert.equal(manifest.dependencies?.react, undefined, "react stays optional");
 });
 
