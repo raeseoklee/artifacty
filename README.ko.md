@@ -762,6 +762,7 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | `ARTIFACTY_DATABASE_URL` | PostgreSQL 연결 URL. 설정하지 않으면 SQLite를 사용합니다. | 미설정 |
 | `ARTIFACTY_DATABASE_SCHEMA` | PostgreSQL 전용 스키마 | `artifacty` |
 | `ARTIFACTY_DATABASE_TIMEOUT_MS` | PostgreSQL 작업 제한 시간(1,000–120,000ms) | `15000` |
+| `ARTIFACTY_POSTGRES_POOL_SIZE` | 프로세스가 재사용하려고 유지하는 PostgreSQL 유휴 연결 수(0–32, `0`이면 재사용 안 함) | `4` |
 | `ARTIFACTY_BACKUP_ON_UPDATE` | 애플리케이션 버전 변경 전에 기존 저장소를 스냅샷으로 보관. 스키마 마이그레이션 스냅샷은 항상 필수 | `false` |
 | `ARTIFACTY_UPGRADE_BACKUP_KEEP` | 보관할 자동 업그레이드 스냅샷 수. 1–1000의 정수 | `3` |
 | `ARTIFACTY_URL` | 공개 URL 재정의. 미설정 시 CLI/MCP가 마지막 서버 URL 사용 | — |

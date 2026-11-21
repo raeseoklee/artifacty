@@ -35,6 +35,7 @@ artifacty serve
 | `ARTIFACTY_DATABASE_URL` | Unset | A `postgres://` or `postgresql://` URL identifying a database. An unset or empty value selects SQLite. |
 | `ARTIFACTY_DATABASE_SCHEMA` | `artifacty` | Dedicated schema: a lowercase letter followed by lowercase letters, digits, or underscores; at most 63 characters. `public`, `information_schema`, and names beginning with `pg_` are rejected. |
 | `ARTIFACTY_DATABASE_TIMEOUT_MS` | `15000` | Connection/query wait limit, an integer from 1000 to 120000 milliseconds. |
+| `ARTIFACTY_POSTGRES_POOL_SIZE` | `4` | Maximum idle connections that one process keeps for reuse, per database URL, schema, and timeout. An integer from 0 to 32. `0` opens and closes a connection for every operation. |
 
 Set the same backend variables for every CLI, server, or direct stdio MCP process that accesses this store. A shell without the database URL cannot open a home already bound to PostgreSQL. Artifacty rejects that configuration instead of creating a separate SQLite store. Use a fresh directory when changing database backends. Prefer HTTP MCP for clients that should use the central server's configuration.
 
@@ -45,6 +46,18 @@ The server initializes a fresh schema on first use. Changing the URL does not mo
 PostgreSQL text search uses the backend's substring search path. It does not use SQLite FTS5 and is not advertised as PostgreSQL full-text search. Semantic ranking continues to use Artifacty's configured embedding provider and stored vectors. A database change does not select a new embedding model automatically.
 
 Write transactions use a schema-scoped PostgreSQL advisory lock to preserve the serialized mutation behavior expected by the existing storage services. This first backend keeps the synchronous application storage interface; a remote database's latency can therefore affect request latency. It is not a promise of higher throughput or multi-host deployment.
+
+## Connection reuse
+
+Each Artifacty process keeps finished PostgreSQL connections for reuse. A reused connection skips the connection and authentication steps, which saves most of the time of a small read. Against a local PostgreSQL 17 server, reading one artifact dropped from about 45 ms to about 7 ms. A remote database gains more.
+
+- Each operation receives its own connection. Two operations that run at the same time never share one.
+- A connection returns to the idle list only when it is outside a transaction. If a transaction is open or the state is unknown, Artifacty rolls back, drops session-level locks, and tests the connection. It closes the connection if that test fails.
+- A process keeps at most `ARTIFACTY_POSTGRES_POOL_SIZE` idle connections for each connection configuration and closes the rest. It also closes a connection that stays idle for 30 seconds. A connection idle for more than one second is tested before reuse, and a failed one is replaced.
+- Idle connections do not keep a CLI command, a server, or an MCP process running. Closing the HTTP server closes its idle connections.
+- Set `ARTIFACTY_POSTGRES_POOL_SIZE=0` to open and close a connection for every operation.
+
+Each idle connection uses one backend slot on the database server. Count the maximum idle connections for each Artifacty process (default 4) against `max_connections`, and lower the setting when many processes share one database. If you drop the Artifacty schema while a process is running, restart that process. Its idle connections still point to the dropped schema.
 
 ## Migrate an existing SQLite store
 
