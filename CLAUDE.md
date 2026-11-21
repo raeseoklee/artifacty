@@ -59,7 +59,7 @@ Keep recovery commands independent of normal storage initialization so they cann
 
 The create/import/edit screens use CodeMirror 6 for Markdown, HTML, JSON, and text editing. CodeMirror assets are served locally through allowlisted `/vendor/npm/*` routes, not from a CDN. UI text defaults to English and supports Korean with `?lang=ko`. Keep each document in its existing language unless a translation is requested.
 
-Mermaid uses version 12.3.0 with the existing `classic` look, `dagre` layout, and `default` theme. Its browser code requires ES2024 support, such as Safari 17.4 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`.
+Mermaid uses version 12.3.0 with the existing `classic` look, `dagre` layout, and `default` theme. Its browser code requires ES2024 support, such as Safari 17.4 or newer. The optional Babel 8 React renderer requires Node `^22.18.0 || >=24.11.0`. React 19 ships only CommonJS, so the renderer serves the committed bundle `src/client/react-bundle.js` at `/assets/react-bundle.js`. After changing the `react` or `react-dom` version, run `npm run build:react` and commit the result; `test/react-bundle.test.js` fails on a stale bundle.
 
 ### MCP Server
 

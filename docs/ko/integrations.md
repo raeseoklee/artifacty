@@ -7,7 +7,7 @@
 
 Artifacty는 여러 에이전트가 함께 사용하는 MCP stdio 서버와 로컬 브라우저 서버를 제공합니다.
 
-Node.js 22.16.0 이상을 사용하세요. 선택 기능인 Babel 8 React 렌더러에는 Node `^22.18.0 || >=24.11.0`이 필요합니다. Mermaid 12.3.0에는 Safari 17.4 이상처럼 ES2024를 지원하는 브라우저가 필요합니다.
+Node.js 22.16.0 이상을 사용하세요. 선택 기능인 Babel 8 React 렌더러에는 Node `^22.18.0 || >=24.11.0`이 필요합니다. Mermaid 12.3.0에는 Safari 17.4 이상처럼 ES2024를 지원하는 브라우저가 필요합니다. React 렌더러는 커밋된 번들 `src/client/react-bundle.js`로 React 19를 실행합니다. React 버전을 바꾼 뒤에는 `npm run build:react`로 번들을 다시 만드세요.
 
 ## 브라우저 서버 시작
 

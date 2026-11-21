@@ -4,7 +4,7 @@ import { parseCollection } from "./collections.js";
 import { renderExplainer } from "./render-explainer.js";
 import { uiIcon } from "./ui-icons.js";
 import { readFileSync } from "node:fs";
-import { EDITOR_CLIENT_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
+import { EDITOR_CLIENT_PATH, REACT_BUNDLE_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
 import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, availableLanguages } from "./i18n.js";
 import { ARTIFACT_FORMATS, ARTIFACT_TYPES, REVIEW_STATUSES, SAVED_VIEW_FILTER_KEYS, VISIBILITY_VALUES } from "./storage.js";
 import { normalizeMaxEntries as resolveMaxDiffEntries } from "./diff.js";
@@ -2214,8 +2214,7 @@ export function renderReactFramePage({ title, content }) {
 <body>
   <div id="root"></div>
   <script type="application/json" id="artifacty-react-source">${source}</script>
-  <script src="/vendor/npm/react/umd/react.production.min.js"></script>
-  <script src="/vendor/npm/react-dom/umd/react-dom.production.min.js"></script>
+  <script src="${REACT_BUNDLE_PATH}"></script>
   <script src="/vendor/npm/@babel/standalone/babel.min.js"></script>
   <script>
     const rootElement = document.getElementById("root");
@@ -2259,11 +2258,7 @@ export function renderReactFramePage({ title, content }) {
       if (typeof Component !== "function") {
         throw new Error("React artifact must export a component as default.");
       }
-      if (ReactDOM.createRoot) {
-        ReactDOM.createRoot(rootElement).render(React.createElement(Component, {}));
-      } else {
-        ReactDOM.render(React.createElement(Component, {}), rootElement);
-      }
+      ReactDOM.createRoot(rootElement).render(React.createElement(Component, {}));
       window.addEventListener("resize", report);
       if (window.ResizeObserver) {
         try { new ResizeObserver(report).observe(document.documentElement); } catch (error) {}
