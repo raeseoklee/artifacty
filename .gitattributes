@@ -9,3 +9,5 @@ licenses/multilingual-e5-small-LICENSE.txt -text whitespace=cr-at-eol
 # SHA-256-pinned assets must retain exact upstream bytes on Windows too.
 models/** -text
 vendor/onnxruntime/** -text
+# The committed React bundle is compared byte for byte with a fresh build.
+src/client/react-bundle.js -text
