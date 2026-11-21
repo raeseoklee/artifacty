@@ -34,7 +34,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-## Tabler Icons 3.49.0
+## Tabler Icons 3.52.0
 
 Artifacty includes selected generated assets from this package.
 
@@ -62,12 +62,13 @@ SOFTWARE.
 
 ## Mermaid and ELK
 
-The audited dependency snapshot uses Mermaid 12.2.0 (MIT) and elkjs 0.9.3
-(Eclipse Public License 2.0). Mermaid distributes ELK layout code in its renderer
+The audited dependency snapshot uses Mermaid 12.3.0 (MIT) and elkjs 0.12.1
+(Eclipse Public License 2.0, with GNU GPL 3.0 or later named as a Secondary
+License). Mermaid distributes ELK layout code in its renderer
 chunks. Preserve these notices when redistributing those files.
 
-- [Mermaid license](licenses/mermaid-LICENSE.txt) and [corresponding source](https://github.com/mermaid-js/mermaid/tree/mermaid%4012.2.0).
-- [ELK license](licenses/elkjs-LICENSE.txt) and [corresponding source](https://github.com/kieler/elkjs/tree/0.9.3).
+- [Mermaid license](licenses/mermaid-LICENSE.txt) and [corresponding source](https://github.com/mermaid-js/mermaid/tree/mermaid%4012.3.0).
+- [ELK license](licenses/elkjs-LICENSE.txt) and [corresponding source](https://github.com/kieler/elkjs/tree/0.12.1).
 
 Dependency versions can change within the package ranges. Review the resolved
 versions and their license files before each release. Other installed dependencies
