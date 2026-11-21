@@ -52,6 +52,20 @@ Visibility and server access mode are separate controls. Public visibility does 
 
 If you open an artifact link without signing in and the artifact needs an account, Artifacty shows the sign-in page with **Sign in to continue**. After you sign in, the same page opens if your account can view it. If your account cannot view it, the viewer shows **Artifact unavailable** instead. A missing artifact and one you cannot view look the same, so the page does not reveal whether a private artifact exists. API, raw, and export requests still return JSON errors.
 
+After you sign in, the **Artifact unavailable** page also shows **Request access**. Select it to ask the artifact owner for access. The server shows the same confirmation, "If this artifact exists and its owner can receive requests, they were notified.", whether the artifact exists, is private, is archived, or does not exist, so the response does not reveal which case applies. Artifacty notifies the owner only when the artifact exists, has an active owner, and your account cannot already view it. Repeat requests do not create more notifications while the owner's inbox item for you is unread. Requests use the `write` rate limit. Signed-out visitors see the sign-in page first and do not see the form.
+
+![English Artifact unavailable page with the Request access button, signed in as a user without access](assets/screenshots/access-request.png)
+
+The screenshot shows the page for a signed-in user whose account cannot view the artifact.
+
+![English confirmation shown after selecting Request access](assets/screenshots/access-request-sent.png)
+
+The owner receives an **Access requested** item in **Inbox** with your name, your email address, and an **Open sharing settings** link. Artifacty does not grant access automatically. To grant access, the owner selects **Open sharing settings**, adds the user, and saves. If the owner selects **Mark as read**, the request is closed and you can ask again later.
+
+![English Inbox item showing an access request with an Open sharing settings link](assets/screenshots/access-request-inbox.png)
+
+The screenshot shows the owner's Inbox after a request.
+
 ## Preview content
 
 Use **Zoom out**, **Zoom in**, **Fit**, and **100%** in a Mermaid preview to read large diagrams. Scroll inside the preview to reach content beyond its visible area.
@@ -197,7 +211,7 @@ Open **Account & API tokens**, enter a token name, and select the required scope
 
 ![Notifications — English UI](assets/screenshots/inbox.png)
 
-Open **Inbox** for sharing, comment, new-version, and review-request notifications. Follow an artifact title to inspect the content, then select **Mark as read**. Use **Mark all as read** to handle the list together. Check that the unread count decreases.
+Open **Inbox** for sharing, comment, new-version, review-request, and access-request notifications. Follow an artifact title to inspect the content, then select **Mark as read**. Use **Mark all as read** to handle the list together. Check that the unread count decreases.
 
 ### Webhooks
 

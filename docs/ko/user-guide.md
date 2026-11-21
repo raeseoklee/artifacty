@@ -55,6 +55,20 @@
 
 로그인하지 않은 상태에서 계정이 필요한 아티팩트 링크를 열면 **Sign in to continue** 안내와 함께 로그인 화면이 나타납니다. 로그인한 계정에 볼 권한이 있으면 같은 페이지가 바로 열립니다. 권한이 없으면 뷰어에 **Artifact unavailable**이 표시됩니다. 없는 아티팩트와 볼 수 없는 아티팩트는 같은 화면으로 보이므로, 비공개 아티팩트가 있는지 드러나지 않습니다. API, 원본(raw), 내보내기 요청은 계속 JSON 오류를 반환합니다.
 
+로그인한 뒤에는 **Artifact unavailable** 화면에 **Request access** 버튼도 표시됩니다. 이 버튼을 선택하면 아티팩트 소유자에게 접근을 요청할 수 있습니다. 아티팩트가 있든, 비공개이든, 보관되었든, 아예 없든 서버는 항상 같은 확인 문구("If this artifact exists and its owner can receive requests, they were notified.")를 보여 주므로 응답으로 존재 여부를 알 수 없습니다. 아티팩트가 있고, 활성 상태의 소유자가 있으며, 요청자의 계정이 아직 그 아티팩트를 볼 수 없을 때만 소유자에게 알림이 전달됩니다. 소유자의 알림함에 해당 사용자의 읽지 않은 요청이 있는 동안에는 같은 요청을 반복해도 알림이 늘어나지 않습니다. 요청에는 `write` 요청 제한이 적용됩니다. 로그인하지 않은 방문자에게는 로그인 화면이 먼저 나타나며 이 양식은 표시되지 않습니다.
+
+![접근 요청 버튼이 있는 Artifact unavailable 화면 — English UI](../assets/screenshots/access-request.png)
+
+이 화면은 아티팩트를 볼 권한이 없는 계정으로 로그인했을 때의 모습입니다.
+
+![Request access를 선택한 뒤 표시되는 확인 화면 — English UI](../assets/screenshots/access-request-sent.png)
+
+소유자의 **Inbox**에는 요청자의 이름과 이메일 주소, **Open sharing settings** 링크가 있는 **Access requested** 항목이 나타납니다. Artifacty는 접근 권한을 자동으로 부여하지 않습니다. 소유자가 **Open sharing settings**를 선택해 사용자를 추가하고 저장해야 권한이 부여됩니다. 소유자가 **Mark as read**를 선택하면 요청이 종료되며, 요청자는 나중에 다시 요청할 수 있습니다.
+
+![접근 요청 항목과 Open sharing settings 링크가 있는 Inbox — English UI](../assets/screenshots/access-request-inbox.png)
+
+이 화면은 요청이 들어온 뒤 소유자의 알림함입니다.
+
 ## 콘텐츠 미리보기
 
 ![Mermaid 다이어그램을 표시하는 영어 아티팩트 뷰어](../assets/screenshots/diagram.png)
@@ -196,7 +210,7 @@ JavaScript를 사용할 수 있으면 선택한 값을 자동 저장합니다. *
 
 ![알림 — English UI](../assets/screenshots/inbox.png)
 
-**Inbox**에서 공유, 댓글, 새 버전 또는 검토 요청 알림을 확인하세요. 아티팩트 제목으로 이동해 내용을 확인한 뒤 **Mark as read**를 선택합니다. 여러 알림을 한꺼번에 처리하려면 **Mark all as read**를 사용하세요. 읽지 않은 알림 수가 줄었는지 확인합니다.
+**Inbox**에서 공유, 댓글, 새 버전, 검토 요청 또는 접근 요청 알림을 확인하세요. 아티팩트 제목으로 이동해 내용을 확인한 뒤 **Mark as read**를 선택합니다. 여러 알림을 한꺼번에 처리하려면 **Mark all as read**를 사용하세요. 읽지 않은 알림 수가 줄었는지 확인합니다.
 
 ### 웹훅
 
