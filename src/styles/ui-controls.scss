@@ -217,7 +217,11 @@ form[data-auto-apply] [hidden] { display: none !important; }
 .review-status-form [hidden] { display: none !important; }
 .review-status-form [data-review-feedback] { min-height: 1.25rem; font-size: .85rem; color: var(--muted); }
 .comment-source { margin-block: 1rem; border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; }
-.comment-source summary { cursor: pointer; font-weight: 600; }
+.comment-source { background: var(--group); border-color: var(--group-edge); border-radius: 10px; }
+.comment-source summary { display: flex; align-items: center; gap: .375rem; cursor: pointer; font-size: .8125rem; font-weight: 500; list-style: none; }
+.comment-source summary::-webkit-details-marker { display: none; }
+.comment-source summary::before { content: ""; width: 6px; height: 6px; margin: 0 .25rem 0 .125rem; border-right: 1.5px solid var(--label-2); border-bottom: 1.5px solid var(--label-2); transform: rotate(-45deg); transition: transform .1s ease-out; }
+.comment-source[open] summary::before { transform: translateY(-2px) rotate(45deg); }
 .comment-source ol { list-style: none; padding: 0; margin: .75rem 0 0; max-height: 24rem; overflow: auto; }
 .comment-source li { display: flex; align-items: start; gap: .75rem; min-width: max-content; scroll-margin-block: 4rem; }
 .comment-source li.is-selected { background: var(--panel-2); outline: 1px solid var(--accent); outline-offset: -1px; }

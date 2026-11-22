@@ -20,21 +20,22 @@ const SUPPORTED_FORMATS = ["markdown", "html", "json", "text", "code", "svg", "m
 const editorTheme = EditorView.theme({
   "&": {
     minHeight: "52vh",
-    border: "1px solid var(--line)",
-    borderRadius: "8px",
-    background: "var(--panel)"
+    border: "1px solid var(--code-viewer-edge)",
+    borderRadius: "10px",
+    background: "var(--code-viewer-bg)",
+    color: "var(--code-viewer-text)"
   },
   ".cm-scroller": {
-    fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-    fontSize: "13px",
+    fontFamily: "var(--mono)",
+    fontSize: "12.5px",
     lineHeight: "1.55"
   },
   ".cm-content": {
     minHeight: "52vh"
   },
   ".cm-gutters": {
-    borderTopLeftRadius: "8px",
-    borderBottomLeftRadius: "8px"
+    borderTopLeftRadius: "10px",
+    borderBottomLeftRadius: "10px"
   }
 });
 

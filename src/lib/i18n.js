@@ -474,6 +474,7 @@ export const TRANSLATIONS = {
     "update.expires": "Confirmation expires",
 
     "artifact.details": "Details",
+    "artifact.manage": "Manage",
     "nav.skip": "Skip to content",
     "nav.artifacts": "Artifacts",
     "nav.administration": "Administration",
@@ -1227,6 +1228,7 @@ export const TRANSLATIONS = {
     "update.expires": "확인 유효 기한",
 
     "artifact.details": "세부 정보",
+    "artifact.manage": "관리",
     "nav.skip": "본문으로 이동",
     "nav.artifacts": "아티팩트",
     "nav.administration": "관리",
