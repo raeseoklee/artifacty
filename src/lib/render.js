@@ -1165,7 +1165,14 @@ export function renderArtifactSharingPage({ baseUrl, user, artifact, sharing = {
 
 function accessCheckboxes(items, name, selectedIds, view, permissions = null) {
   if (!items.length) return `<p class="muted">${view.text(name === "userIds" ? "access.noUsers" : "access.noTeams")}</p>`;
-  return items.filter((item) => item.active !== false).map((item) => `<label><input type="checkbox" name="${name}" value="${escapeAttribute(item.id)}"${selectedIds.includes(item.id) ? " checked" : ""} class="form-check-input"> ${escapeHtml(item.name || item.email || item.id)}${item.email && item.name ? ` (${escapeHtml(item.email)})` : ""}</label>${permissions ? `<label>${view.text("sharing.permission")}<select name="${name === "userIds" ? "userPermission" : "teamPermission"}:${escapeAttribute(item.id)}" class="form-select">${["read", "comment", "edit"].map((permission) => `<option value="${permission}"${(permissions[item.id] || "read") === permission ? " selected" : ""}>${view.text(`sharing.permission.${permission}`)}</option>`).join("")}</select></label>` : ""}`).join("");
+  return items.filter((item) => item.active !== false).map((item) => {
+    const label = `${escapeHtml(item.name || item.email || item.id)}${item.email && item.name ? ` (${escapeHtml(item.email)})` : ""}`;
+    const checkbox = `<label class="share-principal-name"><input type="checkbox" name="${name}" value="${escapeAttribute(item.id)}"${selectedIds.includes(item.id) ? " checked" : ""} class="form-check-input"> ${label}</label>`;
+    if (!permissions) return checkbox;
+    // One row per person or team: the name on the leading side, its permission
+    // on the trailing side. The select keeps a spoken label for screen readers.
+    return `<div class="share-principal">${checkbox}<label class="share-principal-permission"><span class="visually-hidden">${view.text("sharing.permission")}: ${label}</span><select name="${name === "userIds" ? "userPermission" : "teamPermission"}:${escapeAttribute(item.id)}" class="form-select">${["read", "comment", "edit"].map((permission) => `<option value="${permission}"${(permissions[item.id] || "read") === permission ? " selected" : ""}>${view.text(`sharing.permission.${permission}`)}</option>`).join("")}</select></label></div>`;
+  }).join("");
 }
 
 export function renderInboxPage({ baseUrl, user, notifications = [], unreadCount = 0, locale = DEFAULT_LOCALE, currentPath = "/inbox" }) {
@@ -2704,6 +2711,11 @@ ${darkThemeVariables}
     .topbar nav > a.is-primary { margin-left: var(--sp-2); background: var(--accent-fill); color: var(--accent-fill-ink); }
     .topbar nav > a.is-primary:hover { background: var(--accent-fill-hover); color: var(--accent-fill-ink); }
     .topbar nav > a.is-primary:active { background: var(--accent-fill-press); }
+    .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .share-principal { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 6px 0; border-bottom: 1px solid var(--separator); }
+    .share-principal:last-child { border-bottom: 0; }
+    .share-principal-name { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; overflow-wrap: anywhere; }
+    .share-principal-permission { flex: none; width: 160px; }
     /* Secondary artifact actions live in one pull-down menu, as in a macOS toolbar. */
     .toolbar-more { position: relative; }
     .toolbar-more > summary {
