@@ -29,3 +29,17 @@ window.addEventListener("storage", (event) => {
   if (event.key !== "artifacty_sidebar" && event.key !== null) return;
   try { applySidebar(localStorage.getItem("artifacty_sidebar") === "collapsed"); } catch { /* Retain the current page choice. */ }
 });
+
+// Pull-down menus (details[data-menu]) close on an outside click or Escape, like native menus.
+document.addEventListener("click", (event) => {
+  for (const menu of document.querySelectorAll("details[data-menu][open]")) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  for (const menu of document.querySelectorAll("details[data-menu][open]")) {
+    menu.open = false;
+    menu.querySelector("summary")?.focus();
+  }
+});

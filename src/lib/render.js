@@ -1543,12 +1543,16 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
           <p>${escapeHtml(artifact.id)} · ${escapeHtml(artifact.sourceAgent)} · ${escapeHtml(baseUrl)}</p>
         </div>
         <nav>
-
-          ${user ? `<a href="${view.href(`/categories?artifactId=${encodeURIComponent(artifact.id)}`)}">${view.text("category.title")}</a>` : ""}
-          ${(user || canEdit) && version.format !== "explainer" ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/explain?version=${version.version}`)}">${view.text("explainer.create")}</a>` : ""}
-          <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
-          ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
-          <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
+          <details class="toolbar-more" data-menu>
+            <summary aria-label="${view.text("nav.more")}" title="${view.text("nav.more")}">${uiIcon("dots")}</summary>
+            <div class="toolbar-menu">
+              ${user ? `<a href="${view.href(`/categories?artifactId=${encodeURIComponent(artifact.id)}`)}">${view.text("category.title")}</a>` : ""}
+              ${(user || canEdit) && version.format !== "explainer" ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/explain?version=${version.version}`)}">${view.text("explainer.create")}</a>` : ""}
+              <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
+              ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
+              <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
+            </div>
+          </details>
           ${user && canManageVisibility ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/sharing`)}">${view.text("sharing.title")}</a>` : ""}
           ${canEdit ? `<a class="is-primary" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit?version=${version.version}`)}">${view.text("nav.edit")}</a>` : ""}
 
@@ -2700,6 +2704,27 @@ ${darkThemeVariables}
     .topbar nav > a.is-primary { margin-left: var(--sp-2); background: var(--accent-fill); color: var(--accent-fill-ink); }
     .topbar nav > a.is-primary:hover { background: var(--accent-fill-hover); color: var(--accent-fill-ink); }
     .topbar nav > a.is-primary:active { background: var(--accent-fill-press); }
+    /* Secondary artifact actions live in one pull-down menu, as in a macOS toolbar. */
+    .toolbar-more { position: relative; }
+    .toolbar-more > summary {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 32px; min-height: 28px; padding: var(--sp-1) 6px;
+      border-radius: var(--r-control); color: var(--label); cursor: default; list-style: none;
+      transition: background-color 0.1s ease-out;
+    }
+    .toolbar-more > summary::-webkit-details-marker { display: none; }
+    .toolbar-more > summary:hover { background: var(--hover); }
+    .toolbar-more > summary:active, .toolbar-more[open] > summary { background: var(--press); }
+    .toolbar-menu {
+      position: absolute; top: calc(100% + 4px); right: 0; z-index: 30;
+      display: grid; min-width: 200px; padding: 5px;
+      background: var(--surface); border-radius: 10px; box-shadow: var(--shadow-pop);
+    }
+    .toolbar-menu a {
+      padding: 5px 10px; border-radius: 6px;
+      color: var(--label); font-size: var(--fs-body); white-space: nowrap;
+    }
+    .toolbar-menu a:hover, .toolbar-menu a:focus-visible { background: var(--accent-fill); color: var(--accent-fill-ink); text-decoration: none; outline: none; }
     .dashboard-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); margin-bottom: var(--sp-5); }
     .dashboard-heading .btn-primary { margin-left: var(--sp-2); }
     .button-link:hover { text-decoration: none; }
@@ -3378,6 +3403,7 @@ ${darkThemeVariables}
       .dashboard-layout, .topbar { margin-top: var(--sp-5); }
       .topbar { align-items: flex-start; flex-direction: column; gap: var(--sp-3); }
       .topbar nav { justify-content: flex-start; margin-left: calc(-1 * 10px); }
+      .toolbar-menu { right: auto; left: 0; }
       .topbar h1, .dashboard-heading h1 { font-size: var(--fs-title-1); line-height: 28px; }
       input:not([type="checkbox"]):not([type="radio"]), select, button { min-height: 44px; }
     }
