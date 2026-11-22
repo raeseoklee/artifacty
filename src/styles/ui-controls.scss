@@ -1,6 +1,6 @@
 // Artifacty control layer: official Bootstrap components only; no Reboot or layout reset.
 @import "bootstrap/scss/functions";
-$primary: #315ca8;
+$primary: #0f6aa6;
 $secondary: #58616e;
 $danger: #b42332;
 $font-family-sans-serif: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
@@ -36,7 +36,7 @@ $enable-shadows: false;
 .btn[hidden] { display: none !important; }
 .form-control, .form-select { min-height: 38px; font-family: var(--bs-body-font-family); }
 .form-control::placeholder { color: var(--muted, #58616e); opacity: .85; }
-.form-control:focus, .form-select:focus { border-color: var(--accent, #315ca8); }
+.form-control:focus, .form-select:focus { border-color: var(--accent, #0f6aa6); }
 .btn-outline-secondary, .btn-ghost {
   --bs-btn-color: var(--text, #20242b);
   --bs-btn-border-color: var(--line, #dfe3e8);
@@ -57,7 +57,7 @@ $enable-shadows: false;
   --bs-btn-hover-bg: #93313e;
   --bs-btn-hover-border-color: #93313e;
 }
-.btn:focus-visible { outline: 2px solid var(--ring, #315ca8); outline-offset: 2px; }
+.btn:focus-visible { outline: 2px solid var(--ring, #0f6aa6); outline-offset: 2px; }
 @media (pointer: coarse) {
   .btn, .form-control, .form-select { min-height: 44px; }
 }

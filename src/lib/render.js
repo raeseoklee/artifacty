@@ -2286,11 +2286,14 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
         --faint: #9aa5b2;
         --line: #343b44;
         --line-2: #596575;
-        --accent: #9cbcf5;
-        --accent-2: #bbd1f8;
-        --accent-ink: #18253d;
-        --accent-soft: #29374e;
-        --ring: #9cbcf5;
+        --accent: #78bfe8;
+        --accent-2: #a6d6f3;
+        --accent-ink: #062236;
+        --accent-soft: #183446;
+        --ring: #78bfe8;
+        --mark-top: #cbe8f8;
+        --mark-left: #78bfe8;
+        --mark-right: #3d8fc4;
         --code: #080c12;
         --code-text: #e6edf3;
 `;
@@ -2316,11 +2319,14 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       --faint: #626c79;
       --line: #dfe3e8;
       --line-2: #b9c1cc;
-      --accent: #315ca8;
-      --accent-2: #264a89;
+      --accent: #0f6aa6;
+      --accent-2: #0b5585;
       --accent-ink: #ffffff;
-      --accent-soft: #eaf0fb;
-      --ring: #315ca8;
+      --accent-soft: #e4f1f9;
+      --ring: #0f6aa6;
+      --mark-top: #7cc4ee;
+      --mark-left: #0f6aa6;
+      --mark-right: #0a4570;
       --code: #0e1320;
       --code-text: #e6edf3;
       --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
@@ -3733,14 +3739,22 @@ function localeInput(locale) {
   return `<input type="hidden" name="lang" value="${escapeAttribute(locale)}">`;
 }
 
-// The same mark as the header, colored for a browser tab icon.
-export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z" stroke="#2f5ea8" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 16.5 12 7.5l4 9" stroke="#2f5ea8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.7 13.3h4.6" stroke="#2f5ea8" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+// The Artifacty mark: three hexagonal cells, agents meeting around one shared
+// artifact (the light top cell). Shaded like an isometric solid: light top,
+// mid left, dark right. The tab icon carries its own dark-scheme colors.
+const MARK_CELLS = {
+  top: "M12 3l4.33 2.5v5L12 13l-4.33-2.5v-5z",
+  left: "M7.67 10.5 12 13v5l-4.33 2.5L3.34 18v-5z",
+  right: "M16.33 10.5 20.66 13v5l-4.33 2.5L12 18v-5z"
+};
+
+export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"><style>.t{fill:#7cc4ee}.l{fill:#0f6aa6}.r{fill:#0a4570}@media (prefers-color-scheme:dark){.t{fill:#cbe8f8}.l{fill:#78bfe8}.r{fill:#3d8fc4}}</style><path class="l" d="${MARK_CELLS.left}"/><path class="r" d="${MARK_CELLS.right}"/><path class="t" d="${MARK_CELLS.top}"/></svg>`;
 
 function brandMark() {
-  return `<span class="brand-mark" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-    <path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
-    <path d="M8 16.5 12 7.5l4 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M9.7 13.3h4.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+  return `<span class="brand-mark" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24">
+    <path d="${MARK_CELLS.left}" fill="var(--mark-left)"/>
+    <path d="${MARK_CELLS.right}" fill="var(--mark-right)"/>
+    <path d="${MARK_CELLS.top}" fill="var(--mark-top)"/>
   </svg></span>`;
 }
 
