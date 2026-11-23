@@ -152,3 +152,10 @@ test("a failed update explains the step, codes, next step, and where the full lo
   assert.match(render({ run: { state: "interrupted", errorCode: "UPDATE_INTERRUPTED" } }), /stopped without a result/);
   assert.match(render({ run: { state: "failed", diagnostics: { npmCode: "EACCES" } } }), /could not write files/);
 });
+
+test("the cause code replaces the generic code and selects its next step", () => {
+  const html = render({ run: { state: "failed", failedStep: "health", errorCode: "SELF_UPDATE_FAILED", diagnostics: { causeCode: "UPDATE_HEALTH_FAILED" } } });
+  assert.match(html, /<dt>Error code<\/dt><dd><code>UPDATE_HEALTH_FAILED<\/code><\/dd>/);
+  assert.doesNotMatch(html, /SELF_UPDATE_FAILED/);
+  assert.match(html, /did not pass the health check/);
+});

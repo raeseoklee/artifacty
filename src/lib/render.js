@@ -1026,10 +1026,11 @@ function updateFailureDetails(run, view) {
   const errorCode = code(run.errorCode);
   const npmCode = code(diagnostics.npmCode);
   const systemCode = code(diagnostics.systemCode);
-  const hint = UPDATE_NPM_HINTS[npmCode] || UPDATE_NPM_HINTS[systemCode] || UPDATE_ERROR_HINTS[errorCode] || "generic";
+  const causeCode = code(diagnostics.causeCode);
+  const hint = UPDATE_NPM_HINTS[npmCode] || UPDATE_NPM_HINTS[systemCode] || UPDATE_ERROR_HINTS[causeCode] || UPDATE_ERROR_HINTS[errorCode] || "generic";
   const rows = [];
   if (UPDATE_STEPS.has(run.failedStep)) rows.push([view.text("update.failedStep"), view.text(`update.step.${run.failedStep}`)]);
-  if (errorCode) rows.push([view.text("update.errorCode"), `<code>${escapeHtml(errorCode)}</code>`]);
+  if (errorCode) rows.push([view.text("update.errorCode"), `<code>${escapeHtml(causeCode || errorCode)}</code>`]);
   if (npmCode) rows.push([view.text("update.npmCode"), `<code>${escapeHtml(npmCode)}</code>`]);
   if (systemCode) rows.push([view.text("update.systemCode"), `<code>${escapeHtml(systemCode)}</code>`]);
   if (Number.isInteger(diagnostics.exitCode) && /^[A-Za-z0-9._-]{1,40}$/.test(diagnostics.command || "")) {

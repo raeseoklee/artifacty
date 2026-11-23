@@ -327,7 +327,7 @@ node src/cli.js import --agent gemini --content '{"title":"Options","returnDispl
 - `POST /new`: 브라우저 편집기에서 아티팩트를 생성하고 해당 아티팩트로 이동합니다.
 - `GET /import`: 브라우저 아티팩트 가져오기 폼입니다.
 - `POST /import`: 붙여넣은 에이전트 출력을 변환하고 저장합니다.
-- `GET /health`: 상태 확인입니다. `ok`, `name`, 데이터베이스 백엔드, 저장소를 식별하는 불투명 `storeId`를 반환하며, 저장소 경로는 노출하지 않습니다.
+- `GET /health`: 상태 확인입니다. `ok`, `name`, 데이터베이스 백엔드, 저장소를 식별하는 불투명 `storeId`를 반환합니다. 프록시를 거치지 않은 같은 서버 안의 요청에는 저장소 경로인 `store`도 함께 보냅니다. 0.20.x 이하의 업데이트 프로그램이 이 값을 확인하기 때문입니다. 원격 요청과 프록시를 거친 요청에는 경로를 보내지 않습니다.
 - `POST /mcp`: `--mcp-http` 또는 `ARTIFACTY_MCP_HTTP=true`가 활성화되면 제공하는, 토큰으로 보호된 MCP Streamable HTTP JSON-RPC 엔드포인트입니다.
 - `GET /api/artifacts`: 아티팩트를 나열합니다.
 - `POST /api/artifacts`: 아티팩트를 생성합니다.

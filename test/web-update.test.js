@@ -255,3 +255,17 @@ test("a failed update records where it failed and safe codes, and logs the maske
   assert.match(logged[0], /404 Not Found/, "the journal keeps the useful cause");
   for (const secret of ["hunter2", "npm_abcdefghijklmnopqrstuvwxyz0123456789"]) assert.ok(!logged[0].includes(secret), `the journal masks ${secret}`);
 });
+
+test("a wrapped failure keeps the updater's own cause code", async (t) => {
+  const { updater, userHome } = await fixture(t);
+  const started = await updater.start(confirmed(await updater.check("session-a")));
+  const cause = Object.assign(new Error("The updated service did not pass its PID and HTTP health checks"), { code: "UPDATE_HEALTH_FAILED" });
+  await runWebUpdate(started.run.id, { userHome, log: () => {}, update: async (options) => {
+    options.onProgress("Waiting for health.", "health");
+    throw Object.assign(new Error("Update failed: UPDATE_HEALTH_FAILED. The previous service configuration was restored."), { code: "SELF_UPDATE_FAILED", cause });
+  } });
+  const state = await updater.status("session-a");
+  assert.equal(state.run.failedStep, "health");
+  assert.equal(state.run.errorCode, "SELF_UPDATE_FAILED");
+  assert.deepEqual(state.run.diagnostics, { causeCode: "UPDATE_HEALTH_FAILED" });
+});

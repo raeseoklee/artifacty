@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { startServer } from "../src/server.js";
-import { readStoreIdentity, storeIdentity } from "../src/lib/server-state.js";
+import { isSameHostRequest, readStoreIdentity, storeIdentity } from "../src/lib/server-state.js";
 import { healthMatchesStore } from "../src/lib/self-update.js";
 import { createMcpServerConfig, installAgent } from "../src/lib/installer.js";
 import { babelRendererSupported, runDoctor } from "../src/lib/doctor.js";
@@ -13,11 +13,11 @@ async function tempHome(prefix) {
   return mkdtemp(path.join(tmpdir(), prefix));
 }
 
-test("/health identifies the store by an opaque ID instead of its path", async () => {
+test("/health identifies the store by an opaque ID and hides its path from proxied requests", async () => {
   const home = await tempHome("artifacty-health-id-");
   const app = await startServer({ home, port: 0 });
   try {
-    const body = await (await fetch(`${app.url}/health`)).json();
+    const body = await (await fetch(`${app.url}/health`, { headers: { "x-forwarded-for": "203.0.113.7" } })).json();
     assert.equal(body.store, undefined);
     assert.doesNotMatch(JSON.stringify(body), new RegExp(path.basename(home)));
     assert.match(body.storeId, /^[a-f0-9-]{36}$/);
@@ -110,4 +110,35 @@ test("doctor reads the Node floor from package.json and reports the React render
     await rm(home, { recursive: true, force: true });
     await rm(packageRoot, { recursive: true, force: true });
   }
+});
+
+// The exact check updaters up to 0.20.4 apply to the new release's /health.
+const legacyUpdaterAccepts = (body, home) => body.ok === true && body.name === "artifacty" && path.resolve(body.store) === home;
+
+test("updaters from 0.20.x on the same host still accept the new release", async () => {
+  const home = await tempHome("artifacty-health-legacy-updater-");
+  const app = await startServer({ home, port: 0 });
+  try {
+    const body = await (await fetch(`${app.url}/health`)).json();
+    assert.equal(legacyUpdaterAccepts(body, path.resolve(home)), true);
+    assert.equal(healthMatchesStore(body, home), true, "current updaters still use storeId");
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("same-host requests are loopback or this server's own address, never proxied or remote", () => {
+  const request = (remoteAddress, localAddress = "10.0.0.50", headers = {}) => ({ headers, socket: { remoteAddress, localAddress } });
+  assert.equal(isSameHostRequest(request("127.0.0.1")), true);
+  assert.equal(isSameHostRequest(request("::1")), true);
+  assert.equal(isSameHostRequest(request("::ffff:127.0.0.1")), true);
+  assert.equal(isSameHostRequest(request("::ffff:10.0.0.50", "10.0.0.50")), true, "a local client that dialed the LAN address");
+  assert.equal(isSameHostRequest(request("10.0.0.61")), false);
+  assert.equal(isSameHostRequest(request("203.0.113.7", "203.0.113.8")), false);
+  for (const header of ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip", "via"]) {
+    assert.equal(isSameHostRequest(request("127.0.0.1", "127.0.0.1", { [header]: "x" })), false, header);
+  }
+  assert.equal(isSameHostRequest({ headers: {}, socket: {} }), false);
+  assert.equal(isSameHostRequest(undefined), false);
 });

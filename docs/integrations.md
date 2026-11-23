@@ -350,7 +350,7 @@ tests verify these examples.
 - `POST /new`: create from the browser editor and redirect to the artifact.
 - `GET /import`: browser artifact import form.
 - `POST /import`: convert and save pasted agent output.
-- `GET /health`: health check. It returns `ok`, `name`, the database backend, and an opaque `storeId`. It does not reveal the store path.
+- `GET /health`: health check. It returns `ok`, `name`, the database backend, and an opaque `storeId`. A request from the same machine that did not pass through a proxy also receives `store`, the store path, because updaters from 0.20.x and earlier check it. Remote and proxied requests never receive the path.
 - `POST /mcp`: token-protected MCP Streamable HTTP JSON-RPC endpoint when `--mcp-http` or `ARTIFACTY_MCP_HTTP=true` is enabled.
 - `GET /api/artifacts`: list artifacts.
 - `POST /api/artifacts`: create artifact.

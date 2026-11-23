@@ -87,3 +87,20 @@ export function normalizePublicBaseUrl(value) {
   if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("Invalid public base URL");
   return parsed.href.replace(/\/+$/, "");
 }
+
+const FORWARDING_HEADERS = ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-real-ip", "via"];
+const plainAddress = (value) => String(value || "").replace(/^::ffff:/i, "").toLowerCase();
+
+// True when the HTTP connection comes from this machine without passing
+// through a proxy: a loopback peer, or a peer that is this server's own
+// address (a local client that dialed the LAN IP). Updaters before 0.21.0
+// call /health on the same host and accept the new release only when it
+// reports its store path, so /health returns that path to these requests and
+// keeps it from remote and proxied ones.
+export function isSameHostRequest(request) {
+  if (FORWARDING_HEADERS.some((name) => request?.headers?.[name] !== undefined)) return false;
+  const remote = plainAddress(request?.socket?.remoteAddress);
+  if (!remote) return false;
+  if (remote === "::1" || /^127\./.test(remote)) return true;
+  return remote === plainAddress(request?.socket?.localAddress);
+}

@@ -117,7 +117,7 @@ import {
   validateServerExposure,
   createRateLimiter
 } from "./lib/security.js";
-import { normalizePublicBaseUrl, storeIdentity, writeServerState } from "./lib/server-state.js";
+import { isSameHostRequest, normalizePublicBaseUrl, storeIdentity, writeServerState } from "./lib/server-state.js";
 import { generateToken } from "./lib/token.js";
 import { deliverWebhook, registerWebhookDispatcher } from "./lib/webhooks.js";
 import { createMcpJsonRpcHandler } from "./mcp-server.js";
@@ -1434,7 +1434,9 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   }
 
   if (method === "GET" && pathname === "/health") {
-    return sendJson(response, { ok: true, name: "artifacty", storeId: storeIdentity(store.home), databaseBackend: store.databaseBackend || "sqlite" }, 200, headOnly);
+    // `store` keeps updaters from 0.20.x and earlier working: they run on this
+    // host and accept a new release only when /health reports the store path.
+    return sendJson(response, { ok: true, name: "artifacty", storeId: storeIdentity(store.home), ...(isSameHostRequest(request) ? { store: store.home } : {}), databaseBackend: store.databaseBackend || "sqlite" }, 200, headOnly);
   }
 
   if (!currentUser && await getAccessMode(store) === "private" &&

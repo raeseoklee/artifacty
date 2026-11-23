@@ -182,6 +182,9 @@ export function updateDiagnostics(error) {
   const diagnostics = {};
   const npmCode = /\bnpm (?:error|ERR!) code (E[A-Z0-9]{2,30})\b/.exec(stderr)?.[1];
   if (npmCode) diagnostics.npmCode = npmCode;
+  // The updater wraps the failing step's error, so its own code (for example
+  // UPDATE_HEALTH_FAILED) is the cause and the outer code is generic.
+  if (cause !== error && /^(?:UPDATE|SERVICE|UNMANAGED|UNSAFE|UNSUPPORTED|INVALID|ROOT|SYSTEM|POSTGRES)_[A-Z0-9_]{2,40}$/.test(cause.code || "")) diagnostics.causeCode = cause.code;
   if (Number.isInteger(cause.code)) diagnostics.exitCode = cause.code;
   else if (/^E[A-Z0-9_]{2,30}$/.test(cause.code || "")) diagnostics.systemCode = cause.code;
   const command = typeof cause.cmd === "string" ? path.basename(cause.cmd.trim().split(/\s+/)[0] || "") : "";
