@@ -129,3 +129,26 @@ test("polling updates accessible progress and removes numeric values for recover
   assert.equal(bar.style.width, "100%");
   assert.equal(timers.length, 0);
 });
+
+test("a failed update explains the step, codes, next step, and where the full log is", () => {
+  const id = "0b6c3f1e-2a4d-4c8e-9f10-1a2b3c4d5e6f";
+  const run = { id, state: "failed", failedStep: "staging", errorCode: "SELF_UPDATE_FAILED", diagnostics: { npmCode: "E404", exitCode: 1, command: "npm" }, result: { backupId: "20261123-backup" } };
+  const en = render({ run });
+  assert.match(en, /<dt>Failed during<\/dt><dd>Downloading and checking the release<\/dd>/);
+  assert.match(en, /<code>SELF_UPDATE_FAILED<\/code>/);
+  assert.match(en, /<dt>npm error<\/dt><dd><code>E404<\/code><\/dd>/);
+  assert.match(en, /npm exited with code 1/);
+  assert.match(en, /<code>20261123-backup<\/code>/);
+  assert.match(en, /could not get this release from the registry/);
+  assert.match(en, new RegExp(`journalctl --user -u artifacty-update-${id}.service --no-pager`));
+  const ko = render({ run }, "ko");
+  assert.match(ko, /<dt>실패한 단계<\/dt><dd>새 버전 다운로드 및 검증 중<\/dd>/);
+  assert.match(ko, /레지스트리에서 이 버전을 받지 못했습니다/);
+
+  const odd = render({ run: { id: "../x", state: "failed", errorCode: "<b>", failedStep: "nope", diagnostics: { npmCode: "<img>", command: "rm -rf", exitCode: 2 } } });
+  assert.doesNotMatch(odd, /<img>|<b>|rm -rf|journalctl|Failed during/);
+  assert.match(odd, /The journal shows the cause/);
+  assert.match(render({ run: { state: "failed", errorCode: "UNMANAGED_WRITER" } }), /CLI or an MCP server/);
+  assert.match(render({ run: { state: "interrupted", errorCode: "UPDATE_INTERRUPTED" } }), /stopped without a result/);
+  assert.match(render({ run: { state: "failed", diagnostics: { npmCode: "EACCES" } } }), /could not write files/);
+});

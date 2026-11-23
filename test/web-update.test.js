@@ -230,3 +230,28 @@ test("system service read-only checks need no writable account home", async (t) 
   assert.equal((await updater.status("session-a")).check.targetVersion, "99.0.0");
   await assert.rejects(updater.start(confirmed(state)), { code: "UPDATE_CONFIRMATION_REQUIRED" });
 });
+
+test("a failed update records where it failed and safe codes, and logs the masked cause", async (t) => {
+  const { updater, userHome } = await fixture(t);
+  const started = await updater.start(confirmed(await updater.check("session-a")));
+  const logged = [];
+  const stderr = "npm error code E404\nnpm error 404 Not Found - GET https://deploy:hunter2@registry.example.test/artifacty\nnpm error //registry.example.test/:_authToken=npm_abcdefghijklmnopqrstuvwxyz0123456789";
+  const cause = Object.assign(new Error("Command failed: npm install artifacty@99.0.0"), { code: 1, cmd: "npm install --prefix /tmp/stage artifacty@99.0.0", stderr });
+  await runWebUpdate(started.run.id, { userHome, log: (text) => logged.push(text), update: async (options) => {
+    options.onProgress("Staging.", "staging");
+    options.onProgress("Restoring.", "recovery");
+    throw Object.assign(new Error("Update failed: 1. The running service was not changed."), { code: "SELF_UPDATE_FAILED", cause });
+  } });
+  const state = await updater.status("session-a");
+  assert.equal(state.run.state, "failed");
+  assert.equal(state.run.failedStep, "staging", "recovery is not reported as the failing step");
+  assert.deepEqual(state.run.diagnostics, { npmCode: "E404", exitCode: 1, command: "npm" });
+  const persisted = JSON.stringify(state);
+  for (const leak of ["hunter2", "npm_abcdef", "Not Found", "Command failed"]) assert.ok(!persisted.includes(leak), `status must not include ${leak}`);
+
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /failed during staging \(SELF_UPDATE_FAILED\)/);
+  assert.match(logged[0], /npm error code E404/);
+  assert.match(logged[0], /404 Not Found/, "the journal keeps the useful cause");
+  for (const secret of ["hunter2", "npm_abcdefghijklmnopqrstuvwxyz0123456789"]) assert.ok(!logged[0].includes(secret), `the journal masks ${secret}`);
+});

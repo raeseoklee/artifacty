@@ -15,6 +15,24 @@ const SECRET_PATTERNS = [
   { type: "private-key", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g }
 ];
 
+// Masks credentials in diagnostic text such as npm or systemd output before it
+// is written to a log: known token formats, URL user info, Authorization
+// headers, and key=value assignments for tokens, keys, secrets, and passwords
+// (including .npmrc entries like //registry/:_authToken=...). Keeps the last
+// lines, which hold the cause in npm and systemd output.
+export function redactDiagnostic(value, { maxLines = 40, maxLength = 4000 } = {}) {
+  let text = String(value ?? "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
+  for (const { pattern } of SECRET_PATTERNS) text = text.replace(pattern, "****");
+  text = text
+    .replace(/\bnpm_[A-Za-z0-9]{36}\b/g, "****")
+    .replace(/\barty_[A-Za-z0-9_-]{16,}/g, "****")
+    .replace(/(\/\/)[^\s/@]+@/g, "$1****@")
+    .replace(/\b(Authorization:\s*(?:Bearer|Basic|Token)\s+)\S+/gi, "$1****")
+    .replace(/([A-Za-z0-9_.:\/-]*(?:_authToken|_auth|_password|token|secret|password|apikey|api_key|access_key)[A-Za-z0-9_]*)(\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi, "$1$2****");
+  const tail = text.split("\n").slice(-maxLines).join("\n");
+  return tail.length > maxLength ? tail.slice(-maxLength) : tail;
+}
+
 export function securityConfig(options = {}) {
   return {
     apiToken: options.apiToken || process.env.ARTIFACTY_API_TOKEN || "",

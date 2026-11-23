@@ -45,6 +45,8 @@ if (panel?.dataset.active === "true") {
         errorLabel.textContent = status.run.error || "";
         refreshProgress(status.run);
         retry = ["queued", "running"].includes(status.run.state);
+        // The server renders the failure details and next steps.
+        if (["failed", "interrupted"].includes(status.run.state)) window.location?.reload?.();
       }
     } catch {
       stateLabel.textContent = messages.reconnect;

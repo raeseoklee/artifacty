@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { updateApplication, inspectWebUpdateService } from "./self-update.js";
 import { databaseConfiguration } from "./database-config.js";
+import { redactDiagnostic } from "./security.js";
 const POSTGRES_UPDATE_REASON = "Automatic updates do not support PostgreSQL. Verify a database backup and the artifact files together, then update manually.";
 
 const execute = promisify(execFile);
@@ -172,6 +173,35 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
   return { status, check, start };
 }
 
+// Structured facts about a failed update that are safe to show on the admin
+// page: fixed codes and numbers only, never process output. npm prints its
+// error code as "npm error code E404" (npm 10+) or "npm ERR! code E404".
+export function updateDiagnostics(error) {
+  const cause = error?.cause || error || {};
+  const stderr = String(cause.stderr || "");
+  const diagnostics = {};
+  const npmCode = /\bnpm (?:error|ERR!) code (E[A-Z0-9]{2,30})\b/.exec(stderr)?.[1];
+  if (npmCode) diagnostics.npmCode = npmCode;
+  if (Number.isInteger(cause.code)) diagnostics.exitCode = cause.code;
+  else if (/^E[A-Z0-9_]{2,30}$/.test(cause.code || "")) diagnostics.systemCode = cause.code;
+  const command = typeof cause.cmd === "string" ? path.basename(cause.cmd.trim().split(/\s+/)[0] || "") : "";
+  if (/^[A-Za-z0-9._-]{1,40}$/.test(command)) diagnostics.command = command;
+  if (/^SIG[A-Z0-9]{2,10}$/.test(cause.signal || "")) diagnostics.signal = cause.signal;
+  return diagnostics;
+}
+
+// The full cause goes to the worker's journal, with credentials masked, so an
+// administrator can read it with journalctl. The status file keeps only the
+// structured diagnostics above.
+function logUpdateFailure(log, id, failedStep, errorCode, error) {
+  const cause = error?.cause && error.cause !== error ? error.cause : null;
+  const lines = [`Artifacty update ${id} failed during ${failedStep || "unknown"} (${errorCode}).`, redactDiagnostic(error?.message)];
+  if (cause?.message) lines.push(`Cause: ${redactDiagnostic(cause.message)}`);
+  const stderr = cause?.stderr || error?.stderr;
+  if (stderr) lines.push("Command output (last lines):", redactDiagnostic(stderr));
+  log(lines.filter(Boolean).join("\n"));
+}
+
 /** Invoked only by the fixed systemd transient service, never the web server. */
 export async function runWebUpdate(id, injected = {}) {
   if (databaseConfiguration({}, injected.env || process.env).kind === "postgres") throw fail(POSTGRES_UPDATE_REASON, "POSTGRES_UPDATE_UNSUPPORTED");
@@ -195,10 +225,13 @@ export async function runWebUpdate(id, injected = {}) {
   const save = async (changes) => { state.run = { ...state.run, ...changes }; await writeJson(expectedFile, state); };
   await save({ state: "running", step: "preparing", phase: "Preparing update." });
   let progressQueue = Promise.resolve();
+  // Recovery reports its own step; the failure belongs to the last work step.
+  let workStep = "preparing";
   try {
     const result = await (injected.update || updateApplication)({ home: request.home, packageRoot: request.packageRoot, targetVersion: request.targetVersion,
       onProgress: (phase, step) => {
         const known = new Set(["staging", "backup", "switching", "health", "recovery"]);
+        if (known.has(step) && step !== "recovery") workStep = step;
         progressQueue = progressQueue.then(() => save({ phase, step: known.has(step) ? step : "unknown" }));
       }
     });
@@ -206,6 +239,8 @@ export async function runWebUpdate(id, injected = {}) {
     await save({ state: "succeeded", step: "completed", phase: "Update completed.", finishedAt: new Date().toISOString(), result });
   } catch (error) {
     await progressQueue.catch(() => {});
-    await save({ state: "failed", step: "failed", finishedAt: new Date().toISOString(), errorCode: /^[A-Z_]+$/.test(error.code || "") ? error.code : "SELF_UPDATE_FAILED", error: "Update failed. Inspect the service and retained recovery backup before retrying.", result: { backupId: error.backupId, backupPath: error.backupPath } });
+    const errorCode = /^[A-Z_]+$/.test(error.code || "") ? error.code : "SELF_UPDATE_FAILED";
+    logUpdateFailure(injected.log || console.error, id, workStep, errorCode, error);
+    await save({ state: "failed", step: "failed", failedStep: workStep, diagnostics: updateDiagnostics(error), finishedAt: new Date().toISOString(), errorCode, error: "Update failed. Inspect the service and retained recovery backup before retrying.", result: { backupId: error.backupId, backupPath: error.backupPath } });
   } finally { await rm(requestFile, { force: true }); }
 }

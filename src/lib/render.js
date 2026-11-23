@@ -1006,6 +1006,43 @@ export function renderAdminLanguagesPage({ settings, user, baseUrl, locale = DEF
       </main>` });
 }
 
+const UPDATE_NPM_HINTS = {
+  E404: "registry", ETARGET: "registry", E401: "registry", E403: "registry", ENEEDAUTH: "registry",
+  ENOTFOUND: "network", EAI_AGAIN: "network", ECONNREFUSED: "network", ECONNRESET: "network", ETIMEDOUT: "network", ENETUNREACH: "network", ESOCKETTIMEDOUT: "network", EPROXY: "network",
+  EACCES: "permission", EPERM: "permission", EINTEGRITY: "integrity", ENOSPC: "disk"
+};
+const UPDATE_ERROR_HINTS = {
+  UPDATE_HEALTH_FAILED: "health", UPDATE_PREFLIGHT_HEALTH: "preflight", UNMANAGED_WRITER: "writer",
+  UPDATE_LOCKED: "locked", UPDATE_BUSY: "locked", UPDATE_RECOVERY_INCOMPLETE: "recovery", UPDATE_INTERRUPTED: "interrupted"
+};
+const UPDATE_STEPS = new Set(["preparing", "staging", "backup", "switching", "health"]);
+
+// What went wrong, where, and what to do next, so an administrator does not
+// need a shell on the server for common failures. Shows only fixed codes from
+// the status file; the full, credential-masked output is in the journal.
+function updateFailureDetails(run, view) {
+  const diagnostics = run.diagnostics && typeof run.diagnostics === "object" ? run.diagnostics : {};
+  const code = (value) => /^[A-Z][A-Z0-9_]{1,40}$/.test(value || "") ? value : "";
+  const errorCode = code(run.errorCode);
+  const npmCode = code(diagnostics.npmCode);
+  const systemCode = code(diagnostics.systemCode);
+  const hint = UPDATE_NPM_HINTS[npmCode] || UPDATE_NPM_HINTS[systemCode] || UPDATE_ERROR_HINTS[errorCode] || "generic";
+  const rows = [];
+  if (UPDATE_STEPS.has(run.failedStep)) rows.push([view.text("update.failedStep"), view.text(`update.step.${run.failedStep}`)]);
+  if (errorCode) rows.push([view.text("update.errorCode"), `<code>${escapeHtml(errorCode)}</code>`]);
+  if (npmCode) rows.push([view.text("update.npmCode"), `<code>${escapeHtml(npmCode)}</code>`]);
+  if (systemCode) rows.push([view.text("update.systemCode"), `<code>${escapeHtml(systemCode)}</code>`]);
+  if (Number.isInteger(diagnostics.exitCode) && /^[A-Za-z0-9._-]{1,40}$/.test(diagnostics.command || "")) {
+    rows.push([view.text("update.command"), escapeHtml(view.raw("update.commandExit", { command: diagnostics.command, code: diagnostics.exitCode }))]);
+  }
+  const backupId = run.result?.backupId;
+  if (typeof backupId === "string" && /^[A-Za-z0-9._-]{1,120}$/.test(backupId)) rows.push([view.text("update.backupId"), `<code>${escapeHtml(backupId)}</code>`]);
+  const unit = /^[0-9a-f-]{36}$/.test(run.id || "") ? `artifacty-update-${run.id}.service` : "";
+  return `<dl class="update-failure">${rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("")}</dl>
+          <p data-update-hint>${view.text(`update.hint.${hint}`)}</p>
+          ${unit ? `<p class="muted">${view.text("update.logHelp")}</p><pre class="update-log-command"><code>journalctl --user -u ${unit} --no-pager</code></pre>` : ""}`;
+}
+
 export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEFAULT_LOCALE, currentPath = "/admin/update" }) {
   const view = viewContext(locale, currentPath);
   const check = status.check;
@@ -1021,6 +1058,9 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
   const progressLabel = run?.state === "succeeded" ? view.raw("update.step.completed") : stepIndex >= 0
     ? view.raw("update.stepCount", { current: stepIndex + 1, total: 5, phase: view.raw(`update.step.${step}`) })
     : view.raw(step === "recovery" ? "update.step.recovery" : `update.${run?.state || "queued"}`);
+  // A finished failure is explained by updateFailureDetails in the page's
+  // language; the stored English error and a repeated state line are omitted.
+  const ended = ["failed", "interrupted"].includes(run?.state);
   const messages = { ...states, steps: Object.fromEntries([...updateSteps, "completed", "recovery"].map((name) => [name, view.raw(`update.step.${name}`)])), stepCount: view.raw("update.stepCount"), reconnect: view.raw("update.reconnect"), signIn: view.raw("update.signIn") };
   return pageShell({
     title: view.text("update.title"), locale: view.locale,
@@ -1047,12 +1087,12 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
         ${run ? `<section class="meta-card" data-update-status data-active="${active}" data-messages="${escapeAttribute(JSON.stringify(messages))}"><h2>${view.text("update.progress")}</h2>
           <p>${view.text("update.latest")}: ${escapeHtml(run.targetVersion || "—")}</p>
           <p role="status" aria-live="polite" data-update-state>${escapeHtml(states[run.state] || states.running)}</p>
-          <p data-update-step aria-live="polite">${escapeHtml(progressLabel)}</p>
+          ${ended && progressLabel === (states[run.state] || states.running) ? "" : `<p data-update-step aria-live="polite">${escapeHtml(progressLabel)}</p>`}
           <div class="progress" role="progressbar" data-update-progress aria-label="${view.text("update.progressLabel")}" aria-valuemin="0" aria-valuemax="5"${progressValue === null ? "" : ` aria-valuenow="${progressValue}"`} aria-valuetext="${escapeAttribute(progressLabel)}">
             <div data-update-bar class="progress-bar${progressValue === null && active ? " progress-bar-striped progress-bar-animated" : ""}${["failed", "interrupted"].includes(run.state) ? " bg-danger" : ""}" style="width: ${progressValue === null ? 100 : progressValue * 20}%"></div>
           </div>
           <p class="muted">${view.text("update.progressHelp")}</p>
-          <p data-update-error>${escapeHtml(run.error || "")}</p>
+          ${ended ? updateFailureDetails(run, view) : `<p data-update-error>${escapeHtml(run.error || "")}</p>`}
           <a href="${view.href("/admin/update")}">${view.text("update.refresh")}</a> <a data-update-login hidden href="${view.href("/login")}">${view.text("nav.signIn")}</a>
         </section>` : ""}
       </main>`,
@@ -2716,6 +2756,11 @@ ${darkThemeVariables}
     .share-principal:last-child { border-bottom: 0; }
     .share-principal-name { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; overflow-wrap: anywhere; }
     .share-principal-permission { flex: none; width: 160px; }
+    .update-failure { display: grid; gap: var(--sp-1); margin: var(--sp-3) 0; }
+    .update-failure > div { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: var(--sp-3); }
+    .update-failure dt { color: var(--label-2); font-weight: 500; }
+    .update-failure dd { margin: 0; overflow-wrap: anywhere; }
+    .update-log-command { overflow-x: auto; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-control); background: var(--fill); font-size: var(--fs-caption); }
     /* Secondary artifact actions live in one pull-down menu, as in a macOS toolbar. */
     .toolbar-more { position: relative; }
     .toolbar-more > summary {
