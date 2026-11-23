@@ -41,6 +41,7 @@ import { createEmbeddingProvider } from "./lib/embeddings.js";
 import { EVENT_TYPES, sanitizeEventForDelivery, subscribe } from "./lib/events.js";
 import { parseCollection, resolveCollection, collectionContentForReader } from "./lib/collections.js";
 import { inlineSchema, provenanceInputSchema, collectionSchema } from "./lib/schemas.js";
+import { RELATED_NEXT_STEPS, findRelatedArtifacts } from "./lib/related.js";
 import { effectiveScopes, requireScope } from "./lib/security.js";
 import { resolvePublicBaseUrl } from "./lib/server-state.js";
 
@@ -120,6 +121,49 @@ const mutatingArtifactAnnotations = {
 
 const tools = [
   {
+    name: "artifacty_find_related",
+    title: "Find Related Artifacts",
+    description: "Before creating an artifact, find the person's existing artifacts that it may relate to, ranked by title, tags, and (when configured) semantic similarity. Then ask the person whether to link candidates as references, publish the content as a new version of one (likelySameDocument suggests this), or create a separate artifact. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Title of the artifact about to be created." },
+        content: { type: "string", description: "Optional content or excerpt; the first 2,000 characters are used for semantic matching." },
+        tags: { type: "array", items: { type: "string" }, description: "Optional tags of the new artifact." },
+        limit: { type: "integer", minimum: 1, maximum: 10, description: "Maximum candidates. Defaults to 5." }
+      },
+      required: ["title"]
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        candidates: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              title: { type: "string" },
+              artifactType: { type: "string" },
+              format: { type: "string" },
+              latestVersion: { type: "integer" },
+              updatedAt: { type: "string" },
+              tags: { type: "array", items: { type: "string" } },
+              score: { type: "number" },
+              matched: { type: "array", items: { type: "string", enum: ["title", "tags", "semantic"] } },
+              likelySameDocument: { type: "boolean" },
+              url: { type: "string" }
+            },
+            required: ["id", "title", "score", "matched", "likelySameDocument", "url"]
+          }
+        },
+        nextSteps: { type: "string" }
+      },
+      required: ["candidates", "nextSteps"]
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false }
+  },
+  {
     name: "artifacty_explain", title: "Create Interactive Explanation",
     description: "Create a separate private interactive explanation of a readable source artifact. Read the source first. Author steps, comparisons, selectable diagrams or discrete scenarios; label source facts, interpretations and assumptions. This tool validates and stores your explanation; it does not call an AI model. The source remains unchanged.",
     inputSchema: { type: "object", properties: { sourceId: { type: "string" }, sourceVersion: { type: "integer", minimum: 1 }, title: { type: "string" }, explainer: explainerSchema, provenance: provenanceInputSchema }, required: ["sourceId", "explainer"] },
@@ -145,8 +189,20 @@ const tools = [
   {
     name: "artifacty_create",
     title: "Create Artifact",
-    description: "Create a new Artifacty-native artifact from title, content, format, tags, and metadata.",
-    inputSchema: nativeArtifactInputSchema,
+    description: "Create a new Artifacty-native artifact from title, content, format, tags, and metadata. Call artifacty_find_related first and ask the person whether to link a candidate as a reference, publish a new version of it with artifacty_update, or create a separate artifact. Pass chosen reference IDs as references. The result lists relatedCandidates when related artifacts exist and none were linked; ask the person about them.",
+    inputSchema: {
+      ...nativeArtifactInputSchema,
+      properties: {
+        ...nativeArtifactInputSchema.properties,
+        references: {
+          type: "array",
+          items: { type: "string" },
+          maxItems: 20,
+          description: "IDs of existing artifacts this artifact references, usually chosen from artifacty_find_related. Each becomes a \"references\" relation."
+        },
+        skipRelatedCheck: { type: "boolean", description: "Set true when the person already decided not to link related artifacts, to omit relatedCandidates from the result." }
+      }
+    },
     outputSchema: inlineSchema("ArtifactWithContent"),
     annotations: mutatingArtifactAnnotations
   },
@@ -802,7 +858,7 @@ export async function handleMcpRequest(context, message) {
         title: "Artifacty",
         version: "0.4.0"
       },
-      instructions: "Use Artifacty to create, import, list, read, update, and resource-read artifacts that other agents can reuse."
+      instructions: "Use Artifacty to create, import, list, read, update, and resource-read artifacts that other agents can reuse. Before creating an artifact, call artifacty_find_related. When it returns candidates, ask the person whether to link them as references, publish the content as a new version of one with artifacty_update, or create a separate artifact; never decide for them."
     };
   }
 
@@ -921,8 +977,29 @@ async function callTool(context, name, args) {
     return callTool(context, "artifacty_update", input);
   }
 
+  if (name === "artifacty_find_related") {
+    const candidates = await findRelatedArtifacts(context.store, args, { access: await mcpAccessContext(context) });
+    const publicBaseUrl = await context.resolvePublicBaseUrl();
+    return toolResult({
+      candidates: candidates.map((item) => ({ ...item, url: `${publicBaseUrl}/artifacts/${encodeURIComponent(item.id)}` })),
+      nextSteps: candidates.length ? RELATED_NEXT_STEPS : "No related artifacts found. Create the artifact without asking."
+    });
+  }
+
   if (name === "artifacty_create" || name === "artifacty_publish") {
-    return toolResult(await withUrls(context, await createNativeArtifact(context, args)));
+    const references = Array.isArray(args.references) ? [...new Set(args.references.filter((id) => typeof id === "string" && id.trim()))].slice(0, 20) : [];
+    const relations = [...(Array.isArray(args.relations) ? args.relations : []), ...references.map((toId) => ({ toId, relation: "references" }))];
+    const artifact = await withUrls(context, await createNativeArtifact(context, { ...args, relations }));
+    // artifacty_publish is the legacy alias and keeps its original result.
+    if (name === "artifacty_create" && !args.skipRelatedCheck && !relations.length) {
+      const access = await mcpAccessContext(context);
+      const candidates = await findRelatedArtifacts(context.store, { title: args.title, content: args.content, tags: args.tags, limit: 5 }, { access, excludeIds: [artifact.id] }).catch(() => []);
+      if (candidates.length) {
+        artifact.relatedCandidates = candidates;
+        artifact.relatedNextSteps = "This artifact was created. Ask the person whether to link candidates as references (artifacty_link, relation \"references\") or whether it should have been a new version of one; if so, publish this content with artifacty_update on that artifact and archive this one with artifacty_archive.";
+      }
+    }
+    return toolResult(artifact);
   }
 
   if (name === "artifacty_list") {
