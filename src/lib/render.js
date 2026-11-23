@@ -2400,7 +2400,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
         --code-viewer-filter: invert(0.88) hue-rotate(180deg);
         --shadow-control: 0 0.5px 1px rgba(0, 0, 0, 0.3);
         --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.4);
-        --dock-bg: rgba(44, 44, 46, 0.72);
+        --dock-bg: rgba(58, 58, 60, 0.92);
+        --dock-edge: rgba(255, 255, 255, 0.14);
+        --dock-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.55);
         --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 10px 28px rgba(0, 0, 0, 0.45);
 `;
   return `<!doctype html>
@@ -2487,7 +2489,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       --frame-bg: #ffffff;
       --shadow-control: 0 0.5px 1px rgba(0, 0, 0, 0.08);
       --shadow-thumb: 0 0.5px 2px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
-      --dock-bg: rgba(255, 255, 255, 0.72);
+      --dock-bg: rgba(242, 242, 247, 0.92);
+      --dock-edge: rgba(0, 0, 0, 0.1);
+      --dock-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 10px 30px rgba(0, 0, 0, 0.16);
       --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 8px 24px rgba(0, 0, 0, 0.12);
       /* Legacy names, kept for client scripts and page-specific styles. */
       --panel: var(--group);
@@ -2807,9 +2811,9 @@ ${darkThemeVariables}
       padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
     }
     .artifact-dock-bar {
-      display: flex; align-items: center; gap: var(--sp-2); min-width: 0; max-width: min(1040px, 100%);
-      padding: 5px 12px 5px 16px; border-radius: 999px;
-      background: var(--dock-bg); box-shadow: var(--shadow-pop);
+      display: flex; align-items: center; gap: var(--sp-3); min-width: 0; min-height: 48px; max-width: min(1040px, 100%);
+      padding: 7px 14px 7px 20px; border: 1px solid var(--dock-edge); border-radius: 999px;
+      background: var(--dock-bg); box-shadow: var(--dock-shadow);
       -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
       opacity: 0; transform: translateY(-12px) scaleX(1.06);
       transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.36s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2818,11 +2822,11 @@ ${darkThemeVariables}
     .artifact-dock.is-docked .artifact-dock-bar { pointer-events: auto; opacity: 1; transform: none; }
     .artifact-dock .artifact-dock-title {
       min-width: 0; max-width: 34ch; min-height: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: none; color: var(--label);
-      font: inherit; font-size: var(--fs-body); font-weight: 600; text-align: left;
+      font: inherit; font-size: var(--fs-headline); font-weight: 600; text-align: left;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
     }
     .artifact-dock .artifact-dock-title:hover { background: none; color: var(--accent); }
-    .artifact-dock-meta { flex: none; color: var(--label-2); font-size: var(--fs-caption); white-space: nowrap; }
+    .artifact-dock-meta { flex: none; color: var(--label-2); font-size: var(--fs-callout); white-space: nowrap; }
     .artifact-dock .artifact-dock-versions { flex: none; margin: 0; }
     .artifact-dock-actions { display: flex; flex: none; align-items: center; gap: var(--sp-1); margin-left: var(--sp-2); }
     @media (min-width: 1100px) { body:has(> .workspace-header) .artifact-dock { left: var(--sidebar-w); } }
