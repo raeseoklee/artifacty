@@ -2808,7 +2808,7 @@ ${darkThemeVariables}
     }
     .artifact-dock-bar {
       display: flex; align-items: center; gap: var(--sp-2); min-width: 0; max-width: min(1040px, 100%);
-      padding: 5px 6px 5px 16px; border-radius: 999px;
+      padding: 5px 12px 5px 16px; border-radius: 999px;
       background: var(--dock-bg); box-shadow: var(--shadow-pop);
       -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
       opacity: 0; transform: translateY(-12px) scaleX(1.06);
