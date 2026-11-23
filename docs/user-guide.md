@@ -183,6 +183,8 @@ Open **Backup**, inspect integrity and the export scope, then select **Download 
 
 Open **Server update**, inspect the installed version, and select **Check for updates**. A current installation shows the up-to-date message. Browser updates require a supported Linux systemd user service. When an update is available, confirm the backup and server restart before starting it. After completion, refresh and check the installed version and server response.
 
+Right after a release, npm can list the new version a few minutes before its package can be downloaded. The check detects this and asks you to check again later instead of starting an update that would fail.
+
 If an update fails, the page shows the step that failed, the error code, the npm error code when npm reported one (for example `E404` or `EACCES`), the backup ID, and what to do next. The full output, with credentials masked, is in the server journal. The page shows the exact `journalctl --user -u artifacty-update-<id>.service --no-pager` command for that run. The screenshot does not represent an update actually applied for this manual.
 
 ### Retention

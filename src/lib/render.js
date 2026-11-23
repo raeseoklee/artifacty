@@ -1050,7 +1050,7 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
   const run = status.run?.state === "succeeded" && status.currentVersion === status.run.targetVersion ? null : status.run;
   const active = ["queued", "running"].includes(run?.state);
   const hasUpdate = check?.updateAvailable && check.targetVersion && status.currentVersion !== check.targetVersion;
-  const canStart = check?.supported && !check.errorCode && check.targetVersion && check.updateAvailable && check.confirmationId && Date.parse(check.expiresAt) > Date.now() && !active && run?.state !== "interrupted" && status.currentVersion !== check.targetVersion;
+  const canStart = check?.supported && !check.errorCode && !check.packageUnavailable && check.targetVersion && check.updateAvailable && check.confirmationId && Date.parse(check.expiresAt) > Date.now() && !active && run?.state !== "interrupted" && status.currentVersion !== check.targetVersion;
   const states = Object.fromEntries(["queued", "running", "succeeded", "failed", "interrupted"].map((state) => [state, view.raw(`update.${state}`)]));
   const updateSteps = ["preparing", "staging", "backup", "switching", "health"];
   const step = run?.state === "succeeded" ? "completed" : run?.step;
@@ -1075,7 +1075,7 @@ export function renderAdminUpdatePage({ baseUrl, user, status = {}, locale = DEF
         ${check ? `<section class="meta-card">${hasUpdate ? `<h2>${view.text("update.latest")}</h2><p>${escapeHtml(status.currentVersion || APP_VERSION)} → <strong>${escapeHtml(check.targetVersion)}</strong></p>` : ""}
           ${hasUpdate ? `<p><a href="https://github.com/raeseoklee/artifacty/releases/tag/v${escapeAttribute(encodeURIComponent(check.targetVersion))}" target="_blank" rel="noopener noreferrer">${view.text("update.releaseNotes")}</a></p>` : ""}
           ${check.errorCode ? `<p role="alert">${view.text("update.checkFailed")}</p>` : !check.supported ? `<p>${view.text("update.unsupported")}</p><p>${view.text(check.reasonCode === "SYSTEM_UPDATE_REQUIRES_ADMIN" ? "update.systemManual" : "update.manual")}</p>` : !hasUpdate && !check.errorCode && check.targetVersion ? `<p>${view.text("update.current")}</p>` : ""}
-          ${check.supported && check.updateAvailable && !canStart && !active && !check.errorCode && status.currentVersion !== check.targetVersion ? `<p>${view.text("update.checkAgain")}</p>` : ""}
+          ${check.packageUnavailable && !active ? `<p role="status">${view.text("update.packageUnavailable", { version: check.targetVersion })}</p>` : check.supported && check.updateAvailable && !canStart && !active && !check.errorCode && status.currentVersion !== check.targetVersion ? `<p>${view.text("update.checkAgain")}</p>` : ""}
           ${canStart ? `<p>${view.text("update.available", { version: check.targetVersion })}</p><p>${view.text("update.backup")}</p>
             <form class="editor-form" method="post" action="/admin/update/start">${localeInput(view.locale)}
               <input type="hidden" name="confirmationId" value="${escapeAttribute(check.confirmationId)}">

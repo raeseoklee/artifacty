@@ -125,7 +125,7 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
       let result;
       try {
         const checked = await update({ home, packageRoot, check: true });
-        result = { currentVersion: await currentVersion(), targetVersion: checked.targetVersion, supported: eligible && checked.supported, updateAvailable: checked.updateAvailable };
+        result = { currentVersion: await currentVersion(), targetVersion: checked.targetVersion, supported: eligible && checked.supported, updateAvailable: checked.updateAvailable, ...(checked.packageAvailable === false ? { packageUnavailable: true } : {}) };
         if (!result.supported) {
           result.reasonCode = inspectionCode === "SYSTEM_UPDATE_REQUIRES_ADMIN" || checked.serviceScope === "system" ? "SYSTEM_UPDATE_REQUIRES_ADMIN" : "UNSUPPORTED_SERVICE";
           result.reason = result.reasonCode === "SYSTEM_UPDATE_REQUIRES_ADMIN"
@@ -148,7 +148,7 @@ export function createWebUpdater({ home, packageRoot, ...databaseOptions }, inje
       const state = await read();
       if (ACTIVE.has(state.run?.state) || needsRecovery(state.run)) throw fail("An update is already running or needs recovery", "UPDATE_BUSY");
       const checked = state.check;
-      if (confirmUpdate !== "true" || !checked?.supported || !checked.updateAvailable || checked.confirmationId !== confirmationId || state.sessionHash !== hash(session) || checked.targetVersion !== targetVersion || Date.parse(checked.expiresAt) <= now()) {
+      if (confirmUpdate !== "true" || !checked?.supported || !checked.updateAvailable || checked.packageUnavailable || checked.confirmationId !== confirmationId || state.sessionHash !== hash(session) || checked.targetVersion !== targetVersion || Date.parse(checked.expiresAt) <= now()) {
         throw fail("Check for updates again and confirm the displayed version", "UPDATE_CONFIRMATION_REQUIRED", 400);
       }
       await inspect({ home, pid: process.pid });

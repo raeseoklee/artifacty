@@ -278,6 +278,23 @@ export async function inspectWebUpdateService({ home, pid = process.pid, ...data
 }
 
 /** Update a managed Linux user or explicitly selected system service. */
+// Asks the registry npm uses for the first byte of the release tarball.
+// Returns false only for a definite 404 or 410, and null when it cannot tell
+// (for example a private registry that requires credentials), so an
+// inconclusive probe never blocks an update.
+export async function probePackage(run, version, extra = {}, fetchImpl = globalThis.fetch) {
+  try {
+    const url = JSON.parse((await run("npm", ["view", `artifacty@${version}`, "dist.tarball", "--json"], extra)).stdout);
+    if (typeof url !== "string" || !/^https?:\/\//.test(url)) return null;
+    const response = await fetchImpl(url, { headers: { range: "bytes=0-0" }, redirect: "follow", signal: AbortSignal.timeout(10000) });
+    await response.body?.cancel?.();
+    if (response.status === 404 || response.status === 410) return false;
+    return response.ok ? true : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function updateApplication(options = {}, injected = {}) {
   const env = injected.env || process.env;
 
@@ -313,7 +330,13 @@ export async function updateApplication(options = {}, injected = {}) {
   const targetVersion = JSON.parse((await run("npm", ["view", `artifacty@${requested}`, "version", "--json"], system ? { cwd: "/" } : {})).stdout);
   if (typeof targetVersion !== "string" || !VERSION.test(targetVersion)) throw failure("npm did not resolve one exact Artifacty version");
   const summary = { currentVersion: current, targetVersion, supported: Boolean(service), service: service ? configuration.name : null, serviceScope: configuration.scope, ...(system ? { requiresAdmin: true } : {}) };
-  if (options.check) return { ...summary, check: true, updateAvailable: compareVersions(current, targetVersion) < 0, ...(unsupported ? { reason: unsupported } : {}) };
+  if (options.check) {
+    const updateAvailable = compareVersions(current, targetVersion) < 0;
+    // npm can list a new version minutes before its tarball is downloadable;
+    // staging would then fail with E404 after the person confirmed.
+    const packageAvailable = updateAvailable ? await (injected.probePackage || probePackage)(run, targetVersion, system ? { cwd: "/" } : {}) : null;
+    return { ...summary, check: true, updateAvailable, ...(packageAvailable === false ? { packageAvailable: false } : {}), ...(unsupported ? { reason: unsupported } : {}) };
+  }
   if (!service) throw failure(unsupported, "UNSUPPORTED_SERVICE");
   const uid = injected.uid ?? process.geteuid?.();
   if (system ? uid !== 0 : uid === 0) throw failure(system ? "System service updates require administrator privileges. Run the CLI with sudo and --service-scope system." : "Run updates as the service user, without sudo", system ? "SYSTEM_UPDATE_REQUIRES_ADMIN" : "ROOT_UPDATE_REFUSED");
