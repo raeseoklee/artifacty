@@ -79,6 +79,13 @@ export function renderDashboard({ artifacts, baseUrl, filters = {}, pagination, 
       <div class="dashboard-layout">
         <main class="dashboard" id="main-content">
           <div class="dashboard-heading"><h1>${view.text("nav.artifacts")}</h1><nav><a href="${view.href("/import")}">${view.text("nav.import")}</a><a class="button-link btn btn-primary" href="${view.href("/new")}">${view.text("nav.new")}</a></nav></div>
+          <div class="artifact-dock dashboard-dock" data-artifact-dock data-dock-after=".filter-form .dashboard-search-row" aria-hidden="true" inert>
+            <div class="artifact-dock-bar">
+              <label class="dashboard-search dock-search"><span class="dashboard-sr-only">${view.text("filter.search")}</span>${uiIcon("search", { size: 16 })}<input type="search" data-dock-search value="${escapeAttribute(filters.query || "")}" placeholder="${view.attr("dashboard.searchPlaceholder")}" class="form-control"></label>
+              <span class="dock-category" data-dock-category></span>
+              <nav class="artifact-dock-actions"><a href="${view.href("/import")}">${view.text("nav.import")}</a><a class="is-primary" href="${view.href("/new")}">${view.text("nav.new")}</a></nav>
+            </div>
+          </div>
           <form class="filter-form" data-auto-apply="filters" method="get" action="/">
             ${localeInput(view.locale)}
             ${filters.limit ? `<input type="hidden" name="limit" value="${escapeAttribute(filters.limit)}">` : ""}
@@ -2830,6 +2837,12 @@ ${darkThemeVariables}
     .artifact-dock .artifact-dock-versions { flex: none; margin: 0; }
     .artifact-dock-actions { display: flex; flex: none; align-items: center; gap: var(--sp-1); margin-left: var(--sp-2); }
     @media (min-width: 1100px) { body:has(> .workspace-header) .artifact-dock { left: var(--sidebar-w); } }
+    /* The list's bar mirrors the search field and category filter. */
+    .dashboard-dock .artifact-dock-bar { width: min(820px, 100%); padding-left: 8px; }
+    .dashboard-dock .dock-search { flex: 1; min-width: 160px; }
+    .dashboard-dock .dock-search .form-control[type="search"] { min-height: 32px; border-radius: 999px; }
+    .dashboard-dock .dock-category:empty { display: none; }
+    .dashboard-dock .dock-category .form-select { width: auto; max-width: 200px; min-height: 32px; border-radius: 999px; }
     /* Phones keep the page header as it is; the bar is for wider screens. */
     @media (max-width: 720px) { .artifact-dock { display: none; } }
     @media (prefers-reduced-motion: reduce) { .artifact-dock-bar { transform: none; transition: opacity 0.12s linear; } }

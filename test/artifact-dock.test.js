@@ -30,3 +30,21 @@ test("the artifact page carries an inert floating bar with the header actions", 
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("the artifact list carries a floating bar with search, category, Import, and New", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-list-dock-"));
+  const app = await startServer({ home, port: 0 });
+  try {
+    await createArtifact(app.store, { title: "One", content: "# One", format: "markdown", sourceAgent: "test" });
+    const page = await (await fetch(`${app.url}/?q=%3Cx%3E`)).text();
+    const dock = /<div class="artifact-dock dashboard-dock" data-artifact-dock data-dock-after="\.filter-form \.dashboard-search-row" aria-hidden="true" inert>([\s\S]*?)\n          <\/div>/.exec(page)?.[1];
+    assert.ok(dock, "the list bar starts hidden and inert and docks after the search row");
+    assert.match(dock, /<input type="search" data-dock-search value="&lt;x&gt;"/, "the bar shows the current query, escaped");
+    assert.doesNotMatch(dock, /name="q"/, "the bar's field is not a second form field");
+    assert.match(dock, /data-dock-category/);
+    assert.match(dock, /href="\/import[^"]*">[^<]+<\/a><a class="is-primary" href="\/new/);
+  } finally {
+    await app.close();
+    await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

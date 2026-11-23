@@ -62,12 +62,18 @@ document.addEventListener("keydown", (event) => {
 // it is inert and hidden from assistive technology so nothing is duplicated.
 function setupArtifactDock() {
   const dock = document.querySelector?.("[data-artifact-dock]");
-  const sentinel = dock && (document.querySelector(".version-strip:not(.artifact-dock-versions)") || document.querySelector(".topbar"));
+  const sentinel = dock && (dock.dataset.dockAfter
+    ? document.querySelector(dock.dataset.dockAfter)
+    : document.querySelector(".version-strip:not(.artifact-dock-versions)") || document.querySelector(".topbar"));
   if (!dock || !sentinel || !("IntersectionObserver" in window)) return;
+  mirrorDashboardFilters(dock);
   const setDocked = (docked) => {
     dock.classList.toggle("is-docked", docked);
     dock.inert = !docked;
-    if (docked) dock.removeAttribute("aria-hidden");
+    if (docked) {
+      dock.removeAttribute("aria-hidden");
+      dock.dispatchEvent(new Event("artifacty:docked"));
+    }
     else {
       // Focus cannot stay inside content that becomes hidden.
       if (dock.contains(document.activeElement)) document.activeElement.blur();
@@ -79,5 +85,41 @@ function setupArtifactDock() {
   dock.querySelector("[data-dock-top]")?.addEventListener("click", () => {
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+  });
+}
+
+// On the artifact list the bar repeats the search field and category filter.
+// They drive the page's own filter form, so its hidden filters, page size,
+// and auto-apply behavior stay the single source of truth.
+function mirrorDashboardFilters(dock) {
+  const search = dock.querySelector("[data-dock-search]");
+  const form = document.querySelector(".filter-form");
+  if (!search || !form) return;
+  const query = form.querySelector('input[name="q"]');
+  const category = form.querySelector(".category-filter select");
+  const slot = dock.querySelector("[data-dock-category]");
+  let copy = null;
+  if (category && slot) {
+    copy = category.cloneNode(true);
+    copy.removeAttribute("name");
+    copy.removeAttribute("id");
+    copy.setAttribute("aria-label", category.getAttribute("aria-label") || category.closest("label")?.textContent?.trim() || "");
+    copy.addEventListener("change", () => {
+      category.value = copy.value;
+      category.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    slot.append(copy);
+  }
+  search.addEventListener("input", () => { if (query) query.value = search.value; });
+  search.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    event.preventDefault();
+    if (query) query.value = search.value;
+    form.requestSubmit ? form.requestSubmit() : form.submit();
+  });
+  // Edits made in the page form while the bar was hidden show up when it docks.
+  dock.addEventListener("artifacty:docked", () => {
+    if (query && document.activeElement !== search) search.value = query.value;
+    if (copy) copy.value = category.value;
   });
 }
