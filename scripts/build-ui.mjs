@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, writeFile } from 'node:fs/promises';
 import * as sass from 'sass';
 const root = new URL('../', import.meta.url);
 const result = sass.compile(new URL('src/styles/ui-controls.scss', root).pathname, {
@@ -13,4 +13,7 @@ for (const name of names) {
   icons[name] = svg.slice(svg.indexOf('>') + 1, svg.lastIndexOf('</svg>')).trim().replace(/\s+/g, ' ');
 }
 await writeFile(new URL('src/lib/ui-icons.js', root), `// Generated from @tabler/icons v3.49.0 (MIT), by npm run build:ui.\nconst paths = ${JSON.stringify(icons, null, 2)};\n\nexport function uiIcon(name, { size = 18 } = {}) {\n  if (!Object.hasOwn(paths, name)) throw new Error('Unknown UI icon');\n  const dimension = [16, 18, 20, 24].includes(size) ? size : 18;\n  return '<svg class="ui-icon" width="' + dimension + '" height="' + dimension + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths[name] + '</svg>';\n}\n`);
-console.log('Built local Bootstrap controls and 26 Tabler icons.');
+// Pretendard (SIL OFL 1.1) is the interface face on every platform, served
+// locally because Artifacty loads nothing from a CDN.
+await copyFile(new URL('node_modules/pretendard/dist/web/variable/woff2/PretendardVariable.woff2', root), new URL('src/client/pretendard-variable.woff2', root));
+console.log('Built local Bootstrap controls, 26 Tabler icons, and the Pretendard font.');

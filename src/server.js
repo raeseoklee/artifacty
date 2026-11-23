@@ -489,6 +489,11 @@ async function handleScopedRequest({ request, response, store, host, port, secur
   if (method === "GET" && pathname === "/assets/sidebar.js") {
     return sendJavaScriptFile(response, path.join(PACKAGE_ROOT, "src", "client", "sidebar.js"), headOnly, request);
   }
+  if (method === "GET" && pathname === "/assets/pretendard-variable.woff2") {
+    const content = headOnly ? null : await readFile(path.join(PACKAGE_ROOT, "src", "client", "pretendard-variable.woff2"));
+    response.writeHead(200, { "content-type": "font/woff2", "cache-control": "public, max-age=604800", "x-content-type-options": "nosniff" });
+    return response.end(headOnly ? undefined : content);
+  }
   if (method === "GET" && pathname === "/assets/ui-controls.css") {
     const content = await readFile(path.join(PACKAGE_ROOT, "src", "client", "ui-controls.css"), "utf8");
     response.writeHead(200, { "content-type": "text/css; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });

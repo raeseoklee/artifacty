@@ -2405,6 +2405,15 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     /* Tokens. Colors follow Apple system grays with the brand cyan as the tint.
        Contrast (WCAG): --label-2 is 5.99:1 on --bg and 5.08:1 on --chip in light,
        6.61:1 and 4.97:1 in dark; the accent is 5.78:1 on white and 8.44:1 on #1c1c1e. */
+    /* Pretendard is the interface face on every platform, so macOS and
+       Windows render the same text. System fonts are only the fallback. */
+    @font-face {
+      font-family: "Pretendard Variable";
+      src: url("/assets/pretendard-variable.woff2") format("woff2-variations"), url("/assets/pretendard-variable.woff2") format("woff2");
+      font-weight: 45 920;
+      font-style: normal;
+      font-display: swap;
+    }
     :root {
       color-scheme: light;
       --bg: #f5f5f7;
@@ -2474,7 +2483,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       --line-2: var(--border);
       --grid: transparent;
       /* Type: the macOS text-style ramp, with a 14 px headline for list titles on the web. */
-      --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", system-ui, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", "Noto Sans KR", "Helvetica Neue", sans-serif;
+      --sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
       --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       --fs-large-title: 26px;
       --lh-large-title: 32px;

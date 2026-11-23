@@ -18,7 +18,7 @@ For English and Korean documentation, follow the [writing style guide](docs/writ
 - `node src/mcp-server.js` or `npm run mcp` — run the MCP stdio server.
 - `node src/cli.js help` — inspect CLI usage.
 
-Run `npm run release:check` before claiming a release-ready change. The server runs plain ESM directly on Node `>=22.16.0`. Generated UI assets are committed, so ordinary startup needs no build. After changing `src/styles/ui-controls.scss` or the icon set in `scripts/build-ui.mjs`, run `npm run build:ui` and include the generated assets.
+Run `npm run release:check` before claiming a release-ready change. The server runs plain ESM directly on Node `>=22.16.0`. Generated UI assets are committed, so ordinary startup needs no build. After changing `src/styles/ui-controls.scss`, the icon set in `scripts/build-ui.mjs`, or the pinned `pretendard` version, run `npm run build:ui` and include the generated assets. Pretendard (`src/client/pretendard-variable.woff2`) is the interface font on every platform; system fonts are only the fallback.
 
 ## Architecture
 

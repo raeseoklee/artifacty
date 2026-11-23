@@ -34,6 +34,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
+## Pretendard 1.3.9
+
+Artifacty serves the unmodified `PretendardVariable.woff2` from this package as
+`src/client/pretendard-variable.woff2`, under the SIL Open Font License 1.1.
+Copyright (c) 2021, Kil Hyung-jin, with Reserved Font Name Pretendard.
+See the [Pretendard license](licenses/pretendard-LICENSE.txt) and the
+[source](https://github.com/orioncactus/pretendard/tree/v1.3.9).
+
 ## Tabler Icons 3.52.0
 
 Artifacty includes selected generated assets from this package.
