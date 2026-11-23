@@ -333,8 +333,9 @@ export async function updateApplication(options = {}, injected = {}) {
   if (options.check) {
     const updateAvailable = compareVersions(current, targetVersion) < 0;
     // npm can list a new version minutes before its tarball is downloadable;
-    // staging would then fail with E404 after the person confirmed.
-    const packageAvailable = updateAvailable ? await (injected.probePackage || probePackage)(run, targetVersion, system ? { cwd: "/" } : {}) : null;
+    // staging would then fail with E404 after the person confirmed. Only an
+    // installation that can update needs to know.
+    const packageAvailable = updateAvailable && service ? await (injected.probePackage || probePackage)(run, targetVersion, system ? { cwd: "/" } : {}) : null;
     return { ...summary, check: true, updateAvailable, ...(packageAvailable === false ? { packageAvailable: false } : {}), ...(unsupported ? { reason: unsupported } : {}) };
   }
   if (!service) throw failure(unsupported, "UNSUPPORTED_SERVICE");
