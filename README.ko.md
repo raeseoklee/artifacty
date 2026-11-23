@@ -734,7 +734,7 @@ artifacty samples remove
 - 생성, 수정, 조회, 가져오기, 아카이브, 복원, 내용이 바뀌지 않은 브라우저 저장, 관리자 버전 복구·삭제는 SQLite에 감사 이벤트를 남깁니다. 게시자 정보가 없는 기존 아티팩트는 첫 `create` 또는 `import` 감사 이벤트의 주체로 가능한 범위에서 보완합니다.
 - CodeMirror 편집기·뷰어와 렌더러 자산은 공개 CDN 대신 허용 목록에 있는 로컬 npm 의존성에서 제공합니다. JavaScript 자산 경로는 `Origin: null`에 `Access-Control-Allow-Origin: null`로 응답합니다. 샌드박스 iframe이 `allow-same-origin` 없이 로컬 ESM을 가져올 수 있습니다.
 - 데이터를 변경하는 HTTP 경로는 서버와 출처가 다른 브라우저 요청을 거부합니다.
-- HTML은 샌드박스 iframe에서 렌더링합니다.
+- HTML은 샌드박스 iframe에서 렌더링합니다. 문서 안 링크(`#id`)는 프레임을 이동시키지 않고 뷰어 페이지에 해당 위치로 스크롤하도록 요청합니다. `srcdoc` 프레임은 이런 링크를 Artifacty 주소 기준으로 해석해서, 세션 쿠키 없이 그 주소를 불러오기 때문입니다.
 - SVG는 스크립트가 없는 샌드박스 iframe에서 렌더링하며, 뷰어에서 `<script>`, `on*` 속성, `javascript:` 링크를 제거합니다. 원본 소스는 바꾸지 않습니다.
 - Mermaid는 로컬에 포함된 Mermaid 패키지를 사용하며 `allow-same-origin`이 없는 샌드박스 iframe에서 렌더링합니다.
 - React는 기본적으로 소스만 표시합니다. `ARTIFACTY_ENABLE_REACT_RENDERER=true`이면 JSX 변환을 허용하는 프레임 전용 CSP와 샌드박스에서 실행합니다.

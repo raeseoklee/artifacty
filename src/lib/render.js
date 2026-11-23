@@ -3571,8 +3571,18 @@ function visibilityBadge(artifact, view) {
   return `<span class="badge v-${visibility}">${view.text(`artifact.visibility.${visibility}`)}</span>`;
 }
 
+// In-document links ("#section") cannot navigate inside these frames: a
+// srcdoc document resolves "#id" against the parent URL, so the click would
+// load the Artifacty page inside the frame without the session cookie (the
+// sandbox gives it an opaque origin) and fail for private and team artifacts.
+// The frame also grows to its full height, so only the parent page scrolls.
+// This script turns such clicks into a scroll request for the parent, and
+// answers the parent's lookup for a hash in the page URL. Modified clicks and
+// links with another target keep their default behavior.
+const FRAME_ANCHOR_SCRIPT = `<script>(function(){function decode(value){try{return decodeURIComponent(value);}catch(error){return value;}}function offsetOf(name){if(!name||name==="top"){return 0;}var element=document.getElementById(name);if(!element){var named=document.getElementsByName(name);element=named.length?named[0]:null;}if(!element){return null;}return element.getBoundingClientRect().top+(window.pageYOffset||0);}document.addEventListener("click",function(event){if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey){return;}var link=event.target&&event.target.closest?event.target.closest("a[href]"):null;if(!link){return;}var href=link.getAttribute("href");if(!href||href.charAt(0)!=="#"){return;}var target=link.getAttribute("target");if(target&&target!=="_self"){return;}event.preventDefault();var name=decode(href.slice(1));var offset=offsetOf(name);if(offset===null){return;}parent.postMessage({__artifactyScroll:offset,__artifactyHash:name},"*");});window.addEventListener("message",function(event){if(event.source!==parent){return;}var data=event.data;if(!data||typeof data.__artifactyFind!=="string"){return;}var offset=offsetOf(data.__artifactyFind);if(offset===null){return;}parent.postMessage({__artifactyScroll:offset,__artifactyRestore:true},"*");});})();</script>`;
+
 function htmlFrameContent(content) {
-  const reporter = `<script>(function(){function report(){var doc=document.documentElement;var body=document.body;var height=Math.max(doc.scrollHeight,doc.offsetHeight,body?body.scrollHeight:0,body?body.offsetHeight:0);parent.postMessage({__artifactyHeight:height},"*");}window.addEventListener("load",report);window.addEventListener("resize",report);if(window.ResizeObserver){try{new ResizeObserver(report).observe(document.documentElement);}catch(error){}}var ticks=0;var timer=setInterval(function(){report();if(++ticks>8){clearInterval(timer);}},250);report();})();</script>`;
+  const reporter = `<script>(function(){function report(){var doc=document.documentElement;var body=document.body;var height=Math.max(doc.scrollHeight,doc.offsetHeight,body?body.scrollHeight:0,body?body.offsetHeight:0);parent.postMessage({__artifactyHeight:height},"*");}window.addEventListener("load",report);window.addEventListener("resize",report);if(window.ResizeObserver){try{new ResizeObserver(report).observe(document.documentElement);}catch(error){}}var ticks=0;var timer=setInterval(function(){report();if(++ticks>8){clearInterval(timer);}},250);report();})();</script>${FRAME_ANCHOR_SCRIPT}`;
   if (content.includes("</body>")) {
     return content.replace("</body>", `${reporter}</body>`);
   }
@@ -3711,8 +3721,12 @@ function jsonForScript(value) {
 // of lazily created per-fence Mermaid frames embedded in Markdown and
 // notebook cells), matching each message to its source frame by
 // contentWindow rather than assuming a single frame exists up front.
+// The same listener scrolls the page for in-document links clicked inside a
+// frame (see FRAME_ANCHOR_SCRIPT): the offset is clamped to the frame's own
+// box, so a frame can only move the page within itself. A hash already in the
+// page URL is looked up in each frame after load and on history navigation.
 function frameResizeScript() {
-  return `<script>(function(){window.addEventListener("message",function(event){var data=event.data;if(!data||typeof data.__artifactyHeight!=="number"){return;}var frames=document.querySelectorAll(".artifact-frame");for(var i=0;i<frames.length;i+=1){if(frames[i].contentWindow===event.source){var height=Math.min(Math.max(Math.ceil(data.__artifactyHeight),200),200000);frames[i].style.height=height+"px";break;}}});})();</script>`;
+  return `<script>(function(){function frameFor(source){var frames=document.querySelectorAll(".artifact-frame");for(var i=0;i<frames.length;i+=1){if(frames[i].contentWindow===source){return frames[i];}}return null;}window.addEventListener("message",function(event){var data=event.data;if(!data){return;}if(typeof data.__artifactyHeight==="number"){var sized=frameFor(event.source);if(sized){var height=Math.min(Math.max(Math.ceil(data.__artifactyHeight),200),200000);sized.style.height=height+"px";}return;}if(typeof data.__artifactyScroll!=="number"||!isFinite(data.__artifactyScroll)){return;}var frame=frameFor(event.source);if(!frame){return;}var offset=Math.min(Math.max(data.__artifactyScroll,0),frame.offsetHeight);var top=Math.max(0,frame.getBoundingClientRect().top+window.pageYOffset+offset-16);var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;window.scrollTo({top:top,behavior:reduce||data.__artifactyRestore?"auto":"smooth"});if(!data.__artifactyRestore&&typeof data.__artifactyHash==="string"&&data.__artifactyHash.length<=256&&history.pushState){var hash=data.__artifactyHash?"#"+encodeURIComponent(data.__artifactyHash):"";if(location.hash!==hash){history.pushState(null,"",location.pathname+location.search+hash);}}});function findHash(){var name=location.hash.slice(1);if(!name){return;}try{name=decodeURIComponent(name);}catch(error){}var frames=document.querySelectorAll(".artifact-frame");for(var i=0;i<frames.length;i+=1){if(frames[i].contentWindow){frames[i].contentWindow.postMessage({__artifactyFind:name},"*");}}}window.addEventListener("load",function(){setTimeout(findHash,300);});window.addEventListener("popstate",findHash);})();</script>`;
 }
 
 function viewerScript(locale = DEFAULT_LOCALE) {

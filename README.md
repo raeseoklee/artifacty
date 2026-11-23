@@ -820,7 +820,7 @@ manuals with the intended users or teams from each artifact's Sharing page.
 - Creates, updates, reads, imports, archives, restores, no-op browser edits, and admin version repair/delete actions write audit events to SQLite. Legacy artifacts without a stored publisher are best-effort backfilled from their first `create` or `import` audit actor.
 - CodeMirror editor/viewer and renderer assets are served from local npm dependencies through a package allowlist, not from a public CDN. JavaScript asset routes answer `Origin: null` requests with `Access-Control-Allow-Origin: null` so sandboxed renderer iframes can import local ESM without `allow-same-origin`.
 - Mutating HTTP routes reject non-local browser origins.
-- HTML artifacts render in a sandboxed iframe.
+- HTML artifacts render in a sandboxed iframe. In-document links (`#id`) ask the viewer page to scroll to the target instead of navigating the frame, because a `srcdoc` frame would resolve them against the Artifacty URL and load it without the session cookie.
 - SVG artifacts render in a scriptless sandboxed iframe and are sanitized for `<script>`, `on*` attributes, and `javascript:` links in the viewer. The raw source remains unchanged.
 - Mermaid artifacts render with the vendored local Mermaid package in a sandboxed iframe without `allow-same-origin`.
 - React artifacts are source-only by default. Set `ARTIFACTY_ENABLE_REACT_RENDERER=true` to execute them in a sandboxed frame with a frame-scoped CSP that permits JSX transformation.

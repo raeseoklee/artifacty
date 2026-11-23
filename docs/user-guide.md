@@ -76,7 +76,7 @@ Use **Zoom out**, **Zoom in**, **Fit**, and **100%** in a Mermaid preview to rea
 
 The viewer selects a preview based on the stored format. Markdown can contain fenced Mermaid diagrams. Other formats include HTML, SVG, code, JSON, CSV, SARIF, notebooks, and media. Preview capabilities depend on the format and server settings; use **Raw** to inspect the stored source.
 
-HTML runs inside a sandboxed frame. Public share links have stricter previews: HTML scripts and external resources are disabled, while React, notebook, SVG, and Mermaid artifacts show source instead of active content. Do not assume that a public share link will behave exactly like the signed-in viewer.
+HTML runs inside a sandboxed frame. In-document links such as a table of contents (`#section`) scroll the viewer page to that section and add the section to the page address, so you can share or reload a link to it. Public share links have stricter previews: HTML scripts and external resources are disabled, while React, notebook, SVG, and Mermaid artifacts show source instead of active content. Do not assume that a public share link will behave exactly like the signed-in viewer.
 
 ## Read versions and compare changes
 
