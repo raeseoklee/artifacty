@@ -45,12 +45,13 @@ import { RELATED_NEXT_STEPS, findRelatedArtifacts } from "./lib/related.js";
 import { effectiveScopes, requireScope } from "./lib/security.js";
 import { resolvePublicBaseUrl } from "./lib/server-state.js";
 
-// "2025-06-18" is the version this server was originally built against and
-// remains verified against the public MCP specification. We could not
-// confirm a later published protocol version string from the official spec
-// during this change, so only 2025-06-18 is listed; add newer versions here
-// once confirmed rather than guessing at a date.
-const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18"];
+// Protocol revisions this server implements, oldest first. 2025-11-25 adds
+// nothing a 2025-06-18 client depends on here; this server follows its rule
+// that invalid tool arguments are tool execution errors, and the HTTP
+// transport rejects unexpected Origin headers. 2026-07-28 (stateless, with
+// multi round-trip requests) is a separate, breaking revision and is not
+// listed until the server implements it.
+const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-11-25"];
 const PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[SUPPORTED_PROTOCOL_VERSIONS.length - 1];
 const PACKAGE_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DEFAULT_MCP_HTTP_TIMEOUT_MS = 30000;
@@ -922,6 +923,12 @@ export async function handleMcpRequest(context, message) {
       if (error.code && error.statusCode) {
         return toolErrorResult(error.message, { code: error.code });
       }
+      // Invalid arguments are tool execution errors (MCP 2025-11-25,
+      // SEP-1303), so the model can read the message and correct its call.
+      // An unknown tool name stays a protocol error.
+      if (error.invalidArguments) {
+        return toolErrorResult(error.message, { code: "invalid_arguments" });
+      }
       throw error;
     }
   }
@@ -1774,7 +1781,8 @@ function negotiateProtocolVersion(requestedVersion) {
 function requireArg(args, name) {
   if (!args[name]) {
     throw Object.assign(new Error(`Missing required argument: ${name}`), {
-      jsonRpcCode: -32602
+      jsonRpcCode: -32602,
+      invalidArguments: true
     });
   }
   return args[name];

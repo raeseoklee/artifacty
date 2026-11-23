@@ -27,10 +27,17 @@ test("initialize negotiates the protocol version for old and unrecognized client
       method: "initialize",
       params: { protocolVersion: "2099-01-01", capabilities: {}, clientInfo: { name: "future-client", version: "0.0.0" } }
     });
-    // We only confirmed "2025-06-18" against the public MCP spec at the time
-    // of this change, so an unrecognized (older or newer) requested version
-    // falls back to our newest supported version rather than erroring.
-    assert.equal(withNewerVersion.protocolVersion, "2025-06-18");
+    // An unrecognized (older or newer) requested version falls back to our
+    // newest supported version rather than erroring.
+    assert.equal(withNewerVersion.protocolVersion, "2025-11-25");
+
+    const withCurrentVersion = await handler({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "initialize",
+      params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "current-client", version: "0.0.0" } }
+    });
+    assert.equal(withCurrentVersion.protocolVersion, "2025-11-25");
   } finally {
     await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
@@ -398,7 +405,7 @@ test("mcp server initializes and exposes artifact tools", async () => {
     });
     assert.equal(info.structuredContent.url, "http://127.0.0.1:18888");
     assert.equal(info.structuredContent.openApiUrl, "http://127.0.0.1:18888/openapi.json");
-    assert.deepEqual(info.structuredContent.supportedProtocolVersions, ["2025-06-18"]);
+    assert.deepEqual(info.structuredContent.supportedProtocolVersions, ["2025-06-18", "2025-11-25"]);
 
     const published = await client.request("tools/call", {
       name: "artifacty_create",

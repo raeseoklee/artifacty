@@ -63,7 +63,7 @@ Mermaid uses version 12.3.0 with the existing `classic` look, `dagre` layout, an
 
 ### MCP Server
 
-The MCP server is a hand-rolled line-delimited JSON-RPC 2.0 implementation using protocol version `2025-06-18`. Tool results include both `content[].text` and `structuredContent`. Keep `artifacty_publish` as a backwards-compatible alias for `artifacty_create`.
+The MCP server is a hand-rolled line-delimited JSON-RPC 2.0 implementation that negotiates protocol versions `2025-06-18` and `2025-11-25`. Invalid tool arguments return tool errors (`isError`), not JSON-RPC errors. The breaking `2026-07-28` revision is not implemented. Tool results include both `content[].text` and `structuredContent`. Keep `artifacty_publish` as a backwards-compatible alias for `artifacty_create`.
 
 When `ARTIFACTY_URL` is unset, MCP reads the current browser URL from `server.json`. Do not reintroduce a hard-coded `http://127.0.0.1:8787` default into generated MCP configs.
 

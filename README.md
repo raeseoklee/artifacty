@@ -860,6 +860,7 @@ The table lists every `ARTIFACTY_*` variable that Artifacty reads. `node src/cli
 | `ARTIFACTY_MCP_MODE` | `local` or `bridge`; `bridge` forwards stdio MCP to `ARTIFACTY_MCP_URL` | `local` |
 | `ARTIFACTY_MCP_HTTP` | Set `true` to also expose MCP over HTTP on the running server | `false` |
 | `ARTIFACTY_MCP_TIMEOUT_MS` | Bridge-mode MCP HTTP request timeout | `30000` |
+| `ARTIFACTY_MCP_ALLOWED_ORIGINS` | Comma-separated browser origins, besides the server's own, that may call HTTP `/mcp`. Other `Origin` headers get `403`; agents send none | unset |
 | `ARTIFACTY_API_TOKEN` | Shared token required for HTTP API and LAN/team sharing | — |
 | `ARTIFACTY_LOCALE` | Initial UI default (`en` or `ko`) before administrator language settings are saved | `en` |
 | `ARTIFACTY_EMBEDDINGS_PROVIDER` | `local`, `command`, `openai-compatible`, or `disabled`; when unset, command → URL → bundled local model | automatic |

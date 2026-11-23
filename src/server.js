@@ -1382,6 +1382,12 @@ async function handleScopedRequest({ request, response, store, host, port, secur
     if (!mcpHttp) {
       return sendJson(response, { error: "Not found" }, 404, headOnly);
     }
+    // A browser page on another site must not reach the MCP endpoint (DNS
+    // rebinding). Agents send no Origin; same-origin and configured origins
+    // are allowed (MCP 2025-11-25 Streamable HTTP).
+    if (request.headers.origin !== undefined && !isExpectedOrigin(request) && !mcpAllowedOrigins().includes(request.headers.origin)) {
+      return sendJson(response, { error: "Origin not allowed for MCP", code: "MCP_ORIGIN_FORBIDDEN" }, 403, headOnly);
+    }
     request.artifactyAuth = await requireRequestAuth({ store, request, url, config: security });
     return handleMcpHttpRequest({
       request,
@@ -2525,6 +2531,11 @@ function configuredPublicOrigin(value) {
 // The socket cannot see TLS that a reverse proxy terminates, so the operator's
 // ARTIFACTY_URL is also an accepted origin. Direct access through the listening
 // address keeps working, and request headers can never add a trusted origin.
+// Extra browser origins allowed to call /mcp, such as a local MCP inspector.
+function mcpAllowedOrigins() {
+  return String(process.env.ARTIFACTY_MCP_ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
+}
+
 function isExpectedOrigin(request) {
   const origin = request.headers.origin;
   return origin === `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`

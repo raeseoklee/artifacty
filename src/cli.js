@@ -1139,6 +1139,7 @@ Environment:
   ARTIFACTY_MCP_MODE       local or bridge. bridge forwards stdio MCP to ARTIFACTY_MCP_URL
   ARTIFACTY_MCP_HTTP       Set true to also expose MCP over HTTP on the running server
   ARTIFACTY_MCP_TIMEOUT_MS  Bridge-mode MCP HTTP request timeout in ms. Defaults to 30000
+  ARTIFACTY_MCP_ALLOWED_ORIGINS  Extra browser origins allowed to call HTTP /mcp, comma-separated
   ARTIFACTY_API_TOKEN      Required token for HTTP API and LAN mode
   ARTIFACTY_LOCALE         Default UI locale (e.g. en, ko) when a request does not specify one
   ARTIFACTY_EMBEDDINGS_PROVIDER local (default), openai-compatible, command, or disabled

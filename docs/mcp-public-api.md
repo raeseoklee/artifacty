@@ -6,7 +6,7 @@ Artifacty's MCP server is the primary interface for agent-to-agent integration.
 It uses local stdio MCP by default. The browser server can also expose a
 token-protected HTTP `/mcp` endpoint. Stdio bridge mode lets a client use local
 stdio configuration to write to a central Artifacty server. The server targets
-MCP protocol `2025-06-18`.
+MCP protocol `2025-11-25`, with `2025-06-18` still supported.
 
 ## Capabilities
 
@@ -199,8 +199,11 @@ keeps the document's route table in sync with `src/server.js`'s dispatch.
 
 | Client-requested `protocolVersion` | Server behavior |
 | --- | --- |
-| `2025-06-18` | Echoed back; this is the only protocol version verified against the public MCP specification. |
-| Any other value (older or a newer version this server hasn't been verified against) | Server falls back to `2025-06-18` in its `initialize` response rather than rejecting the connection, so unfamiliar clients still get a usable session. |
+| `2025-11-25` | Echoed back. Invalid tool arguments return a tool error (`isError: true`, `structuredContent.code: "invalid_arguments"`) so the model can correct its call; an unknown tool name is still a JSON-RPC error. |
+| `2025-06-18` | Echoed back, with the same behavior. |
+| Any other value (older, or newer such as `2026-07-28`, which this server does not implement) | Server falls back to `2025-11-25` in its `initialize` response rather than rejecting the connection, so unfamiliar clients still get a usable session. |
+
+Over HTTP, `/mcp` rejects a request whose `Origin` header is neither the server's own origin nor listed in `ARTIFACTY_MCP_ALLOWED_ORIGINS` (comma-separated) with `403` and `code: "MCP_ORIGIN_FORBIDDEN"`. Agents and CLI clients send no `Origin` and are unaffected; list a browser-based tool such as a local MCP inspector to allow it.
 
 `tools/list` reports an `outputSchema` for every tool that returns
 `structuredContent`, generated from the shared schema table described above.

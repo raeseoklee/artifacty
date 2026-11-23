@@ -774,6 +774,7 @@ Artifacty가 읽는 모든 `ARTIFACTY_*` 변수를 아래에 정리했습니다.
 | `ARTIFACTY_MCP_MODE` | `local` 또는 `bridge`. `bridge`는 stdio MCP를 `ARTIFACTY_MCP_URL`로 전달 | `local` |
 | `ARTIFACTY_MCP_HTTP` | `true`이면 실행 중인 서버에 HTTP MCP도 제공 | `false` |
 | `ARTIFACTY_MCP_TIMEOUT_MS` | 브리지 모드 MCP HTTP 요청 시간 제한 | `30000` |
+| `ARTIFACTY_MCP_ALLOWED_ORIGINS` | 서버 자신의 출처 외에 HTTP `/mcp`를 호출할 수 있는 브라우저 출처(쉼표로 구분). 그 밖의 `Origin` 헤더는 `403`으로 거부하며, 에이전트는 이 헤더를 보내지 않음 | 미설정 |
 | `ARTIFACTY_API_TOKEN` | HTTP API와 LAN/팀 공유에 필요한 공용 토큰 | — |
 | `ARTIFACTY_LOCALE` | 관리자 언어 설정을 저장하기 전의 초기 UI 기본값(`en` 또는 `ko`) | `en` |
 | `ARTIFACTY_EMBEDDINGS_PROVIDER` | `local`, `command`, `openai-compatible`, `disabled`; 명시하지 않으면 명령 → URL → 기본 로컬 모델 순 | 자동 선택 |
