@@ -1580,6 +1580,29 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
           <button type="submit" class="btn btn-outline-secondary">${archiveLabel}</button>
         </form>` : "";
   const manageInline = !["collection", "explainer"].includes(version.format);
+  const toolbarActions = `          <details class="toolbar-more" data-menu>
+            <summary aria-label="${view.text("nav.more")}" title="${view.text("nav.more")}">${uiIcon("dots")}</summary>
+            <div class="toolbar-menu">
+              ${user ? `<a href="${view.href(`/categories?artifactId=${encodeURIComponent(artifact.id)}`)}">${view.text("category.title")}</a>` : ""}
+              ${(user || canEdit) && version.format !== "explainer" ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/explain?version=${version.version}`)}">${view.text("explainer.create")}</a>` : ""}
+              <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
+              ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
+              <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
+            </div>
+          </details>
+          ${user && canManageVisibility ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/sharing`)}">${view.text("sharing.title")}</a>` : ""}
+          ${canEdit ? `<a class="is-primary" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit?version=${version.version}`)}">${view.text("nav.edit")}</a>` : ""}`;
+  // A compact copy of the header that docks at the top once the header and
+  // the version switcher scroll away, so the actions stay one click away
+  // while reading. It is inert until docked (see sidebar.js).
+  const artifactDock = `<div class="artifact-dock" data-artifact-dock aria-hidden="true" inert>
+        <div class="artifact-dock-bar">
+          <button type="button" class="artifact-dock-title" data-dock-top title="${escapeAttribute(artifact.title)}">${escapeHtml(artifact.title)}</button>
+          <span class="artifact-dock-meta">${escapeHtml(version.format)} · v${version.version}</span>
+          ${artifact.versions.length > 1 ? `<nav class="version-strip artifact-dock-versions" aria-label="${view.text("nav.versions")}">${versionLinks}</nav>` : ""}
+          <nav class="artifact-dock-actions">${toolbarActions}</nav>
+        </div>
+      </div>`;
 
   return pageShell({
     title: artifact.title,
@@ -1591,22 +1614,10 @@ export function renderArtifactPage({ artifact, version, content, comments = [], 
           <p>${escapeHtml(artifact.id)} · ${escapeHtml(artifact.sourceAgent)} · ${escapeHtml(baseUrl)}</p>
         </div>
         <nav>
-          <details class="toolbar-more" data-menu>
-            <summary aria-label="${view.text("nav.more")}" title="${view.text("nav.more")}">${uiIcon("dots")}</summary>
-            <div class="toolbar-menu">
-              ${user ? `<a href="${view.href(`/categories?artifactId=${encodeURIComponent(artifact.id)}`)}">${view.text("category.title")}</a>` : ""}
-              ${(user || canEdit) && version.format !== "explainer" ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/explain?version=${version.version}`)}">${view.text("explainer.create")}</a>` : ""}
-              <a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/diff`)}">${view.text("nav.diff")}</a>
-              ${user?.role === "admin" ? `<a href="${view.href(`/admin/artifacts/${encodeURIComponent(artifact.id)}/versions`)}">${view.text("nav.versions")}</a>` : ""}
-              <a href="${view.href(rawUrl)}">${view.text("nav.raw")}</a>
-            </div>
-          </details>
-          ${user && canManageVisibility ? `<a href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/sharing`)}">${view.text("sharing.title")}</a>` : ""}
-          ${canEdit ? `<a class="is-primary" href="${view.href(`/artifacts/${encodeURIComponent(artifact.id)}/edit?version=${version.version}`)}">${view.text("nav.edit")}</a>` : ""}
-
-
+${toolbarActions}
         </nav>
       </header>
+      ${artifactDock}
       <main id="main-content" class="${viewClass}">
         <section class="meta-strip artifact-overview">
           <span>${escapeHtml(version.format)} · v${version.version}</span>
@@ -2389,6 +2400,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
         --code-viewer-filter: invert(0.88) hue-rotate(180deg);
         --shadow-control: 0 0.5px 1px rgba(0, 0, 0, 0.3);
         --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --dock-bg: rgba(44, 44, 46, 0.72);
         --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 10px 28px rgba(0, 0, 0, 0.45);
 `;
   return `<!doctype html>
@@ -2405,6 +2417,9 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
     /* Tokens. Colors follow Apple system grays with the brand cyan as the tint.
        Contrast (WCAG): --label-2 is 5.99:1 on --bg and 5.08:1 on --chip in light,
        6.61:1 and 4.97:1 in dark; the accent is 5.78:1 on white and 8.44:1 on #1c1c1e. */
+    /* Registered so the sidebar width can animate: the sidebar, the content
+       padding, the divider, and the floating artifact bar all follow it. */
+    @property --sidebar-w { syntax: "<length>"; inherits: true; initial-value: 228px; }
     /* Pretendard is the interface face on every platform, so macOS and
        Windows render the same text. System fonts are only the fallback. */
     @font-face {
@@ -2472,6 +2487,7 @@ export function pageShell({ title, body, head = "", afterBody = "", locale = DEF
       --frame-bg: #ffffff;
       --shadow-control: 0 0.5px 1px rgba(0, 0, 0, 0.08);
       --shadow-thumb: 0 0.5px 2px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+      --dock-bg: rgba(255, 255, 255, 0.72);
       --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 8px 24px rgba(0, 0, 0, 0.12);
       /* Legacy names, kept for client scripts and page-specific styles. */
       --panel: var(--group);
@@ -2691,6 +2707,8 @@ ${darkThemeVariables}
       .sidebar-toggle:not([hidden]) { display: inline-flex; position: static; width: 28px; height: 28px; min-height: 28px; padding: 0; flex-shrink: 0; color: var(--label-2); }
       .sidebar-toggle .ui-icon { width: 18px; height: 18px; }
       :root[data-sidebar="collapsed"] { --sidebar-w: 60px; }
+      .workspace-header { overflow-x: hidden; }
+      .workspace-header nav a, .workspace-dropdown summary { white-space: nowrap; }
       :root[data-sidebar="collapsed"] .workspace-header { padding: var(--sp-3) 10px; }
       :root[data-sidebar="collapsed"] .workspace-brand { display: none; }
       :root[data-sidebar="collapsed"] .workspace-brand-row { justify-content: center; padding-left: 0; }
@@ -2699,6 +2717,14 @@ ${darkThemeVariables}
       :root[data-sidebar="collapsed"] .workspace-header nav a, :root[data-sidebar="collapsed"] .workspace-dropdown summary, :root[data-sidebar="collapsed"] .nav-form button { justify-content: center; padding: 6px; }
       :root[data-sidebar="collapsed"] .workspace-header nav a:is(:hover, :focus-visible) .workspace-nav-label, :root[data-sidebar="collapsed"] .workspace-dropdown > summary:is(:hover, :focus-visible) .workspace-nav-label, :root[data-sidebar="collapsed"] .nav-form button:is(:hover, :focus-visible) .workspace-nav-label { display: block; position: fixed; left: 66px; z-index: 50; max-width: 240px; padding: var(--sp-1) var(--sp-2); border-radius: var(--r-control); background: var(--bg); color: var(--label); font-size: var(--fs-callout); font-weight: 400; box-shadow: var(--shadow-pop); pointer-events: none; }
     }
+    /* Collapsing or expanding the sidebar (only when the person toggles it):
+       the width glides on a fast-start curve, and labels fade in once the
+       column is wide enough to hold them. */
+    @media (min-width: 1100px) and (prefers-reduced-motion: no-preference) {
+      :root[data-sidebar-motion] { transition: --sidebar-w 0.32s cubic-bezier(0.16, 1, 0.3, 1); }
+      :root[data-sidebar-motion]:not([data-sidebar="collapsed"]) :is(.workspace-brand, .workspace-nav-label, .workspace-chevron, .workspace-version, .workspace-identity, .language-switcher, .theme-controls) { animation: sidebar-reveal 0.22s 0.12s both; }
+    }
+    @keyframes sidebar-reveal { from { opacity: 0; } to { opacity: 1; } }
     @media (max-width: 640px) {
       .workspace-header { padding: var(--sp-2) var(--sp-4); }
       .workspace-header nav a, .workspace-dropdown summary, .workspace-dropdown .nav-form button { min-height: 44px; }
@@ -2742,7 +2768,7 @@ ${darkThemeVariables}
     .topbar p { margin: var(--sp-1) 0 0; color: var(--label-2); font-size: var(--fs-callout); overflow-wrap: anywhere; }
     .topbar nav,
     .dashboard-heading nav { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--sp-1); }
-    .topbar nav > a,
+    :is(.topbar nav, .artifact-dock-actions) > a,
     .dashboard-heading nav > a:not(.btn) {
       display: inline-flex;
       align-items: center;
@@ -2754,13 +2780,13 @@ ${darkThemeVariables}
       font-weight: 500;
       transition: background-color 0.1s ease-out;
     }
-    .topbar nav > a:hover,
+    :is(.topbar nav, .artifact-dock-actions) > a:hover,
     .dashboard-heading nav > a:not(.btn):hover { background: var(--hover); color: var(--label); text-decoration: none; }
-    .topbar nav > a:active,
+    :is(.topbar nav, .artifact-dock-actions) > a:active,
     .dashboard-heading nav > a:not(.btn):active { background: var(--press); }
-    .topbar nav > a.is-primary { margin-left: var(--sp-2); background: var(--accent-fill); color: var(--accent-fill-ink); }
-    .topbar nav > a.is-primary:hover { background: var(--accent-fill-hover); color: var(--accent-fill-ink); }
-    .topbar nav > a.is-primary:active { background: var(--accent-fill-press); }
+    :is(.topbar nav, .artifact-dock-actions) > a.is-primary { margin-left: var(--sp-2); background: var(--accent-fill); color: var(--accent-fill-ink); }
+    :is(.topbar nav, .artifact-dock-actions) > a.is-primary:hover { background: var(--accent-fill-hover); color: var(--accent-fill-ink); }
+    :is(.topbar nav, .artifact-dock-actions) > a.is-primary:active { background: var(--accent-fill-press); }
     .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
     .share-principal { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 6px 0; border-bottom: 1px solid var(--separator); }
     .share-principal:last-child { border-bottom: 0; }
@@ -2771,6 +2797,38 @@ ${darkThemeVariables}
     .update-failure dt { color: var(--label-2); font-weight: 500; }
     .update-failure dd { margin: 0; overflow-wrap: anywhere; }
     .update-log-command { overflow-x: auto; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-control); background: var(--fill); font-size: var(--fs-caption); }
+    /* Floating artifact bar: a translucent pill that docks at the top of the
+       content column. It closes in from the sides and drops into place on a
+       fast-start curve; a CSS transition reverses from wherever it is when
+       the scroll direction changes. */
+    .artifact-dock {
+      position: fixed; z-index: 40; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 0; right: 0;
+      display: flex; justify-content: center; pointer-events: none;
+      padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    }
+    .artifact-dock-bar {
+      display: flex; align-items: center; gap: var(--sp-2); min-width: 0; max-width: min(1040px, 100%);
+      padding: 5px 6px 5px 16px; border-radius: 999px;
+      background: var(--dock-bg); box-shadow: var(--shadow-pop);
+      -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+      opacity: 0; transform: translateY(-12px) scaleX(1.06);
+      transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.36s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .artifact-dock-bar { background: var(--group); } }
+    .artifact-dock.is-docked .artifact-dock-bar { pointer-events: auto; opacity: 1; transform: none; }
+    .artifact-dock .artifact-dock-title {
+      min-width: 0; max-width: 34ch; min-height: 0; padding: 0; border: 0; border-radius: 0; box-shadow: none; background: none; color: var(--label);
+      font: inherit; font-size: var(--fs-body); font-weight: 600; text-align: left;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+    }
+    .artifact-dock .artifact-dock-title:hover { background: none; color: var(--accent); }
+    .artifact-dock-meta { flex: none; color: var(--label-2); font-size: var(--fs-caption); white-space: nowrap; }
+    .artifact-dock .artifact-dock-versions { flex: none; margin: 0; }
+    .artifact-dock-actions { display: flex; flex: none; align-items: center; gap: var(--sp-1); margin-left: var(--sp-2); }
+    @media (min-width: 1100px) { body:has(> .workspace-header) .artifact-dock { left: var(--sidebar-w); } }
+    /* Phones keep the page header as it is; the bar is for wider screens. */
+    @media (max-width: 720px) { .artifact-dock { display: none; } }
+    @media (prefers-reduced-motion: reduce) { .artifact-dock-bar { transform: none; transition: opacity 0.12s linear; } }
     /* Secondary artifact actions live in one pull-down menu, as in a macOS toolbar. */
     .toolbar-more { position: relative; }
     .toolbar-more > summary {
