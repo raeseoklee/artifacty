@@ -17,6 +17,10 @@ Jump to a task: [Find an artifact](#find-an-artifact) · [Create or edit an arti
 3. Open **Advanced filters** to narrow results by tag, source, type, publisher, date, or review status. With JavaScript enabled, these filters apply when you change them. Use **Clear** to reset the filters.
 4. Select an artifact title to open it.
 
+![English artifact list scrolled down, with the floating bar for search, category, Import, and New docked at the top](assets/screenshots/floating-list-bar.png)
+
+On a screen wider than 720 px, scrolling past the search row docks a bar at the top of the list with the search field, the category filter, **Import**, and **New**. It uses the same filters as the page, so advanced filters and the page size stay applied. Phones keep the page header instead.
+
 ![English advanced filters](assets/screenshots/filters.png)
 
 At the bottom of the list, use **Previous** and **Next** to change pages. **Per page** offers 10, 25, 50, or 100 items and applies immediately with JavaScript enabled. Check the result count to confirm that the filter or page change took effect.
@@ -74,7 +78,7 @@ Use **Zoom out**, **Zoom in**, **Fit**, and **100%** in a Mermaid preview to rea
 
 ![English artifact viewer displaying a Mermaid diagram](assets/screenshots/diagram.png)
 
-The viewer selects a preview based on the stored format. Markdown can contain fenced Mermaid diagrams. Other formats include HTML, SVG, code, JSON, CSV, SARIF, notebooks, and media. Preview capabilities depend on the format and server settings; use **Raw** to inspect the stored source.
+The viewer selects a preview based on the stored format. Markdown can contain fenced Mermaid diagrams. Other formats include HTML, SVG, code, JSON, CSV, SARIF, notebooks, and media. Preview capabilities depend on the format and server settings; select **Raw** in the **More** (⋯) menu to inspect the stored source.
 
 HTML runs inside a sandboxed frame. In-document links such as a table of contents (`#section`) scroll the viewer page to that section and add the section to the page address, so you can share or reload a link to it. Public share links have stricter previews: HTML scripts and external resources are disabled, while React, notebook, SVG, and Mermaid artifacts show source instead of active content. Do not assume that a public share link will behave exactly like the signed-in viewer.
 
@@ -84,8 +88,12 @@ HTML runs inside a sandboxed frame. In-document links such as a table of content
 
 1. Open an artifact and select a version such as **v1** or **v2** in the version strip.
 2. Confirm the displayed version number before reading or copying content.
-3. Select **Diff**, choose **From** and **To**, then select **Compare**.
+3. Open the **More** (⋯) menu, select **Diff**, choose **From** and **To**, then select **Compare**.
 4. Inspect the changes. Where supported, switch between structured and line views.
+
+![English artifact page scrolled down, with the floating bar for title, version, More, Sharing, and Edit docked at the top](assets/screenshots/floating-artifact-bar.png)
+
+While you read a long artifact on a screen wider than 720 px, a bar docks at the top once the title and the version strip scroll away. It keeps the title, the format and version, the version strip, **More** (⋯), **Sharing**, and **Edit** within reach. Select the title in the bar to return to the top.
 
 ![English administrator version maintenance](assets/screenshots/versions.png)
 
