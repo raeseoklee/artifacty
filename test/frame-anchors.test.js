@@ -134,3 +134,32 @@ test("the page scrolls only within the frame that asked and records the hash", a
   send({ __artifactyHeight: 1234 });
   assert.equal(frame.style.height, "1234px", "height messages still size the frame");
 });
+
+test("frame height includes the frame's own border so the document never scrolls inside it", async () => {
+  const page = await renderedPage();
+  const pageScript = scripts(page).find((source) => source.includes("__artifactyScroll"));
+  const frameWindow = { postMessage: () => {} };
+  // A 1px border on each side: offsetHeight - clientHeight = 2.
+  const frame = { contentWindow: frameWindow, offsetHeight: 322, clientHeight: 320, style: {} };
+  const listeners = {};
+  const context = {
+    window: { innerHeight: 1000, pageYOffset: 0, addEventListener: (type, handler) => { listeners[type] = handler; } },
+    document: { querySelectorAll: () => [frame] },
+    location: { hash: "", pathname: "/", search: "" },
+    history: {},
+    setTimeout,
+    isFinite
+  };
+  vm.runInNewContext(pageScript, context);
+  const send = (data) => listeners.message({ source: frameWindow, data });
+  send({ __artifactyHeight: 2767.4 });
+  assert.equal(frame.style.height, "2770px", "content rounded up plus 2px of border");
+  send({ __artifactyHeight: 318, __artifactyFillsViewport: true });
+  assert.equal(frame.style.height, "852px", "a screen-filling app document gets about one screen of height");
+  send({ __artifactyHeight: 10 });
+  assert.equal(frame.style.height, "200px", "the minimum still applies");
+
+  const srcdoc = decodeAttribute(/class="artifact-frame" sandbox="allow-scripts allow-forms allow-popups" srcdoc="([^"]*)"/.exec(page)[1]);
+  assert.match(srcdoc, /function fillsViewport\(\)/);
+  assert.match(srcdoc, /__artifactyFillsViewport:fillsViewport\(\)/);
+});
