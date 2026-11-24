@@ -260,18 +260,36 @@ Codex는 MCP로 후속 작업용 아티팩트를 직접 게시할 수 있습니�
 
 ## MCP 도구
 
-- `artifacty_create`: Artifacty 기본 형식으로 새 아티팩트를 생성합니다.
-- `artifacty_publish`: 이전 버전과의 호환성을 위한 `artifacty_create`의 별칭입니다.
-- `artifacty_import`: Claude, Codex, Gemini, GitHub Copilot, Cursor, Artifacty 또는 일반 아티팩트 페이로드를 Artifacty 형식으로 변환하고 저장합니다.
-- `artifacty_list`: 검색어, 태그, 생성 에이전트로 아티팩트를 찾습니다.
-- `artifacty_get`: 아티팩트 메타데이터와 콘텐츠를 읽습니다.
-- `artifacty_update`: 새 버전을 추가합니다.
-- `artifacty_archive`: 버전을 삭제하지 않고 아티팩트를 숨깁니다.
-- `artifacty_restore`: 아카이브 상태를 해제합니다.
-- `artifacty_audit`: 최근 감사 이벤트를 나열합니다.
-- `artifacty_info`: 로컬 서버와 저장소 설정을 확인합니다.
+각 도구의 인자와 결과는 [MCP 공개 API](mcp-public-api.md)에서 확인하세요. 서버가 제공하는 도구는 다음과 같습니다.
+
+- 생성과 변경: `artifacty_create`(`artifacty_publish`는 이전 버전 호환용 별칭), `artifacty_import`, `artifacty_update`, `artifacty_set_visibility`, `artifacty_archive`, `artifacty_restore`
+- 찾기와 읽기(읽기 전용): `artifacty_find_related`, `artifacty_list`, `artifacty_get`, `artifacty_diff`, `artifacty_audit`, `artifacty_info`, `artifacty_wait`
+- 연결과 검토: `artifacty_link`, `artifacty_unlink`, `artifacty_comment`, `artifacty_resolve_comment`, `artifacty_set_review_status`
+- 정리와 설명: `artifacty_collection_create`, `artifacty_collection_update`, `artifacty_explain`
 
 데이터를 변경하는 MCP 도구는 저장 전에 일반적인 API 키와 개인키 패턴을 검사합니다. 의도적으로 예외를 허용하는 경우에만 `allowSecrets: true`를 전달하세요.
+
+### 아티팩트를 만들기 전에 묻기
+
+에이전트는 먼저 새 아티팩트의 제목과, 필요하면 태그와 내용 일부를 넣어 `artifacty_find_related`를 호출합니다. 이 도구는 내가 올린 아티팩트 중 관련 있어 보이는 것을 최대 5개 돌려줍니다. 후보가 있으면 에이전트는 다음 중 하나를 고르라고 묻습니다.
+
+- **참조로 연결하기:** 에이전트가 고른 ID를 `references`에 넣어 아티팩트를 만듭니다.
+- **새 버전으로 올리기:** 에이전트가 `artifacty_update`로 고른 아티팩트에 내용을 올립니다. 제목이 거의 같은 후보에는 `likelySameDocument: true`가 표시됩니다.
+- **별도 아티팩트로 만들기:** 연결 없이 만듭니다.
+
+서버의 MCP 안내문이 에이전트에게 이 순서를 따르라고 요청합니다. 에이전트가 묻지 않고 아티팩트를 만들어도 결과에 `relatedCandidates`가 담기므로, 만든 뒤에라도 물을 수 있습니다. 질문은 에이전트가 하며, Artifacty가 별도의 선택 창을 띄우지는 않습니다.
+
+### 서버를 업데이트한 뒤
+
+새로 추가되거나 바뀐 MCP 도구는 MCP 요청에 응답하는 서버에서 옵니다.
+
+| 클라이언트 연결 방식 | 각 PC에서 업데이트해야 하나요? |
+| --- | --- |
+| 중앙 서버에 HTTP로 연결(`url`이 `/mcp`로 끝남) | 아니요. 중앙 서버를 업데이트하세요. |
+| stdio 브리지 모드(`ARTIFACTY_MCP_MODE=bridge`) | 아니요. 브리지는 요청과 결과를 그대로 전달합니다. 중앙 서버를 업데이트하세요. |
+| 로컬 모드(그 PC의 자체 저장소 사용) | 예. `npm install -g artifacty@latest`를 실행하거나, 서비스로 설치했다면 `artifacty update`를 실행하세요. |
+
+MCP 클라이언트는 세션을 시작할 때 도구 목록을 읽습니다. 업데이트한 뒤에는 Claude Code, Codex, Gemini CLI를 다시 시작하거나 Cursor에서 MCP 서버를 다시 로드해야 새 도구가 보입니다.
 
 ## MCP 리소스와 프롬프트
 

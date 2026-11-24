@@ -186,6 +186,8 @@ JavaScript를 사용할 수 있으면 선택한 값을 자동 저장합니다. *
 
 업데이트가 실패하면 화면에 실패한 단계, 오류 코드, 백업 ID, 다음에 할 일이 표시됩니다. npm이 오류 코드를 보고했다면 그 코드(예: `E404`, `EACCES`)도 함께 표시됩니다. 비밀값을 가린 전체 출력은 서버 저널에 남습니다. 화면에는 해당 작업의 `journalctl --user -u artifacty-update-<id>.service --no-pager` 명령이 그대로 표시됩니다. 이 매뉴얼의 스크린샷은 업데이트를 실제 적용했다는 뜻이 아닙니다.
 
+업데이트한 뒤에는 에이전트가 새 세션에서만 새 MCP 도구를 볼 수 있습니다. Claude Code, Codex, Gemini CLI를 다시 시작하세요. 이 서버에 HTTP나 브리지 모드로 연결하는 PC는 따로 업데이트할 필요가 없습니다. 자세한 내용은 [서버를 업데이트한 뒤](integrations.md#서버를-업데이트한-뒤)를 참고하세요.
+
 ### 보존 정책
 
 ![보존 정책 — English UI](../assets/screenshots/retention.png)

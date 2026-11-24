@@ -187,6 +187,8 @@ Right after a release, npm can list the new version a few minutes before its pac
 
 If an update fails, the page shows the step that failed, the error code, the npm error code when npm reported one (for example `E404` or `EACCES`), the backup ID, and what to do next. The full output, with credentials masked, is in the server journal. The page shows the exact `journalctl --user -u artifacty-update-<id>.service --no-pager` command for that run. The screenshot does not represent an update actually applied for this manual.
 
+After an update, agents see new MCP tools only in a new session. Restart Claude Code, Codex, or Gemini CLI. Computers that connect to this server over HTTP or in bridge mode do not need their own update. See [After a server update](integrations.md#after-a-server-update).
+
 ### Retention
 
 ![Retention — English UI](assets/screenshots/retention.png)

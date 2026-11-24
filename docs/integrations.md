@@ -281,18 +281,36 @@ Then run `/mcp` inside Gemini CLI to confirm that the Artifacty tools are connec
 
 ## MCP Tools
 
-- `artifacty_create`: create a new Artifacty-native artifact.
-- `artifacty_publish`: backwards-compatible alias for `artifacty_create`.
-- `artifacty_import`: convert a Claude, Codex, Gemini, GitHub Copilot, Cursor, Artifacty, or generic artifact payload into Artifacty format and save it.
-- `artifacty_list`: discover artifacts by query, tag, or source agent.
-- `artifacty_get`: read artifact metadata and content.
-- `artifacty_update`: append a new version.
-- `artifacty_archive`: hide an artifact without deleting versions.
-- `artifacty_restore`: clear archive state.
-- `artifacty_audit`: list recent audit events.
-- `artifacty_info`: inspect local server/store settings.
+[MCP public API](mcp-public-api.md) describes every argument and result. The server offers these tools:
+
+- Create and change: `artifacty_create` (`artifacty_publish` is its backwards-compatible alias), `artifacty_import`, `artifacty_update`, `artifacty_set_visibility`, `artifacty_archive`, and `artifacty_restore`.
+- Find and read (read-only): `artifacty_find_related`, `artifacty_list`, `artifacty_get`, `artifacty_diff`, `artifacty_audit`, `artifacty_info`, and `artifacty_wait`.
+- Connect and review: `artifacty_link`, `artifacty_unlink`, `artifacty_comment`, `artifacty_resolve_comment`, and `artifacty_set_review_status`.
+- Organize and explain: `artifacty_collection_create`, `artifacty_collection_update`, and `artifacty_explain`.
 
 Mutating MCP tools scan content for common API keys and private keys before storage. Pass `allowSecrets: true` only for intentional exceptions.
+
+### Ask before creating an artifact
+
+Agents first call `artifacty_find_related` with the new artifact's title and, optionally, its tags and an excerpt. It returns up to five of your own artifacts that look related. When it returns candidates, the agent asks you to choose one of these:
+
+- **Link as a reference.** The agent creates the artifact with `references` set to the chosen IDs.
+- **Publish as a new version.** The agent adds the content to the chosen artifact with `artifacty_update`. `likelySameDocument: true` marks a candidate with nearly the same title.
+- **Create a separate artifact.** The agent creates it with no link.
+
+The server's MCP instructions ask agents to follow these steps. If an agent creates an artifact without asking, the result still lists `relatedCandidates`, so the agent can ask you afterwards. The agent asks; Artifacty does not open a dialog of its own.
+
+### After a server update
+
+New or changed MCP tools come from the server that answers the MCP requests:
+
+| How the client connects | Update on each computer? |
+| --- | --- |
+| HTTP to a central server (`url` ends in `/mcp`) | No. Update the central server. |
+| Stdio bridge mode (`ARTIFACTY_MCP_MODE=bridge`) | No. The bridge forwards requests and results unchanged. Update the central server. |
+| Local mode (the computer's own store) | Yes. Run `npm install -g artifacty@latest`, or `artifacty update` for a service installation. |
+
+MCP clients read the tool list when a session starts. After the update, restart Claude Code, Codex, or Gemini CLI, or reload the MCP servers in Cursor, before you look for a new tool.
 
 ## MCP Resources and Prompts
 
