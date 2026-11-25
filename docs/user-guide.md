@@ -72,11 +72,13 @@ The screenshot shows the owner's Inbox after a request.
 
 ## Preview content
 
-Use **Zoom out**, **Zoom in**, **Fit**, and **100%** in a Mermaid preview to read large diagrams. Scroll inside the preview to reach content beyond its visible area.
+Use **Zoom out**, **Zoom in**, **Fit**, and **100%** in a Mermaid preview, including C4 diagrams, to read large diagrams. You can also zoom with Ctrl + scroll (Cmd + scroll on macOS) or a trackpad pinch; the point under the pointer stays in place. Drag a diagram that is larger than its box to move it, or hold Space and drag. Scroll inside the preview to reach content beyond its visible area.
 
 ![Mermaid zoom controls](assets/screenshots/mermaid-zoom.png)
 
 ![English artifact viewer displaying a Mermaid diagram](assets/screenshots/diagram.png)
+
+Markdown follows GitHub-flavored Markdown: headings from `#` to `######`, bold, italic, strikethrough, links, images, numbered and nested lists, block quotes, horizontal rules, tables, task lists, and fenced code, including Mermaid. Each heading gets an anchor from its text, so a link to `#scope` jumps to a heading named Scope. Raw HTML inside Markdown is shown as text, and only web, mail, in-page, and relative links are followed.
 
 The viewer selects a preview based on the stored format. Markdown can contain fenced Mermaid diagrams. Other formats include HTML, SVG, code, JSON, CSV, SARIF, notebooks, and media. Preview capabilities depend on the format and server settings; select **Raw** in the **More** (⋯) menu to inspect the stored source.
 
