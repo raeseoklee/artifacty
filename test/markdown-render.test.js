@@ -61,3 +61,17 @@ test("Markdown keeps Artifacty's tables, task lists, code fences, and Mermaid em
   assert.match(html, /<pre><code class="language-js">console\.log\(&#39;&lt;b&gt;&#39;\)<\/code><\/pre>/);
   assert.match(html, /data-artifacty-mermaid/);
 });
+
+test("diagram frames zoom with Ctrl/Cmd + scroll and pan by dragging", async (t) => {
+  const home = await mkdtemp(path.join(tmpdir(), "artifacty-diagram-gestures-"));
+  const app = await startServer({ home, port: 0 });
+  t.after(async () => { await app.close(); await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
+  const artifact = await createArtifact(app.store, { title: "Flow", content: "flowchart LR\n  A --> B", format: "mermaid", sourceAgent: "test" });
+  const page = await (await fetch(`${app.url}/artifacts/${artifact.id}`)).text();
+  const srcdoc = /class="artifact-frame artifact-mermaid-frame" sandbox="allow-scripts" srcdoc="([^"]*)"/.exec(page)[1].replaceAll("&quot;", "\"").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&#39;", "'").replaceAll("&amp;", "&");
+  assert.match(srcdoc, /addEventListener\("wheel"[\s\S]*event\.ctrlKey && !event\.metaKey[\s\S]*\{ passive: false \}/, "Ctrl or Cmd + wheel zooms instead of the page");
+  assert.match(srcdoc, /zoom\(scale \* Math\.exp\(-event\.deltaY \* step\), \{ x: /, "zoom keeps the point under the pointer");
+  assert.match(srcdoc, /event\.code !== "Space"/);
+  assert.match(srcdoc, /setPointerCapture/);
+  assert.match(srcdoc, /Ctrl\/⌘ \+ scroll to zoom · Drag or Space \+ drag to move/);
+});

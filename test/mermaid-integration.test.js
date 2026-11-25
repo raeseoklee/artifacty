@@ -59,7 +59,12 @@ test("large diagrams fit initially and retain two-axis scrolling at actual size"
   const control = id => ({ addEventListener(event, handler) { handlers.set(id, handler); } });
   const svg = { viewBox: { baseVal: { width: 1800, height: 1200 } }, style: {} };
   const target = { querySelector() { return svg; } };
-  const viewport = { clientWidth: 600, clientHeight: 540, scrollLeft: 0, scrollTop: 0 };
+  const listeners = new Map();
+  const viewport = {
+    clientWidth: 600, clientHeight: 540, scrollLeft: 0, scrollTop: 0, scrollWidth: 600, scrollHeight: 540,
+    classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } },
+    addEventListener(event, handler, options) { listeners.set(event, { handler, options }); }
+  };
   const controls = {
     "artifacty-mermaid-source": { textContent: JSON.stringify(source) },
     "artifacty-mermaid": target,
@@ -74,7 +79,7 @@ test("large diagrams fit initially and retain two-axis scrolling at actual size"
   const script = frame.match(/<script type="module">([\s\S]*?)<\/script>/)[1].replace(/import mermaid from [^;]+;/, "");
   await vm.runInNewContext(`(async () => {${script}})()`, {
     mermaid: { initialize() {}, async render() { return { svg: "<svg></svg>" }; } },
-    document: { getElementById: id => controls[id], querySelector: () => toolbar, documentElement: {}, body: {} },
+    document: { getElementById: id => controls[id], querySelector: () => toolbar, documentElement: {}, body: {}, addEventListener() {} },
     parent: { postMessage() {} }, window: { addEventListener() {} }, setTimeout() {}
   });
   assert.equal(toolbar.hidden, false);
@@ -92,4 +97,6 @@ test("large diagrams fit initially and retain two-axis scrolling at actual size"
   assert.equal(viewport.scrollLeft, 0);
   assert.equal(viewport.scrollTop, 0);
   assert.match(frame, /overflow: auto; max-height: 560px/);
+  assert.equal(listeners.get("wheel").options.passive, false, "the wheel handler can stop page zoom");
+  for (const event of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) assert.ok(listeners.has(event), event);
 });

@@ -3741,7 +3741,10 @@ function mermaidFrameContent(content) {
     .diagram-controls button:focus-visible, #artifacty-mermaid-viewport:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
     .diagram-controls button:disabled { opacity: .45; cursor: default; }
     .diagram-controls output { min-width: 4ch; text-align: center; font-variant-numeric: tabular-nums; }
-    #artifacty-mermaid-viewport { overflow: auto; max-height: 560px; min-height: 240px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    #artifacty-mermaid-viewport { overflow: auto; max-height: 560px; min-height: 240px; border: 1px solid #e2e8f0; border-radius: 8px; overscroll-behavior: contain; }
+    #artifacty-mermaid-viewport.pannable, #artifacty-mermaid-viewport.space-pan { cursor: grab; }
+    #artifacty-mermaid-viewport.panning { cursor: grabbing; user-select: none; }
+    .diagram-hint { color: #64748b; font-size: 12px; }
     #artifacty-mermaid { width: max-content; min-width: 100%; }
     #artifacty-mermaid svg { display: block; max-width: none !important; margin: 0 auto; }
     .error { white-space: pre-wrap; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px; }
@@ -3754,6 +3757,7 @@ function mermaidFrameContent(content) {
     <button type="button" id="diagram-zoom-in" aria-label="Zoom in">+</button>
     <button type="button" id="diagram-fit">Fit</button>
     <button type="button" id="diagram-actual">100%</button>
+    <span class="diagram-hint">Ctrl/⌘ + scroll to zoom · Drag or Space + drag to move</span>
   </div>
   <div id="artifacty-mermaid-viewport" tabindex="0" role="region" aria-label="Diagram"><div id="artifacty-mermaid"></div></div>
   <script type="application/json" id="artifacty-mermaid-source">${source}</script>
@@ -3782,18 +3786,23 @@ function mermaidFrameContent(content) {
         const level = document.getElementById("diagram-zoom-level");
         let scale = 1;
         let fitting = true;
-        function zoom(nextScale) {
+        // Zooms so the diagram point under (offsetX, offsetY) in the viewport
+        // stays put; without an anchor it keeps the viewport centre.
+        function zoom(nextScale, anchor) {
           const previous = scale;
-          const centerX = (viewport.scrollLeft + viewport.clientWidth / 2) / previous;
-          const centerY = (viewport.scrollTop + viewport.clientHeight / 2) / previous;
+          const offsetX = anchor ? anchor.x : viewport.clientWidth / 2;
+          const offsetY = anchor ? anchor.y : viewport.clientHeight / 2;
+          const pointX = (viewport.scrollLeft + offsetX) / previous;
+          const pointY = (viewport.scrollTop + offsetY) / previous;
           scale = Math.max(0.01, Math.min(4, nextScale));
           svg.style.width = width * scale + "px";
           svg.style.height = height * scale + "px";
           level.textContent = Math.round(scale * 100) + "%";
           zoomOut.disabled = scale <= 0.01;
           zoomIn.disabled = scale >= 4;
-          viewport.scrollLeft = Math.max(0, centerX * scale - viewport.clientWidth / 2);
-          viewport.scrollTop = Math.max(0, centerY * scale - viewport.clientHeight / 2);
+          viewport.scrollLeft = Math.max(0, pointX * scale - offsetX);
+          viewport.scrollTop = Math.max(0, pointY * scale - offsetY);
+          viewport.classList.toggle("pannable", viewport.scrollWidth > viewport.clientWidth + 1 || viewport.scrollHeight > viewport.clientHeight + 1);
           report();
         }
         function fit() {
@@ -3808,6 +3817,55 @@ function mermaidFrameContent(content) {
         document.getElementById("diagram-actual").addEventListener("click", () => { fitting = false; zoom(1); });
         document.querySelector(".diagram-controls").hidden = false;
         window.addEventListener("resize", () => { if (fitting) fit(); });
+
+        // Ctrl+scroll, Cmd+scroll, and trackpad pinch (a wheel event with
+        // ctrlKey) zoom around the pointer instead of zooming the page.
+        viewport.addEventListener("wheel", (event) => {
+          if (!event.ctrlKey && !event.metaKey) return;
+          event.preventDefault();
+          fitting = false;
+          const rect = viewport.getBoundingClientRect();
+          const step = event.deltaMode === 1 ? 0.05 : 0.0025;
+          zoom(scale * Math.exp(-event.deltaY * step), { x: event.clientX - rect.left, y: event.clientY - rect.top });
+        }, { passive: false });
+
+        // Drag to move a diagram larger than its box; holding Space allows a
+        // drag at any size, as in design tools.
+        let spaceHeld = false;
+        let pan = null;
+        const pannable = () => viewport.classList.contains("pannable");
+        document.addEventListener("keydown", (event) => {
+          if (event.code !== "Space" || event.target.closest?.("button")) return;
+          event.preventDefault();
+          if (!spaceHeld) { spaceHeld = true; viewport.classList.add("space-pan"); }
+        });
+        document.addEventListener("keyup", (event) => {
+          if (event.code !== "Space") return;
+          spaceHeld = false;
+          viewport.classList.remove("space-pan");
+        });
+        window.addEventListener("blur", () => { spaceHeld = false; viewport.classList.remove("space-pan"); });
+        viewport.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 && event.button !== 1) return;
+          if (!spaceHeld && !pannable() && event.button !== 1) return;
+          event.preventDefault();
+          viewport.focus({ preventScroll: true });
+          pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+          viewport.setPointerCapture(event.pointerId);
+          viewport.classList.add("panning");
+        });
+        viewport.addEventListener("pointermove", (event) => {
+          if (!pan || event.pointerId !== pan.id) return;
+          viewport.scrollLeft = pan.left - (event.clientX - pan.x);
+          viewport.scrollTop = pan.top - (event.clientY - pan.y);
+        });
+        const endPan = (event) => {
+          if (!pan || event.pointerId !== pan.id) return;
+          pan = null;
+          viewport.classList.remove("panning");
+        };
+        viewport.addEventListener("pointerup", endPan);
+        viewport.addEventListener("pointercancel", endPan);
         fit();
       }
     } catch (error) {
