@@ -4,6 +4,7 @@ import { parseCollection } from "./collections.js";
 import { renderExplainer } from "./render-explainer.js";
 import { uiIcon } from "./ui-icons.js";
 import { readFileSync } from "node:fs";
+import { Marked } from "marked";
 import { EDITOR_CLIENT_PATH, REACT_BUNDLE_PATH, VIEWER_CLIENT_PATH, editorImportMapJson } from "./editor-assets.js";
 import { createI18n, DEFAULT_LOCALE, editorMessages, localizedHref, availableLanguages } from "./i18n.js";
 import { ARTIFACT_FORMATS, ARTIFACT_TYPES, REVIEW_STATUSES, SAVED_VIEW_FILTER_KEYS, VISIBILITY_VALUES } from "./storage.js";
@@ -3933,110 +3934,84 @@ export function escapeAttribute(value) {
 // render as disabled checkboxes; tables already render inside a horizontally
 // scrolling container via renderMarkdownTable.
 function markdownToHtml(markdown, diagramState = createMermaidDiagramState()) {
-  const lines = String(markdown ?? "").split(/\r?\n/);
-  const html = [];
-  let inCode = false;
-  let codeLang = "";
-  let codeBuffer = [];
-  let inList = false;
-  let paragraph = [];
-
-  const flushParagraph = () => {
-    if (paragraph.length > 0) {
-      html.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
-      paragraph = [];
-    }
-  };
-  const closeList = () => {
-    if (inList) {
-      html.push("</ul>");
-      inList = false;
-    }
-  };
-  const closeCodeFence = () => {
-    html.push(renderMarkdownCodeFence(codeBuffer.join("\n"), codeLang, diagramState));
-    inCode = false;
-    codeLang = "";
-    codeBuffer = [];
-  };
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line.startsWith("```")) {
-      flushParagraph();
-      closeList();
-      if (inCode) {
-        closeCodeFence();
-      } else {
-        inCode = true;
-        const langToken = line.slice(3).trim();
-        codeLang = /^[a-zA-Z0-9+#_.-]+$/.test(langToken) ? langToken.toLowerCase() : "";
-        codeBuffer = [];
+  const slugs = new Map();
+  const parser = new Marked({ gfm: true, breaks: false });
+  parser.use({
+    renderer: {
+      // Artifacts and comments are untrusted: raw HTML is shown as text.
+      html({ text }) {
+        return escapeHtml(text);
+      },
+      heading({ tokens, depth }) {
+        const inner = this.parser.parseInline(tokens);
+        const id = uniqueSlug(slugs, plainText(tokens));
+        return `<h${depth}${id ? ` id="${escapeAttribute(id)}"` : ""}>${inner}</h${depth}>\n`;
+      },
+      code({ text, lang }) {
+        const token = String(lang || "").trim().split(/\s+/)[0];
+        const normalized = /^[a-zA-Z0-9+#_.-]+$/.test(token) ? token.toLowerCase() : "";
+        return `${renderMarkdownCodeFence(text, normalized, diagramState)}\n`;
+      },
+      table({ header, rows }) {
+        const cell = (item, tag) => `<${tag}${item.align ? ` class="align-${item.align}"` : ""}>${this.parser.parseInline(item.tokens)}</${tag}>`;
+        const head = header.map((item) => cell(item, "th")).join("");
+        const body = rows.map((row) => `<tr>${row.map((item) => cell(item, "td")).join("")}</tr>`).join("\n");
+        return `<div class="artifact-table-scroll"><table class="artifact-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>\n`;
+      },
+      listitem(item) {
+        if (!item.task) return false;
+        const rest = item.tokens.filter((token) => token.type !== "checkbox");
+        const content = this.parser.parse(rest, !!item.loose).trim();
+        return `<li class="task-list-item"><label><input type="checkbox" disabled${item.checked ? " checked" : ""} class="form-check-input"> ${content}</label></li>\n`;
+      },
+      checkbox() {
+        return "";
+      },
+      link({ href, title, tokens }) {
+        const text = this.parser.parseInline(tokens);
+        const safe = safeMarkdownUrl(href);
+        if (!safe) return text;
+        const external = /^https?:/i.test(safe);
+        return `<a href="${escapeAttribute(safe)}"${title ? ` title="${escapeAttribute(title)}"` : ""}${external ? ' rel="noopener noreferrer" target="_blank"' : ""}>${text}</a>`;
+      },
+      image({ href, title, text }) {
+        const safe = safeMarkdownUrl(href, { image: true });
+        if (!safe) return escapeHtml(text || "");
+        return `<img src="${escapeAttribute(safe)}" alt="${escapeAttribute(text || "")}"${title ? ` title="${escapeAttribute(title)}"` : ""} loading="lazy">`;
       }
-      continue;
     }
+  });
+  return parser.parse(String(markdown ?? ""));
+}
 
-    if (inCode) {
-      codeBuffer.push(line);
-      continue;
-    }
+// Only web, mail, in-page, and relative links are followed; anything with
+// another scheme (javascript:, data:, vbscript:, file:) renders as text.
+function safeMarkdownUrl(value, { image = false } = {}) {
+  const href = String(value || "").trim();
+  if (!href) return "";
+  if (href.startsWith("#") || href.startsWith("/") || href.startsWith("./") || href.startsWith("../") || href.startsWith("?")) return href;
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href)?.[1]?.toLowerCase();
+  if (!scheme) return href;
+  if (scheme === "http" || scheme === "https") return href;
+  if (!image && scheme === "mailto") return href;
+  return "";
+}
 
-    if (line.trim() === "") {
-      flushParagraph();
-      closeList();
-      continue;
-    }
+function plainText(tokens = []) {
+  return tokens.map((token) => token.tokens ? plainText(token.tokens) : token.text || "").join("");
+}
 
-    if (isMarkdownTableStart(lines, index)) {
-      flushParagraph();
-      closeList();
-      const { html: tableHtml, nextIndex } = renderMarkdownTable(lines, index);
-      html.push(tableHtml);
-      index = nextIndex;
-      continue;
-    }
-
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (heading) {
-      flushParagraph();
-      closeList();
-      const level = heading[1].length;
-      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
-      continue;
-    }
-
-    const taskItem = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(line);
-    if (taskItem) {
-      flushParagraph();
-      if (!inList) {
-        html.push("<ul>");
-        inList = true;
-      }
-      const checked = taskItem[1].toLowerCase() === "x";
-      html.push(`<li class="task-list-item"><label><input type="checkbox" disabled${checked ? " checked" : ""} class="form-check-input"> ${inlineMarkdown(taskItem[2])}</label></li>`);
-      continue;
-    }
-
-    const listItem = /^[-*]\s+(.+)$/.exec(line);
-    if (listItem) {
-      flushParagraph();
-      if (!inList) {
-        html.push("<ul>");
-        inList = true;
-      }
-      html.push(`<li>${inlineMarkdown(listItem[1])}</li>`);
-      continue;
-    }
-
-    paragraph.push(line.trim());
-  }
-
-  flushParagraph();
-  closeList();
-  if (inCode) {
-    closeCodeFence();
-  }
-  return html.join("\n");
+// GitHub-style heading anchors, so in-document links such as [Scope](#scope)
+// work and every heading can be linked to. Duplicates get -1, -2, ...
+function uniqueSlug(slugs, text) {
+  const base = String(text).toLowerCase().trim()
+    .replace(/<[^>]*>/g, "")
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .replace(/\s+/g, "-");
+  if (!base) return "";
+  const count = slugs.get(base) || 0;
+  slugs.set(base, count + 1);
+  return count ? `${base}-${count}` : base;
 }
 
 function renderMarkdownCodeFence(source, lang, diagramState) {
@@ -4077,70 +4052,6 @@ function renderMermaidEmbed(source, diagramState) {
   return `<div class="artifact-mermaid-embed" data-artifacty-mermaid data-mermaid-srcdoc="${srcdocBase64}">
     <noscript><pre><code class="language-mermaid">${escapeHtml(source)}</code></pre></noscript>
   </div>`;
-}
-
-function inlineMarkdown(value) {
-  return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
-}
-
-function isMarkdownTableStart(lines, index) {
-  return isMarkdownTableRow(lines[index]) && isMarkdownTableSeparator(lines[index + 1]);
-}
-
-function renderMarkdownTable(lines, startIndex) {
-  const headers = splitMarkdownTableRow(lines[startIndex]);
-  const alignments = splitMarkdownTableRow(lines[startIndex + 1]).map(tableAlignment);
-  const rows = [];
-  let index = startIndex + 2;
-
-  for (; index < lines.length; index += 1) {
-    if (!isMarkdownTableRow(lines[index])) {
-      break;
-    }
-    rows.push(splitMarkdownTableRow(lines[index]));
-  }
-
-  const headerHtml = headers.map((cell, cellIndex) =>
-    `<th${alignmentAttribute(alignments[cellIndex])}>${inlineMarkdown(cell)}</th>`
-  ).join("");
-  const bodyHtml = rows.map((row) => `<tr>${headers.map((_, cellIndex) => {
-    const alignment = alignments[cellIndex];
-    return `<td${alignmentAttribute(alignment)}>${inlineMarkdown(row[cellIndex] || "")}</td>`;
-  }).join("")}</tr>`).join("\n");
-
-  return {
-    html: `<div class="artifact-table-scroll"><table class="artifact-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
-    nextIndex: index - 1
-  };
-}
-
-function isMarkdownTableRow(line = "") {
-  return /^\s*\|.*\|\s*$/.test(line);
-}
-
-function isMarkdownTableSeparator(line = "") {
-  const cells = splitMarkdownTableRow(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
-}
-
-function splitMarkdownTableRow(line = "") {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((cell) => cell.trim());
-}
-
-function tableAlignment(cell = "") {
-  const trimmed = cell.trim();
-  if (trimmed.startsWith(":") && trimmed.endsWith(":")) {
-    return "center";
-  }
-  if (trimmed.endsWith(":")) {
-    return "right";
-  }
-  return "left";
-}
-
-function alignmentAttribute(alignment) {
-  return alignment ? ` class="align-${alignment}"` : "";
 }
 
 const CSV_RENDER_ROW_LIMIT = 1000;
