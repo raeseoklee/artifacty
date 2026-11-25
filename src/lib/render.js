@@ -3196,9 +3196,10 @@ ${darkThemeVariables}
     .version.active { background: var(--thumb); color: var(--label); font-weight: 600; box-shadow: var(--shadow-thumb); }
 
     /* Content surfaces: sandboxed frames and rendered documents sit on one white sheet. */
-    .artifact-frame { display: block; width: 100%; min-height: 320px; border: 1px solid var(--group-edge); border-radius: var(--r-sheet); background: var(--frame-bg); }
+    /* No border: a document reads as part of the page, like a Markdown sheet. */
+    .artifact-frame { display: block; width: 100%; min-height: 320px; border: 0; border-radius: var(--r-sheet); background: var(--frame-bg); }
     .split-preview { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-3); }
-    .split-preview .artifact-frame { min-height: 45vh; }
+    .split-preview .artifact-frame { min-height: 45vh; border: 1px solid var(--group-edge); }
     .artifact-doc,
     .artifact-code { margin: 0; border: 1px solid var(--group-edge); border-radius: var(--r-sheet); }
     .artifact-doc {
